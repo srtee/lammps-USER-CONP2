@@ -26,12 +26,13 @@ conp/v2 + conq --
     
     conq can be derived from the latest conp/v2+ class
 
-conp/v3 -- uses LAMMPS utilities to manage these per-atom arrays:
+conp/v3 -- uses LAMMPS utilities to manage per-atom arrays for more optimization
+    
     -- int* i2eleall: -1 if not electrode atom, else "eleall" numbering from v0
     -- double* arrelesetq: 0 if not electrode atom, else "elesetq" holding q_c from v2
     
-    v0-2 b is allgathered, inside b_comm() routine in v2, and every proc simultaneously
-    solves inv_A.b for the full b-vector.
+    in v0-2 b is allgathered, inside b_comm() routine in v2, and every proc
+    simultaneously solves inv_A.b for the full b-vector.
     in v3, for inv solving, b_comm() keeps only local elements of the b-vector
     (while ordering them in bbb_all -- which we can do since i2eleall is known to all procs)
     
