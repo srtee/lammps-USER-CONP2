@@ -584,7 +584,7 @@ void FixConpV3::equation_solve()
 void FixConpV3::a_read()
 {
   int nlocal = atom->nlocal;
-  int nmax = nlocal + atom->nghost;
+  int nall = nlocal + atom->nghost;
   int i = 0;
   int idx1d;
   if (me == 0) {
@@ -613,7 +613,7 @@ void FixConpV3::a_read()
   for (i = 0; i < elenum_all; i++) {
     tagi = eleall2tag[i];
     imap = atom->map(tagi);
-    if (imap >= 0 && imap < nmax) i2eleall[imap] = tagi;
+    if (imap >= 0 && imap < nall) i2eleall[imap] = tagi;
     tag2eleall[tagi] = i;
   }
 }
@@ -704,23 +704,16 @@ void FixConpV3::a_cal()
   delete [] elexyzlist;
   delete [] elexyzlist_all;
 
-  int elealli,elei,idx1d;
+  int elealli,idx1d;
   double zi;
   double CON_4PIoverV = MY_4PI/volume;
   double CON_s2overPIS = sqrt(2.0)/MY_PIS;
   double CON_2overPIS = 2.0/MY_PIS;
-  int ele2tag2[elenum];
+  int elei = 0;
   for (i = 0; i < nlocal; ++i) {
     zi = x[i][2];
     if (electrode_check(i)) {
       elealli = i2eleall[i];
-      printf("%d\n",elealli);
-      for (k = 0; k < elenum; ++k) {
-        if (ele2tag[k] == tag[i]) {
-          elei = k;
-          break;
-        }
-      }
       for (j = 0; j < elenum_all; ++j) {
         idx1d = elei*elenum_all+j;
         for (k = 0; k < kcount; ++k) {
@@ -730,6 +723,7 @@ void FixConpV3::a_cal()
       }
       idx1d = elei*elenum_all+elealli;
       aaa[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction
+      elei++;
     }
   }
   
