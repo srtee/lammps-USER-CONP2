@@ -1,7 +1,7 @@
 units               real    
 dimension           3   
 newton              off 
-#processors         * * 2
+processors          * * 2
 boundary            p p f 
 atom_style          full 
 
