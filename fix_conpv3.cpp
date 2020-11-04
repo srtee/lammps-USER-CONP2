@@ -337,9 +337,7 @@ void FixConpV3::setup(int vflag)
     elesetq = new double[elenum_all]; 
     get_setq();
     gotsetq = 1;
-
   }
-    
 }
 
 /* ---------------------------------------------------------------------- */
@@ -400,7 +398,7 @@ void FixConpV3::b_setq_cal()
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
   double evscale = force->qe2f/force->qqr2e;
-  fprintf(outf,"%g \n",evscale);
+  // fprintf(outf,"%g \n",evscale);
   int elenum = 0;
   for (i = 0; i < nlocal; i++) {
     if(electrode_check(i)) elenum++;
@@ -519,14 +517,14 @@ void FixConpV3::b_cal()
 
 /* ----------------------------------------------------------------------*/
 
-void FixConpV3::b_comm(int ielenum, double* bbbptr)
+void FixConpV3::b_comm(int elenum, double* bbb)
 {
   //elenum_list and displs for gathering ele tag list and bbb
   int i;
   int *tag = atom->tag;
   int nprocs = comm->nprocs;
   int elenum_list[nprocs];
-  MPI_Allgather(&ielenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
+  MPI_Allgather(&elenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
   int displs[nprocs];
   displs[0] = 0;
   int displssum = 0;
@@ -538,7 +536,7 @@ void FixConpV3::b_comm(int ielenum, double* bbbptr)
   //gather ele tag list
   int ele_taglist_all[elenum_all];
   int tagi;
-  MPI_Allgatherv(ele2tag,ielenum,MPI_INT,&ele_taglist_all,elenum_list,displs,MPI_INT,world);
+  MPI_Allgatherv(ele2tag,elenum,MPI_INT,&ele_taglist_all,elenum_list,displs,MPI_INT,world);
   for (i = 0; i < elenum_all; i++) {
     tagi = ele_taglist_all[i];
     curr_tag2eleall[tagi] = i;
@@ -546,7 +544,7 @@ void FixConpV3::b_comm(int ielenum, double* bbbptr)
 
   //gather b to bbb_all and sort in the same order as aaa_all
   double bbb_buf[elenum_all];
-  MPI_Allgatherv(bbbptr,ielenum,MPI_DOUBLE,&bbb_buf,elenum_list,displs,MPI_DOUBLE,world);
+  MPI_Allgatherv(bbb,elenum,MPI_DOUBLE,&bbb_buf,elenum_list,displs,MPI_DOUBLE,world);
   int elei;
   for (i = 0; i < elenum_all; i++) {
     tagi = eleall2tag[i];
