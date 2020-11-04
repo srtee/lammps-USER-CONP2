@@ -128,6 +128,7 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   global_freq = 1;
 
   grow_arrays(atom->nmax);
+  comm_forward = 2;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -640,10 +641,12 @@ void FixConpV3::a_cal()
   j = 0;
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
+      i2eleall[i] = j+displs[me];
       ele2tag[j] = tag[i];
       j++;
     }
   }
+  comm->forward_comm_fix(this);
 
   //gather tag,x and q
   double **x = atom->x;
@@ -1602,3 +1605,30 @@ int FixConpV3::unpack_exchange(int nlocal, double *buf)
   arrelesetq[nlocal]=buf[1];
   return 0;
 }
+/* ---------------------------------------------------------------------- */
+int FixConpV3::pack_forward_comm(int n, int *list, double *buf,
+                                 int /*pbc_flag*/, int * /*pbc*/)
+{
+  int i,j,m;
+  
+  m = 0;
+  for (i = 0; i < n; i++) {
+    j = list[i];
+    buf[m++]=static_cast<double>(i2eleall[j]);
+    buf[m++]=arrelesetq[j];
+  }
+  return m;
+}
+/* ---------------------------------------------------------------------- */
+void FixConpV3::unpack_forward_comm(int n, int first, double *buf)
+{
+  int i,m,last;
+
+  m = 0;
+  last = first + n;
+  for (i = first; i < last; i++) {
+    i2eleall[i]=static_cast<int>(buf[m++]);
+    arrelesetq[i]=buf[m++];
+  }
+}
+
