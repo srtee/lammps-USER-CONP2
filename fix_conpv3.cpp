@@ -583,6 +583,8 @@ void FixConpV3::equation_solve()
 /*----------------------------------------------------------------------- */
 void FixConpV3::a_read()
 {
+  int nlocal = atom->nlocal;
+  int nmax = nlocal + atom->nghost;
   int i = 0;
   int idx1d;
   if (me == 0) {
@@ -607,14 +609,11 @@ void FixConpV3::a_read()
   MPI_Bcast(eleall2tag,elenum_all,MPI_INT,0,world);
   MPI_Bcast(aaa_all,elenum_all*elenum_all,MPI_DOUBLE,0,world);
 
-  int tagi;
+  int tagi,imap;
   for (i = 0; i < elenum_all; i++) {
-    // need to learn how atom->map treats atoms I don't own
-    // right now for atom with eleall index i (0-based),
-    // eleall2tag[i] holds the atom tag.
-    tagi = atom->map(eleall2tag[i]);
-    printf("%d\n",tagi);
     tagi = eleall2tag[i];
+    imap = atom->map(tagi);
+    if (imap >= 0 && imap < nmax) i2eleall[imap] = tagi;
     tag2eleall[tagi] = i;
   }
 }
