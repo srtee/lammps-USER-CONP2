@@ -1404,8 +1404,8 @@ void FixConpV3::coul_cal(int coulcalflag,double *m,int *ele2tag)
                   }
                 }
                 if (coulcalflag == 2 && checksum == 2) {
-                  elealli = tag2eleall[tag[i]];
-                  eleallj = tag2eleall[tag[j]];
+                  elealli = i2eleall[i];
+                  eleallj = i2eleall[j];
                   if (elei != -1) {
                     idx1d = elei*elenum_all+eleallj;
                     m[idx1d] += dudq;
