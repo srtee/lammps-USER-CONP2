@@ -22,7 +22,6 @@ conp/v2 + conq --
     in conq mode, DV is chosen such that q*.d = Q (as input, including equal-style)
     
     in either mode the fix now outputs the appropriate scalar (Q for conp, V for conq)
-    also consolidates b-vector communication into b_comm() routine
     
     conq can be derived from the latest conp/v2+ class
 
@@ -31,9 +30,12 @@ conp/v3 -- uses LAMMPS utilities to manage per-atom arrays for more optimization
     -- int* i2eleall: -1 if not electrode atom, else "eleall" numbering from v0
     -- double* arrelesetq: 0 if not electrode atom, else "elesetq" holding q_c from v2
     
-    in v0-2 b is allgathered, inside b_comm() routine in v2, and every proc
+    in v0-2 b is allgathered and every proc
     simultaneously solves inv_A.b for the full b-vector.
-    in v3, for inv solving, b_comm() keeps only local elements of the b-vector
+    
+    v3 consolidates b-vector communication into b_comm() routine
+    
+    in v3, for inv solving, b_comm() will keep only local elements of the b-vector
     (while ordering them in bbb_all -- which we can do since i2eleall is known to all procs)
     
     inv_A.b is blocked column-wise (equivalent to row-wise, since inv_A is symmetric)
