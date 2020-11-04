@@ -63,7 +63,8 @@ extern "C" {
 /* ---------------------------------------------------------------------- */
 
 FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
-  Fix(lmp, narg, arg),coulpair(NULL),qlstr(NULL),qrstr(NULL)
+  Fix(lmp, narg, arg),coulpair(NULL),qlstr(NULL),qrstr(NULL),
+  i2eleall(NULL),arrelesetq(NULL)
 {
   if (narg < 11) error->all(FLERR,"Illegal fix conp command");
   qlstyle = qrstyle = CONSTANT;
@@ -125,6 +126,8 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   scalar_flag = 1;
   extscalar = 0;
   global_freq = 1;
+
+  grow_arrays(atom->nmax);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -134,6 +137,8 @@ FixConpV3::~FixConpV3()
   fclose(outf);
   memory->destroy3d_offset(cs,-kmax_created);
   memory->destroy3d_offset(sn,-kmax_created);
+  memory->destroy(i2eleall);
+  memory->destroy(arrelesetq);
   delete [] aaa_all;
   delete [] bbb_all;
   delete [] curr_tag2eleall;
@@ -1570,4 +1575,30 @@ void FixConpV3::coeffs()
       }
     }
   }
+}
+/* ---------------------------------------------------------------------- */
+void FixConpV3::grow_arrays(int nmax)
+{
+  memory->grow(i2eleall,nmax,"fix_conpv3:i2eleall");
+  memory->grow(arrelesetq,nmax,"fix_conpv3:arrelesetq");
+}
+/* ---------------------------------------------------------------------- */
+void FixConpV3::copy_arrays(int i, int j, int /*delflag*/)
+{
+  i2eleall[j]=i2eleall[i];
+  arrelesetq[j]=arrelesetq[i];
+}
+/* ---------------------------------------------------------------------- */
+int FixConpV3::pack_exchange(int i, double *buf)
+{
+  buf[0]=static_cast<double>(i2eleall[i]);
+  buf[1]=arrelesetq[i];
+  return 0;
+}
+/* ---------------------------------------------------------------------- */
+int FixConpV3::unpack_exchange(int nlocal, double *buf)
+{
+  i2eleall[nlocal]=static_cast<int>(buf[0]);
+  arrelesetq[nlocal]=buf[1];
+  return 0;
 }

@@ -55,6 +55,10 @@ class FixConpV3 : public Fix {
   void get_setq();
   void coul_cal(int, double *,int *);
   virtual double compute_scalar();
+  void grow_arrays(int);
+  void copy_arrays(int, int, int);
+  int pack_exchange(int, double *);
+  int unpack_exchange(int, double *);
 
  protected:
   int minimizer;
@@ -66,8 +70,10 @@ class FixConpV3 : public Fix {
   double *aaa_all,*bbb_all;
   int *tag2eleall,*eleall2tag,*curr_tag2eleall,*ele2tag;
   double totsetq,addv;
+  double *arrelesetq;
 
  private:
+  int *i2eleall;
   int me,runstage,gotsetq;
   int ilevel_respa;
   double Btime,Btime1,Btime2;
