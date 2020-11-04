@@ -2,3 +2,5 @@
 nsteps
 log.lammps
 output*
+iter*
+*matrix*
