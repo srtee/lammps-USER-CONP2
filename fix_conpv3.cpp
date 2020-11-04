@@ -611,7 +611,7 @@ void FixConpV3::a_read()
     // need to learn how atom->map treats atoms I don't own
     // right now for atom with eleall index i (0-based),
     // eleall2tag[i] holds the atom tag.
-    tagi = atom->tag(eleall2tag[i]);
+    tagi = atom->map(eleall2tag[i]);
     printf("%d\n",tagi);
     tagi = eleall2tag[i];
     tag2eleall[tagi] = i;
