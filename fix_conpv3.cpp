@@ -306,6 +306,8 @@ void FixConpV3::setup(int vflag)
     int nlocal = atom->nlocal;
     for ( i = 0; i < nlocal; i++) {
       if (electrode_check(i)) ++elenum;
+      i2eleall[i] = -1;
+      arrelesetq[i] = 0.0;
     }
     MPI_Allreduce(&elenum,&elenum_all,1,MPI_INT,MPI_SUM,world);
     
@@ -606,6 +608,11 @@ void FixConpV3::a_read()
 
   int tagi;
   for (i = 0; i < elenum_all; i++) {
+    // need to learn how atom->map treats atoms I don't own
+    // right now for atom with eleall index i (0-based),
+    // eleall2tag[i] holds the atom tag.
+    tagi = atom->tag(eleall2tag[i]);
+    printf("%d\n",tagi);
     tagi = eleall2tag[i];
     tag2eleall[tagi] = i;
   }
