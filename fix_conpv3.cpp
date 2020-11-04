@@ -703,10 +703,12 @@ void FixConpV3::a_cal()
   double CON_4PIoverV = MY_4PI/volume;
   double CON_s2overPIS = sqrt(2.0)/MY_PIS;
   double CON_2overPIS = 2.0/MY_PIS;
+  int ele2tag2[elenum];
   for (i = 0; i < nlocal; ++i) {
     zi = x[i][2];
     if (electrode_check(i)) {
-      elealli = tag2eleall[tag[i]];
+      elealli = i2eleall[i];
+      printf("%d\n",elealli);
       for (k = 0; k < elenum; ++k) {
         if (ele2tag[k] == tag[i]) {
           elei = k;
