@@ -55,6 +55,7 @@ using namespace FixConst;
 using namespace MathConst;
 
 enum{CONSTANT,EQUAL,ATOM};
+enum{CG,INV};
 
 extern "C" {
   void dgetrf_(const int *M,const int *N,double *A,const int *lda,int *ipiv,int *info);
@@ -429,6 +430,7 @@ void FixConpV3::b_cal()
   if (atom->nlocal > nmax) {
     memory->destroy3d_offset(cs,-kmax_created);
     memory->destroy3d_offset(sn,-kmax_created);
+    //memory->grow(atom->nlocal);
     nmax = atom->nmax;
     kmax_created = kmax;
   }
@@ -445,13 +447,14 @@ void FixConpV3::b_cal()
   for (i = 0; i < nlocal; i++) {
     if(electrode_check(i)) elenum++;
   }
-  double *bbb = new double[elenum];
-  int *eleallilist = new int[elenum];
+  double bbb[elenum];
+  int eleallilist[elenum];
   j = 0;
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
       bbb[j] = 0;
-  	    //fprintf(outf,"%d      %d      %g\n",j,ele2tag[j],bbb[j]);
+      ele2tag[j] = tag[i];    //fprintf(outf,"%d      %d      %g\n",j,ele2tag[j],bbb[j]);
+      eleallilist[j] = i2eleall[i];
       j++;
     }
   }
@@ -485,7 +488,6 @@ void FixConpV3::b_cal()
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
       bbb[j] -= x[i][2]*slabcorrtmp_all;
-      eleallilist[j] = i2eleall[i];
       j++;
     }
   }
@@ -493,8 +495,8 @@ void FixConpV3::b_cal()
   Ktime += Ktime2-Ktime1;
   coul_cal(1,bbb,ele2tag);
   b_comm(elenum,eleallilist,bbb);
-  delete [] bbb;
-  delete [] eleallilist;
+  // delete [] bbb;
+  // delete [] eleallilist;
 }
 
 /* ----------------------------------------------------------------------*/
@@ -503,26 +505,15 @@ void FixConpV3::b_comm(int elenum, int* eleallilist, double* bbb)
 {
   //elenum_list and displs for gathering ele tag list and bbb
   int i;
-  int *tag = atom->tag;
-  int nprocs = comm->nprocs;
-  int elenum_list[nprocs];
-  MPI_Allgather(&elenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
-  int displs[nprocs];
-  displs[0] = 0;
-  int displssum = 0;
-  for (i = 1; i < nprocs; ++i) {
-    displssum += elenum_list[i-1];
-    displs[i] = displssum;
-  }
-  int eleallilist_all[elenum_all];
-  MPI_Allgatherv(eleallilist,elenum,MPI_INT,&eleallilist_all,elenum_list,displs,MPI_INT,world);
-  //gather b to bbb_all and sort in the same order as aaa_all
-  double bbb_buf[elenum_all];
-  MPI_Allgatherv(bbb,elenum,MPI_DOUBLE,&bbb_buf,elenum_list,displs,MPI_DOUBLE,world);
-  //int elei;
   for (i = 0; i < elenum_all; i++) {
-      bbb_all[eleallilist_all[i]] = bbb_buf[i];
+    bbb_all[i] = 0;
   }
+  for (i = 0; i < elenum; i++) {
+    bbb_all[eleallilist[i]] = bbb[i];
+  }
+  //if (minimizer == CG) {
+  MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+  //}
 }
 
 /*----------------------------------------------------------------------- */
