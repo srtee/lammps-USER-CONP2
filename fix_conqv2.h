@@ -32,7 +32,7 @@ namespace LAMMPS_NS {
 
 class FixConqV2 : public FixConpV2 {
  public:
-  FixConqV2(class LAMMPS *lmp, int narg, char **arg):FixConp(lmp,narg,arg) {};
+  FixConqV2(class LAMMPS *lmp, int narg, char **arg):FixConpV2(lmp,narg,arg) {};
   ~FixConqV2() {}
   void update_charge();
  };
