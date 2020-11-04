@@ -395,7 +395,6 @@ int FixConpV3::electrode_check(int atomid)
 void FixConpV3::b_setq_cal()
 {
   int i,j;
-  int *tag = atom->tag;
   int nlocal = atom->nlocal;
   double evscale = force->qe2f/force->qqr2e;
   // fprintf(outf,"%g \n",evscale);
@@ -403,21 +402,20 @@ void FixConpV3::b_setq_cal()
   for (i = 0; i < nlocal; i++) {
     if(electrode_check(i)) elenum++;
   }
-  double bbb[elenum];
+  double *bbb = new double[elenum];
+  int *eleallilist = new int[elenum];
   j = 0;
   for (i = 0; i < nlocal; i++) {
-    if (electrode_check(i) == 1) {
-      bbb[j] = -0.5*evscale;
-      j++;
-    }
-    if (electrode_check(i) == -1) {
-      bbb[j] = 0.5*evscale;
+    if (electrode_check(i)) {
+      bbb[j] = -electrode_check(i)*0.5*evscale;
+      eleallilist[j] = i2eleall[i]; // now ele2tag holds eleallilist
       j++;
     }
   }
-  b_comm(elenum,bbb);
+  b_comm(elenum,eleallilist,bbb);
   if (runstage == 1) runstage = 2;
-  //delete [] bbb;
+  delete [] bbb;
+  delete [] eleallilist;
 }
 
 /* ----------------------------------------------------------------------*/
@@ -447,13 +445,9 @@ void FixConpV3::b_cal()
   for (i = 0; i < nlocal; i++) {
     if(electrode_check(i)) elenum++;
   }
-  double bbb[elenum];
+  double *bbb = new double[elenum];
+  int *eleallilist = new int[elenum];
   j = 0;
-
-  // update voltages due to variables
-  // double evscale = 0.069447;
-  // fprintf(outf,"Voltages: (left) %g   (right) %g\n",vL,vR);
-  j=0;
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
       bbb[j] = 0;
@@ -477,13 +471,6 @@ void FixConpV3::b_cal()
       }
     }
   }
-  j=0;
-  for (i = 0; i < nlocal; i++) {
-    if (electrode_check(i)) {
-      // fprintf(outf,"%d      %d      %g\n",j,ele2tag[j],bbb[j]);
-      j++;
-    }
-  }
  
   //slabcorrection and create ele tag list in current timestep
   double slabcorrtmp = 0.0;
@@ -498,26 +485,21 @@ void FixConpV3::b_cal()
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
       bbb[j] -= x[i][2]*slabcorrtmp_all;
-      ele2tag[j] = tag[i];
+      eleallilist[j] = i2eleall[i];
       j++;
     }
   }
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
-  j = 0;
-  for (i = 0; i < nlocal; i++) {
-    if (electrode_check(i)) {
-      //fprintf(outf,"%d      %d      %g\n",j,ele2tag[j],bbb[j]);
-      j++;
-    }
-  }
   coul_cal(1,bbb,ele2tag);
-  b_comm(elenum,bbb);
+  b_comm(elenum,eleallilist,bbb);
+  delete [] bbb;
+  delete [] eleallilist;
 }
 
 /* ----------------------------------------------------------------------*/
 
-void FixConpV3::b_comm(int elenum, double* bbb)
+void FixConpV3::b_comm(int elenum, int* eleallilist, double* bbb)
 {
   //elenum_list and displs for gathering ele tag list and bbb
   int i;
@@ -532,25 +514,14 @@ void FixConpV3::b_comm(int elenum, double* bbb)
     displssum += elenum_list[i-1];
     displs[i] = displssum;
   }
-
-  //gather ele tag list
-  int ele_taglist_all[elenum_all];
-  int tagi;
-  MPI_Allgatherv(ele2tag,elenum,MPI_INT,&ele_taglist_all,elenum_list,displs,MPI_INT,world);
-  for (i = 0; i < elenum_all; i++) {
-    tagi = ele_taglist_all[i];
-    curr_tag2eleall[tagi] = i;
-  }  
-
+  int eleallilist_all[elenum_all];
+  MPI_Allgatherv(eleallilist,elenum,MPI_INT,&eleallilist_all,elenum_list,displs,MPI_INT,world);
   //gather b to bbb_all and sort in the same order as aaa_all
   double bbb_buf[elenum_all];
   MPI_Allgatherv(bbb,elenum,MPI_DOUBLE,&bbb_buf,elenum_list,displs,MPI_DOUBLE,world);
-  int elei;
+  //int elei;
   for (i = 0; i < elenum_all; i++) {
-    tagi = eleall2tag[i];
-    elei = curr_tag2eleall[tagi];
-    bbb_all[i] = bbb_buf[elei];
-    //fprintf(outf,"%d      %d       %g\n",i,tagi,bbb_all[i]);
+      bbb_all[eleallilist_all[i]] = bbb_buf[i];
   }
 }
 

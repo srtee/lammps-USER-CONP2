@@ -43,7 +43,7 @@ class FixConpV3 : public Fix {
   void a_cal();
   void a_read();
   void b_setq_cal();
-  void b_comm(int, double *);
+  void b_comm(int, int *, double *);
   void b_cal();
   void equation_solve();
   virtual void update_charge();
