@@ -137,26 +137,28 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
 FixConpV3::~FixConpV3()
 {
   fclose(outf);
-  memory->destroy3d_offset(cs,-kmax_created);
-  memory->destroy3d_offset(sn,-kmax_created);
-  memory->destroy(i2eleall);
-  delete [] aaa_all;
-  delete [] bbb_all;
-  delete [] curr_tag2eleall;
-  delete [] tag2eleall;
-  delete [] eleall2tag;
-  delete [] ele2tag;
-  delete [] kxvecs;
-  delete [] kyvecs;
-  delete [] kzvecs;
-  delete [] ug;
-  delete [] sfacrl;
-  delete [] sfacim;
-  delete [] sfacrl_all;
-  delete [] sfacim_all;
-  delete [] qlstr;
-  delete [] qrstr;
-  delete [] elesetq;
+  bool debughere = false;
+  memory->destroy3d_offset(cs,-kmax_created); // okay
+  memory->destroy3d_offset(sn,-kmax_created); // okay
+  if (debughere) {
+  memory->destroy(i2eleall); // untested
+  delete [] aaa_all; // breaks things
+  delete [] bbb_all; // breaks things
+  delete [] curr_tag2eleall; } // breaks things
+  delete [] tag2eleall; // okay 
+  delete [] eleall2tag; // okay
+  delete [] ele2tag;    // okay
+  delete [] kxvecs;     // okay
+  delete [] kyvecs;     // okay
+  delete [] kzvecs;     // okay
+  delete [] ug;         // okay
+  delete [] sfacrl;     // okay
+  delete [] sfacim;     // okay
+  delete [] sfacrl_all; // okay
+  delete [] sfacim_all; // okay
+  delete [] qlstr;      // okay
+  delete [] qrstr;      // okay
+  delete [] elesetq;    // okay
 }
 
 /* ---------------------------------------------------------------------- */
@@ -571,7 +573,7 @@ void FixConpV3::a_read()
   for (i = 0; i < elenum_all; i++) {
     tagi = eleall2tag[i];
     imap = atom->map(tagi);
-    if (imap >= 0 && imap < nall) i2eleall[imap] = tagi;
+    if (imap >= 0 && imap < nall) i2eleall[imap] = i; // was tagi -- CHECK!!
     tag2eleall[tagi] = i;
   }
 }
