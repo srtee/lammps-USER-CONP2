@@ -57,6 +57,7 @@ using namespace MathConst;
 enum{CONSTANT,EQUAL,ATOM};
 enum{CG,INV};
 extern "C" {
+  void daxpy_(const int *N, const double *alpha, const double *X, const size_t *incX, double *Y, const size_t *incY);
   void dgetrf_(const int *M,const int *N,double *A,const int *lda,int *ipiv,int *info);
   void dgetri_(const int *N,double *A,const int *lda,const int *ipiv,double *work,const int *lwork,int *info);
 }
@@ -116,6 +117,7 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   aaa_all = NULL;
   bbb_all = NULL;
   tag2eleall = eleall2tag = curr_tag2eleall = ele2tag = NULL;
+  elecheck_eleall = NULL;
   Btime = cgtime = Ctime = Ktime = 0;
   runstage = 0; //after operation
                 //0:init; 1: a_cal; 2: first sin/cos cal; 3: inv only, aaa inverse
@@ -151,6 +153,7 @@ FixConpV3::~FixConpV3()
   delete [] qlstr;
   delete [] qrstr;
   delete [] elesetq;
+  delete [] elecheck_eleall;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -305,6 +308,9 @@ void FixConpV3::setup(int vflag)
     MPI_Allreduce(&elenum,&elenum_all,1,MPI_INT,MPI_SUM,world);
     
     eleall2tag = new int[elenum_all];
+    elecheck_eleall = new int[elenum_all];
+    // elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i)
+    for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
     aaa_all = new double[elenum_all*elenum_all];
     bbb_all = new double[elenum_all];
     ele2tag = new int[elenum];
@@ -391,19 +397,16 @@ void FixConpV3::b_setq_cal()
   int nlocal = atom->nlocal;
   double evscale = force->qe2f/force->qqr2e;
   fprintf(outf,"%g \n",evscale);
-  int elenum = 0;
-  for (i = 0; i < nlocal; i++) {
-    if(electrode_check(i)) elenum++;
-  }
-  double bbb[elenum];
+  double bbb[elenum]; // we know elenum because things haven't changed since a_cal/read
   j = 0;
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
-      bbb[j] = -0.5*electrode_check(i)*evscale;
-      ele2tag[j] = tag[i];
+      bbb[j] = -0.5*evscale*electrode_check(i);
+      elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i);
       j++;
     }
   }
+  MPI_Allreduce(MPI_IN_PLACE,elecheck_eleall,elenum_all,MPI_INT,MPI_SUM,world);
   b_comm(elenum, ele2tag, bbb);
   if (runstage == 1) runstage = 2;
 }
@@ -1120,22 +1123,19 @@ void FixConpV3::get_setq()
       iall = tag2eleall[ele2tag[iloc]];
       idx1d = iall*elenum_all; 
       for (jall = 0; jall < elenum_all; ++jall) {
-        elesetq[jall] += aaa_all[idx1d]*bbb_all[iall];
-	idx1d++;
+        elesetq[jall] += aaa_all[idx1d+jall]*bbb_all[iall];
       }
     }
   }
 
   MPI_Allreduce(MPI_IN_PLACE,elesetq,elenum_all,MPI_DOUBLE,MPI_SUM,world);
-
-  for (i = 0; i < nlocal; ++i) {
-    if (electrode_check(i) == 1) {
-      tagi = tag[i];
-      elealli = tag2eleall[tagi];
-      netcharge_left_local += elesetq[elealli];
+  totsetq = 0;
+  for (i = 0; i < elenum_all; ++i) {
+    if (elecheck_eleall[i] == 1) {
+      totsetq += elesetq[i];
     }
   }
-  MPI_Allreduce(&netcharge_left_local,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
+  //MPI_Allreduce(&netcharge_left_local,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1169,7 +1169,7 @@ void FixConpV3::update_charge()
       idx1d = iall*elenum_all;
       for (jall = 0; jall < elenum_all; ++jall) {
         eleallq[jall] += aaa_all[idx1d]*bbb_all[iall];
-	idx1d++;
+        idx1d++;
       }
     }
     MPI_Allreduce(MPI_IN_PLACE,eleallq,elenum_all,MPI_DOUBLE,MPI_SUM,world);
@@ -1178,10 +1178,12 @@ void FixConpV3::update_charge()
       if (electrode_check(i)) q[i] = eleallq[tag2eleall[tag[i]]];
     }
   }
-  for (i = 0; i < nlocal; ++i) {
-    if (electrode_check(i) == 1) netcharge_left_local += q[i];
+  netcharge_left = 0;
+  for (i = 0; i < elenum_all; ++i) {
+    if (elecheck_eleall[i] == 1) {
+      netcharge_left += eleallq[i];
+    }
   }
-  MPI_Allreduce(&netcharge_left_local,&netcharge_left,1,MPI_DOUBLE,MPI_SUM,world);
 
   //  calculate additional charge needed
   //  this fragment is the only difference from fix_conq

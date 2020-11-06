@@ -65,6 +65,7 @@ class FixConpV3 : public Fix {
   double *elesetq;
   double *aaa_all,*bbb_all;
   int *tag2eleall,*eleall2tag,*curr_tag2eleall,*ele2tag;
+  int *elecheck_eleall;
   double totsetq,addv;
 
  private:
