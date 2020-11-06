@@ -12,8 +12,8 @@
 ------------------------------------------------------------------------- */
 
 /* ----------------------------------------------------------------------
-   Version Nov/2020
-   Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
+   Version: Sep/22/2014
+   Zhenxing Wang(KU)
 ------------------------------------------------------------------------- */
 
 #include "math.h"
@@ -55,7 +55,6 @@ using namespace FixConst;
 using namespace MathConst;
 
 enum{CONSTANT,EQUAL,ATOM};
-enum{CG,INV};
 
 extern "C" {
   void dgetrf_(const int *M,const int *N,double *A,const int *lda,int *ipiv,int *info);
@@ -64,8 +63,7 @@ extern "C" {
 /* ---------------------------------------------------------------------- */
 
 FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
-  Fix(lmp, narg, arg),coulpair(NULL),qlstr(NULL),qrstr(NULL),
-  i2eleall(NULL)
+  Fix(lmp, narg, arg),coulpair(NULL),qlstr(NULL),qrstr(NULL)
 {
   if (narg < 11) error->all(FLERR,"Illegal fix conp command");
   qlstyle = qrstyle = CONSTANT;
@@ -127,9 +125,6 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   scalar_flag = 1;
   extscalar = 0;
   global_freq = 1;
-
-  grow_arrays(atom->nmax);
-  comm_forward = 1;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -137,28 +132,25 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
 FixConpV3::~FixConpV3()
 {
   fclose(outf);
-  bool debughere = false;
-  memory->destroy3d_offset(cs,-kmax_created); // okay
-  memory->destroy3d_offset(sn,-kmax_created); // okay
-  if (debughere) {
-  memory->destroy(i2eleall); // untested
-  delete [] aaa_all; // breaks things
-  delete [] bbb_all; // breaks things
-  delete [] curr_tag2eleall; } // breaks things
-  delete [] tag2eleall; // okay 
-  delete [] eleall2tag; // okay
-  delete [] ele2tag;    // okay
-  delete [] kxvecs;     // okay
-  delete [] kyvecs;     // okay
-  delete [] kzvecs;     // okay
-  delete [] ug;         // okay
-  delete [] sfacrl;     // okay
-  delete [] sfacim;     // okay
-  delete [] sfacrl_all; // okay
-  delete [] sfacim_all; // okay
-  delete [] qlstr;      // okay
-  delete [] qrstr;      // okay
-  delete [] elesetq;    // okay
+  memory->destroy3d_offset(cs,-kmax_created);
+  memory->destroy3d_offset(sn,-kmax_created);
+  delete [] aaa_all;
+  delete [] bbb_all;
+  delete [] curr_tag2eleall;
+  delete [] tag2eleall;
+  delete [] eleall2tag;
+  delete [] ele2tag;
+  delete [] kxvecs;
+  delete [] kyvecs;
+  delete [] kzvecs;
+  delete [] ug;
+  delete [] sfacrl;
+  delete [] sfacim;
+  delete [] sfacrl_all;
+  delete [] sfacim_all;
+  delete [] qlstr;
+  delete [] qrstr;
+  delete [] elesetq;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -309,7 +301,6 @@ void FixConpV3::setup(int vflag)
     int nlocal = atom->nlocal;
     for ( i = 0; i < nlocal; i++) {
       if (electrode_check(i)) ++elenum;
-      i2eleall[i] = -1;
     }
     MPI_Allreduce(&elenum,&elenum_all,1,MPI_INT,MPI_SUM,world);
     
@@ -338,7 +329,9 @@ void FixConpV3::setup(int vflag)
     elesetq = new double[elenum_all]; 
     get_setq();
     gotsetq = 1;
+
   }
+    
 }
 
 /* ---------------------------------------------------------------------- */
@@ -396,27 +389,56 @@ int FixConpV3::electrode_check(int atomid)
 void FixConpV3::b_setq_cal()
 {
   int i,j;
+  int *tag = atom->tag;
   int nlocal = atom->nlocal;
   double evscale = force->qe2f/force->qqr2e;
-  // fprintf(outf,"%g \n",evscale);
+  fprintf(outf,"%g \n",evscale);
   int elenum = 0;
   for (i = 0; i < nlocal; i++) {
     if(electrode_check(i)) elenum++;
   }
-  double *bbb = new double[elenum];
-  int *eleallilist = new int[elenum];
+  double bbb[elenum];
   j = 0;
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
-      bbb[j] = -electrode_check(i)*0.5*evscale;
-      eleallilist[j] = i2eleall[i]; // now ele2tag holds eleallilist
+      bbb[j] = -0.5*electrode_check(i)*evscale;
+      ele2tag[j] = tag[i];
       j++;
     }
   }
-  b_comm(elenum,eleallilist,bbb);
+  b_comm(elenum, ele2tag, bbb);
   if (runstage == 1) runstage = 2;
-  delete [] bbb;
-  delete [] eleallilist;
+}
+
+
+/* ----------------------------------------------------------------------*/
+
+void FixConpV3::b_comm(int elenum, int* ele2tag, double* bbb)
+{
+  int i, tagi, elei;
+  //double* bbb_buf[elenum_all];
+  double bbbtempsum1 = 0;
+  double bbbtempsum2 = 0;
+  double bbbtempsum3 = 0;
+  for (i = 0; i < elenum_all; i++) {
+    bbb_all[i] = 0;
+  }
+  for (i = 0; i < elenum; i++) {
+    tagi = ele2tag[i];
+    elei = tag2eleall[tagi];
+    bbb_all[elei] = bbb[i];
+    bbbtempsum1 += bbb_all[elei];
+  }
+  for (i = 0; i < elenum_all; i++) {
+    bbbtempsum2 += bbb_all[i];
+  }
+  //set up comms
+  MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+  //delete [] bbb;
+  for (i = 0; i < elenum_all; i++) {
+    bbbtempsum3 += bbb_all[i];
+  }
+  //printf("%g\t%g\t%g\n",bbbtempsum1,bbbtempsum2,bbbtempsum3);
 }
 
 /* ----------------------------------------------------------------------*/
@@ -430,7 +452,6 @@ void FixConpV3::b_cal()
   if (atom->nlocal > nmax) {
     memory->destroy3d_offset(cs,-kmax_created);
     memory->destroy3d_offset(sn,-kmax_created);
-    //memory->grow(atom->nlocal);
     nmax = atom->nmax;
     kmax_created = kmax;
   }
@@ -448,15 +469,9 @@ void FixConpV3::b_cal()
     if(electrode_check(i)) elenum++;
   }
   double bbb[elenum];
-  int eleallilist[elenum];
   j = 0;
-  for (i = 0; i < nlocal; i++) {
-    if (electrode_check(i)) {
-      bbb[j] = 0;
-      ele2tag[j] = tag[i];    //fprintf(outf,"%d      %d      %g\n",j,ele2tag[j],bbb[j]);
-      eleallilist[j] = i2eleall[i];
-      j++;
-    }
+  for (j = 0; j < elenum; j++) {
+    bbb[j] = 0;
   }
   for (k = 0; k < kcount; k++) {
     kx = kxvecs[k];
@@ -474,7 +489,7 @@ void FixConpV3::b_cal()
       }
     }
   }
- 
+
   //slabcorrection and create ele tag list in current timestep
   double slabcorrtmp = 0.0;
   double slabcorrtmp_all = 0.0;
@@ -488,36 +503,18 @@ void FixConpV3::b_cal()
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
       bbb[j] -= x[i][2]*slabcorrtmp_all;
+      ele2tag[j] = tag[i];
       j++;
     }
   }
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
+  
   coul_cal(1,bbb,ele2tag);
-  b_comm(elenum,eleallilist,bbb);
-  // delete [] bbb;
-  // delete [] eleallilist;
-}
-
-/* ----------------------------------------------------------------------*/
-
-void FixConpV3::b_comm(int elenum, int* eleallilist, double* bbb)
-{
-  //elenum_list and displs for gathering ele tag list and bbb
-  int i;
-  for (i = 0; i < elenum_all; i++) {
-    bbb_all[i] = 0;
-  }
-  for (i = 0; i < elenum; i++) {
-    bbb_all[eleallilist[i]] = bbb[i];
-  }
-  //if (minimizer == CG) {
-  MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
-  //}
+  b_comm(elenum,ele2tag,bbb);
 }
 
 /*----------------------------------------------------------------------- */
-
 void FixConpV3::equation_solve()
 {
 //solve equations
@@ -543,8 +540,6 @@ void FixConpV3::equation_solve()
 /*----------------------------------------------------------------------- */
 void FixConpV3::a_read()
 {
-  int nlocal = atom->nlocal;
-  int nall = nlocal + atom->nghost;
   int i = 0;
   int idx1d;
   if (me == 0) {
@@ -569,11 +564,9 @@ void FixConpV3::a_read()
   MPI_Bcast(eleall2tag,elenum_all,MPI_INT,0,world);
   MPI_Bcast(aaa_all,elenum_all*elenum_all,MPI_DOUBLE,0,world);
 
-  int tagi,imap;
+  int tagi;
   for (i = 0; i < elenum_all; i++) {
     tagi = eleall2tag[i];
-    imap = atom->map(tagi);
-    if (imap >= 0 && imap < nall) i2eleall[imap] = i; // was tagi -- CHECK!!
     tag2eleall[tagi] = i;
   }
 }
@@ -607,12 +600,10 @@ void FixConpV3::a_cal()
   j = 0;
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
-      i2eleall[i] = j+displs[me];
       ele2tag[j] = tag[i];
       j++;
     }
   }
-  comm->forward_comm_fix(this);
 
   //gather tag,x and q
   double **x = atom->x;
@@ -664,16 +655,21 @@ void FixConpV3::a_cal()
   delete [] elexyzlist;
   delete [] elexyzlist_all;
 
-  int elealli,idx1d;
+  int elealli,elei,idx1d;
   double zi;
   double CON_4PIoverV = MY_4PI/volume;
   double CON_s2overPIS = sqrt(2.0)/MY_PIS;
   double CON_2overPIS = 2.0/MY_PIS;
-  int elei = 0;
   for (i = 0; i < nlocal; ++i) {
     zi = x[i][2];
     if (electrode_check(i)) {
-      elealli = i2eleall[i];
+      elealli = tag2eleall[tag[i]];
+      for (k = 0; k < elenum; ++k) {
+        if (ele2tag[k] == tag[i]) {
+          elei = k;
+          break;
+        }
+      }
       for (j = 0; j < elenum_all; ++j) {
         idx1d = elei*elenum_all+j;
         for (k = 0; k < kcount; ++k) {
@@ -683,7 +679,6 @@ void FixConpV3::a_cal()
       }
       idx1d = elei*elenum_all+elealli;
       aaa[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction
-      elei++;
     }
   }
   
@@ -1364,8 +1359,8 @@ void FixConpV3::coul_cal(int coulcalflag,double *m,int *ele2tag)
                   }
                 }
                 if (coulcalflag == 2 && checksum == 2) {
-                  elealli = i2eleall[i];
-                  eleallj = i2eleall[j];
+                  elealli = tag2eleall[tag[i]];
+                  eleallj = tag2eleall[tag[j]];
                   if (elei != -1) {
                     idx1d = elei*elenum_all+eleallj;
                     m[idx1d] += dudq;
@@ -1541,50 +1536,3 @@ void FixConpV3::coeffs()
     }
   }
 }
-/* ---------------------------------------------------------------------- */
-void FixConpV3::grow_arrays(int nmax)
-{
-  memory->grow(i2eleall,nmax,"fix_conpv3:i2eleall");
-}
-/* ---------------------------------------------------------------------- */
-void FixConpV3::copy_arrays(int i, int j, int /*delflag*/)
-{
-  i2eleall[j]=i2eleall[i];
-}
-/* ---------------------------------------------------------------------- */
-int FixConpV3::pack_exchange(int i, double *buf)
-{
-  buf[0]=static_cast<double>(i2eleall[i]);
-  return 0;
-}
-/* ---------------------------------------------------------------------- */
-int FixConpV3::unpack_exchange(int nlocal, double *buf)
-{
-  i2eleall[nlocal]=static_cast<int>(buf[0]);
-  return 0;
-}
-/* ---------------------------------------------------------------------- */
-int FixConpV3::pack_forward_comm(int n, int *list, double *buf,
-                                 int /*pbc_flag*/, int * /*pbc*/)
-{
-  int i,j,m;
-  
-  m = 0;
-  for (i = 0; i < n; i++) {
-    j = list[i];
-    buf[m++]=static_cast<double>(i2eleall[j]);
-  }
-  return m;
-}
-/* ---------------------------------------------------------------------- */
-void FixConpV3::unpack_forward_comm(int n, int first, double *buf)
-{
-  int i,m,last;
-
-  m = 0;
-  last = first + n;
-  for (i = first; i < last; i++) {
-    i2eleall[i]=static_cast<int>(buf[m++]);
-  }
-}
-
