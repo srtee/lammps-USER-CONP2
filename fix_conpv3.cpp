@@ -55,7 +55,7 @@ using namespace FixConst;
 using namespace MathConst;
 
 enum{CONSTANT,EQUAL,ATOM};
-
+enum{CG,INV};
 extern "C" {
   void dgetrf_(const int *M,const int *N,double *A,const int *lda,int *ipiv,int *info);
   void dgetri_(const int *N,double *A,const int *lda,const int *ipiv,double *work,const int *lwork,int *info);
@@ -91,9 +91,9 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
     qR = force->numeric(FLERR,arg[8]);
   }
   if (strcmp(arg[9],"cg") == 0) {
-    minimizer = 0;
+    minimizer = CG;
   } else if (strcmp(arg[9],"inv") == 0) {
-    minimizer = 1;
+    minimizer = INV;
   } else error->all(FLERR,"Unknown minimization method");
   
   outf = fopen(arg[10],"w");
@@ -310,9 +310,7 @@ void FixConpV3::setup(int vflag)
     ele2tag = new int[elenum];
     for (i = 0; i < natoms+1; i++) tag2eleall[i] = -1;
     for (i = 0; i < natoms+1; i++) curr_tag2eleall[i] = -1;
-    if (minimizer == 0) {
-      eleallq = new double[elenum_all];
-    }
+    eleallq = new double[elenum_all];
     if (a_matrix_f == 0) {
       if (me == 0) outa = fopen("amatrix","w");
       a_cal();
@@ -416,10 +414,6 @@ void FixConpV3::b_setq_cal()
 void FixConpV3::b_comm(int elenum, int* ele2tag, double* bbb)
 {
   int i, tagi, elei;
-  //double* bbb_buf[elenum_all];
-  double bbbtempsum1 = 0;
-  double bbbtempsum2 = 0;
-  double bbbtempsum3 = 0;
   for (i = 0; i < elenum_all; i++) {
     bbb_all[i] = 0;
   }
@@ -427,18 +421,11 @@ void FixConpV3::b_comm(int elenum, int* ele2tag, double* bbb)
     tagi = ele2tag[i];
     elei = tag2eleall[tagi];
     bbb_all[elei] = bbb[i];
-    bbbtempsum1 += bbb_all[elei];
   }
-  for (i = 0; i < elenum_all; i++) {
-    bbbtempsum2 += bbb_all[i];
+  if (minimizer == CG) {
+    MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
   }
-  //set up comms
-  MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
-  //delete [] bbb;
-  for (i = 0; i < elenum_all; i++) {
-    bbbtempsum3 += bbb_all[i];
-  }
-  //printf("%g\t%g\t%g\n",bbbtempsum1,bbbtempsum2,bbbtempsum3);
+  // if minimizer == INV, we can parallelize multiplications
 }
 
 /* ----------------------------------------------------------------------*/
@@ -1111,7 +1098,7 @@ void FixConpV3::inv()
 
 void FixConpV3::get_setq()
 {
-  int iall,jall,i,j,idx1d;
+  int iall,jall,iloc,i,j,idx1d;
   int elealli,tagi;
   double eleallq_i;
   int *tag = atom->tag;
@@ -1123,51 +1110,44 @@ void FixConpV3::get_setq()
   if (minimizer == 0) { // cg solver used
     for (iall = 0; iall < elenum_all; ++iall) {
       elesetq[iall] = eleallq[iall];
-      //netcharge += eleallq[iall];
     }
   } else if (minimizer == 1) { // inv solver used
     idx1d = 0;
     for (iall = 0; iall < elenum_all; ++iall) {
       elesetq[iall] = 0;
+    }
+    for (iloc = 0; iloc < elenum; ++iloc) {
+      iall = tag2eleall[ele2tag[iloc]];
+      idx1d = iall*elenum_all; 
       for (jall = 0; jall < elenum_all; ++jall) {
-        elesetq[iall] += aaa_all[idx1d]*bbb_all[jall];
+        elesetq[jall] += aaa_all[idx1d]*bbb_all[iall];
 	idx1d++;
       }
-      //fprintf(outf,"%d     %g\n",iall,elesetq[iall]);
-      //netcharge += elesetq[iall];
     }
   }
-  //for (iall = 0; iall < elenum_all; ++iall) {
-  //  elesetq[iall] -= netcharge/elenum_all;
-    // if (me == 0) fprintf(outf,"%d      %g\n",iall,elesetq[iall]);
-  //}
 
-  //  now we need to get total left charge
+  MPI_Allreduce(MPI_IN_PLACE,elesetq,elenum_all,MPI_DOUBLE,MPI_SUM,world);
 
   for (i = 0; i < nlocal; ++i) {
     if (electrode_check(i) == 1) {
       tagi = tag[i];
       elealli = tag2eleall[tagi];
       netcharge_left_local += elesetq[elealli];
-      //fprintf(outf,"%g\n",netcharge_left_local);
     }
   }
   MPI_Allreduce(&netcharge_left_local,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
-  //if (me == 0) fprintf(outf,"%g\n",totsetq);
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixConpV3::update_charge()
 {
-  int i,j,idx1d;
+  int i,j,idx1d,iall,jall,iloc;
   int elealli,tagi;
   double eleallq_i;
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
   int nall = nlocal+atom->nghost;
-  //double netcharge_local = 0;
-  //double netcharge = 0;
   double netcharge_left_local = 0;
   double netcharge_left = 0;
   double *q = atom->q;    
@@ -1177,34 +1157,27 @@ void FixConpV3::update_charge()
         tagi = tag[i];
         elealli = tag2eleall[tagi];
         q[i] = eleallq[elealli];
-	// if (i < nlocal) netcharge_local += q[i];
       }
     }
   } else if (minimizer == 1) {
+    idx1d = 0;
+    for (iall = 0; iall < elenum_all; ++iall) {
+      eleallq[iall] = 0;
+    }
+    for (iloc = 0; iloc < elenum; ++iloc) {
+      iall = tag2eleall[ele2tag[iloc]];
+      idx1d = iall*elenum_all;
+      for (jall = 0; jall < elenum_all; ++jall) {
+        eleallq[jall] += aaa_all[idx1d]*bbb_all[iall];
+	idx1d++;
+      }
+    }
+    MPI_Allreduce(MPI_IN_PLACE,eleallq,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+
     for (i = 0; i < nall; ++i) {
-      if (electrode_check(i)) {
-        tagi = tag[i];
-        elealli = tag2eleall[tagi];
-	idx1d = elealli*elenum_all;
-        eleallq_i = 0.0;
-        for (j = 0; j < elenum_all; j++) {
-          eleallq_i += aaa_all[idx1d]*bbb_all[j];
-	  idx1d++;
-        }
-        q[i] = eleallq_i;
-        // if (i < nlocal) netcharge_local += eleallq_i;
-      } 
+      if (electrode_check(i)) q[i] = eleallq[tag2eleall[tag[i]]];
     }
   }
-  // MPI_Allreduce(&netcharge_local,&netcharge,1,MPI_DOUBLE,MPI_SUM,world);
-  // for (i = 0; i < nall; ++i) {
-  //   if (electrode_check(i)) {
-  //     q[i] -= netcharge/elenum_all;
-  //     if (i < nlocal && electrode_check(i) == 1) netcharge_left_local += q[i];
-  //   }
-  // }
-
-  //  now we need to get total left charge
   for (i = 0; i < nlocal; ++i) {
     if (electrode_check(i) == 1) netcharge_left_local += q[i];
   }
@@ -1214,7 +1187,8 @@ void FixConpV3::update_charge()
   //  this fragment is the only difference from fix_conq
 
   //  now qL and qR are left and right *voltages*
-  //  evscale was included in the precalculation of elesetq
+  //  evscale was included in the precalculation of eleallq
+
   if (qlstyle == EQUAL) qL = input->variable->compute_equal(qlvar);
   if (qrstyle == EQUAL) qR = input->variable->compute_equal(qrvar);
   addv = qR - qL;
