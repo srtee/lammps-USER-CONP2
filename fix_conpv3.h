@@ -40,10 +40,10 @@ class FixConpV3 : public Fix {
   void pre_force(int);
   void pre_force_respa(int,int,int);
   void force_cal(int);
-  void a_cal();
+  virtual void a_cal();
   void a_read();
   void b_setq_cal();
-  void b_cal();
+  virtual void b_cal();
   void equation_solve();
   virtual void update_charge();
   int electrode_check(int);
@@ -68,7 +68,6 @@ class FixConpV3 : public Fix {
   int *elecheck_eleall;
   double totsetq,addv;
 
- private:
   int me,runstage,gotsetq;
   int ilevel_respa;
   double Btime,Btime1,Btime2;
