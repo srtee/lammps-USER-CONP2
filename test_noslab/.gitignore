@@ -1,0 +1,6 @@
+# ignore nsteps, log.lammps and anything output related
+nsteps
+log.lammps
+output*
+iter*
+*matrix*

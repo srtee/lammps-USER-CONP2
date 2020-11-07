@@ -208,7 +208,6 @@ void FixConpNoslab::a_cal()
   double CON_s2overPIS = sqrt(2.0)/MY_PIS;
   double CON_2overPIS = 2.0/MY_PIS;
   for (i = 0; i < nlocal; ++i) {
-    zi = x[i][2];
     if (electrode_check(i)) {
       elealli = tag2eleall[tag[i]];
       for (k = 0; k < elenum; ++k) {
