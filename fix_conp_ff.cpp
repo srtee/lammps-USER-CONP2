@@ -63,7 +63,7 @@ extern "C" {
 }
 
 /* ---------------------------------------------------------------------- */
-void FixConpV3::b_setq_cal()
+void FixConpFF::b_setq_cal()
 {
   int i,j;
   int *tag = atom->tag;
