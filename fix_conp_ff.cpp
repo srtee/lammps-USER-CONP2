@@ -67,7 +67,7 @@ void FixConpFF::b_setq_cal()
 {
   int i,j;
   int *tag = atom->tag;
-  int **x = atom->x;
+  double **x = atom->x;
   int nlocal = atom->nlocal;
   double evscale = force->qe2f/force->qqr2e;
   double zprd = domain->zprd;
@@ -77,7 +77,7 @@ void FixConpFF::b_setq_cal()
   double zfield = evscale / zprd;
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
-      bbb[j] = -(x[i][2]+0.5*electrode_check(i)*zprd)*efield;
+      bbb[j] = -(x[i][2]+0.5*electrode_check(i)*zprd)*zfield;
       elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i);
       j++;
     }
