@@ -1,7 +1,7 @@
 # LAMMPS-USER-CONP2
 The updated constant potential plugin for LAMMPS
 
-# SUMMARY
+# Summary
 
 The main fixes contained in this package are:
 
@@ -67,7 +67,11 @@ fix EFIELD efield all 0.0 0.0 (v_vright-v_vleft)/lz
 With units real or metal, fix efield already takes units of V/*length*, so no further conversion is needed.
 Applying the efield to "all" or to just solvent molecules gives equivalent results (fix conp does not communicate with other fixes to do its math ... maybe it should, but that's a topic for another day).
 
-========
+# Installation instructions
+
+As per the old conp: Simply copy all .cpp and .h files to the lammps/src folder, and compile.
+
+# Development: Other fixes included
 
 Other fixes contained in this package, primarily as snapshots of incremental development:
 
@@ -85,22 +89,22 @@ conp/v2 --
     pre-calculates the "pure electrode" charge vector q_c such that Aq_c = 1V x d
     (1V = "evscale" in LAMMPS units), then solves for the charge vector as:
     q*(DV) = q*(0) + DV x q_c, where Aq*(0) = b
-    
-    in conp mode, DV is Vleft - Vright (no second evscale conversion needed)
-    in conq mode, DV is chosen such that q*.d = Q (as input, including equal-style)
-    
-    in either mode the fix now outputs the appropriate scalar (Q for conp, V for conq)
-    
-    conq can be derived from the latest conp/v2+ class
 
 conq --
     imposes a _constant total charge_ constraint on the electrodes, where the _total_ charge
     is set to - and + v_left on left and right electrodes respectively, but individual charges dynamically update.
-    This is done by calculating A per timestep such that e.(A(t)q_c + q*(0)) = q_target. The Hamiltonian is a Legendre transform
-    of the constant potential Hamiltonian, and the resulting ensemble also corresponds to imposing a constant displacement field instead of
+    This is done by calculating A per timestep such that e.(A(t)q_c + q*(0)) = q_target.
+    This fix outputs a scalar, which is the V which would be required to achieve the stated total charge
+    in a constant potential simulation with the given solvent conformation.
+    The Hamiltonian is a Legendre transform of the constant potential Hamiltonian, 
+    and the resulting ensemble also corresponds to imposing a constant displacement field instead of
     a constant electric field [3]. Applications currently very uncertain, but there is certainly at least one very interesting 
     paper to be written about this!
     
+ # Citations
+    
 [1] Dufils et al, PRL **123** (19): 195501 (2019)
+
 [2] Raiteri et al, J Chem Phys **153**: 164714 (2020)
+
 [3] Zhang et al, J Phys Energy **2**: 032005 (2020)
