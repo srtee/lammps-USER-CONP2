@@ -18,22 +18,22 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(conq/v2,FixConqV2)
+FixStyle(conq,FixConqV3)
 
 #else
 
-#ifndef LMP_FIX_CONQV2_H
-#define LMP_FIX_CONQV2_H
+#ifndef LMP_FIX_CONQV3_H
+#define LMP_FIX_CONQV3_H
 
 #include "fix.h"
-#include "fix_conpv2.h"
+#include "fix_conpv3.h"
 
 namespace LAMMPS_NS {
 
-class FixConqV2 : public FixConpV2 {
+class FixConqV3 : public FixConpV3 {
  public:
-  FixConqV2(class LAMMPS *lmp, int narg, char **arg):FixConpV2(lmp,narg,arg) {};
-  ~FixConqV2() {}
+  FixConqV3(class LAMMPS *lmp, int narg, char **arg):FixConpV3(lmp,narg,arg) {};
+  ~FixConqV3() {}
   void update_charge();
  };
 
