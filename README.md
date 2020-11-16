@@ -26,6 +26,12 @@ instead of directly assigning target potentials to electrode atoms. *WARNING: Th
 *Note: In [2], electrode atoms are mentioned as being "set at 0V". This is automatically
 done inside the conp/ff code, and so the fix conp/ff command has the same syntax as the other conps.
 
+# Installation instructions
+
+As per the old conp: Simply copy all .cpp and .h files to the lammps/src folder, and compile.
+
+# Usage instructions
+
 For all conp packages, the fix command is identical to the previous version:
 
 ```
@@ -54,9 +60,11 @@ fix [ID] all conp [Nevery] [η] [Molecule-ID 1] [Molecule-ID 2] [Potential 1] [P
 
 **Matrix** = Optional argument. File name of matrix to read in. If it is assigned, A (or A-inverse) matrix is read in instead of calculated
 
-Note that Potential 1 and Potential 2 can be v_ style variables. 
+Note that Potential 1 and Potential 2 can be v_ style variables.
 
-Also note that conp/ff currently requires "fix efield" to be separately added to the script, for example:
+# Usage note for conp/ff
+
+Note that conp/ff currently requires "fix efield" to be separately added to the script, for example:
 
 ```
 fix CONP conp/ff ... v_vleft v_vright ...
@@ -65,11 +73,8 @@ fix EFIELD efield all 0.0 0.0 (v_vright-v_vleft)/lz
 ```
 
 With units real or metal, fix efield already takes units of V/*length*, so no further conversion is needed.
-Applying the efield to "all" or to just solvent molecules gives equivalent results (fix conp does not communicate with other fixes to do its math ... maybe it should, but that's a topic for another day).
-
-# Installation instructions
-
-As per the old conp: Simply copy all .cpp and .h files to the lammps/src folder, and compile.
+Applying the efield to "all" or to just solvent molecules gives equivalent results 
+(fix conp does not communicate with other fixes to do its math ... maybe it should, but that's a topic for another day).
 
 # Development: Other fixes included
 
