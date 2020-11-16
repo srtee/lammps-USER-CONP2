@@ -109,7 +109,10 @@ conq --
  # Citations
     
 [1] Dufils et al, PRL **123** (19): 195501 (2019)
+doi.org/10.1103/PhysRevLett.123.195501
 
 [2] Raiteri et al, J Chem Phys **153**: 164714 (2020)
+doi.org/10.1063/5.0027876
 
 [3] Zhang et al, J Phys Energy **2**: 032005 (2020)
+doi.org/10.1088/2515-7655/ab9d8c
