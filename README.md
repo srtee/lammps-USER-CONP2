@@ -7,10 +7,15 @@ The main fixes contained in this package are:
 
 conp -- updates the original lammps-conp (https://github.com/zhenxingwang/lammps-conp)
 to
+
 (1) enforce electroneutrality of electrodes
+
 (2) allow equal-style variables for time-varying cell potential difference
+
 (3) precompute some constant vectors for some performance enhancement and reduced communication
+
 (4) output total induced charge as a scalar
+
 All of these conp improvements also apply to the next two versions.
 
 conp/noslab -- removes slab correction terms from conp, primarily for implementing two-slab simulations [1].
