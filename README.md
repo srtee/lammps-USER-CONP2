@@ -1,4 +1,4 @@
-# lammps-USER-CONP2
+# LAMMPS-USER-CONP2
 The updated constant potential plugin for LAMMPS
 
 # SUMMARY
