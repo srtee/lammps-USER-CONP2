@@ -46,7 +46,7 @@ velocity ele set 0.0 0.0 0.0
 fix 0 ele setforce 0.0 0.0 0.0
 fix e all conp/ff 1 1.979 81 82 -0.5 0.5 inv iter
 variable evscale equal 0.069447
-variable zfield equal -v_evscale*(1)/lz
+variable zfield equal -(1)/lz
 fix efield sol efield 0.0 0.0 v_zfield
 fix 1 sol nvt temp 298.0 298.0 100.0
 thermo_style custom step temp c_tempsl c_qleft c_qright f_e
