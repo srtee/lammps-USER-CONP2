@@ -16,7 +16,7 @@
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
-#include "fix_conqv2.h"
+#include "fix_conqv3.h"
 #include "force.h"
 #include "atom.h"
 #include "input.h"
@@ -29,7 +29,7 @@ enum{CONSTANT,EQUAL,ATOM};
 
 /* --------------------------------------------------------------------- */
 
-void FixConqV2::update_charge()
+void FixConqV3::update_charge()
 {
   int i,j,idx1d;
   int elealli,tagi;
