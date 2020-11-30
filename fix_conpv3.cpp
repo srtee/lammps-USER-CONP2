@@ -71,17 +71,22 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   ilevel_respa = 0;
   maxiter = 100;
   tolerance = 0.000001;
-  everynum = force->numeric(FLERR,arg[3]);
-  eta = force->numeric(FLERR,arg[4]);
-  molidL = force->inumeric(FLERR,arg[5]);
-  molidR = force->inumeric(FLERR,arg[6]);
+  // everynum = force->numeric(FLERR,arg[3]);
+  // eta = force->numeric(FLERR,arg[4]);
+  // molidL = force->inumeric(FLERR,arg[5]);
+  // molidR = force->inumeric(FLERR,arg[6]);
+  everynum = utils::numeric(FLERR,arg[3],false,lmp);
+  eta = utils::numeric(FLERR,arg[4],false,lmp);
+  molidL = utils::numeric(FLERR,arg[5],false,lmp);
+  molidR = utils::numeric(FLERR,arg[6],false,lmp);
   if (strstr(arg[7],"v_") == arg[7]) {
     int n = strlen(&arg[7][2]) + 1;
     qlstr = new char[n];
     strcpy(qlstr,&arg[7][2]);
     qlstyle = EQUAL;
   } else {
-    qL = force->numeric(FLERR,arg[7]);
+    // qL = force->numeric(FLERR,arg[7]);
+
   }
   if (strstr(arg[8],"v_") == arg[8]) {
     int n = strlen(&arg[8][2]) + 1;
@@ -89,7 +94,8 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
     strcpy(qrstr,&arg[8][2]);
     qrstyle = EQUAL;
   } else {
-    qR = force->numeric(FLERR,arg[8]);
+    // qR = force->numeric(FLERR,arg[8]);
+    qR = utils::numeric(FLERR,arg[8],false,lmp);
   }
   if (strcmp(arg[9],"cg") == 0) {
     minimizer = CG;
