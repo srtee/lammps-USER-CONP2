@@ -52,11 +52,12 @@ class FixConpV3 : public Fix {
   void cg();
   void inv();
   void get_setq();
-  void b_comm(int, int *, double *);
+  void b_comm(int, int *, double *, double *);
   void coul_cal(int, double *,int *);
   virtual double compute_scalar();
 
  protected:
+  int ff_flag; 
   int minimizer;
   double qL,qR;
   int qlstyle,qrstyle,qlvar,qrvar;

@@ -57,6 +57,7 @@ using namespace MathConst;
 
 enum{CONSTANT,EQUAL,ATOM};
 enum{CG,INV};
+enum{NORMAL,FFIELD,NOSLAB};
 extern "C" {
   void daxpy_(const int *N, const double *alpha, const double *X, const size_t *incX, double *Y, const size_t *incY);
   void dgetrf_(const int *M,const int *N,double *A,const int *lda,int *ipiv,int *info);
@@ -134,6 +135,7 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   scalar_flag = 1;
   extscalar = 0;
   global_freq = 1;
+  ff_flag = NORMAL; // turn on ff / noslab options if needed.
 }
 
 /* ---------------------------------------------------------------------- */
@@ -406,33 +408,51 @@ void FixConpV3::b_setq_cal()
   // fprintf(outf,"%g \n",evscale);
   double bbb[elenum]; // we know elenum because things haven't changed since a_cal/read
   j = 0;
-  for (i = 0; i < nlocal; i++) {
-    if (electrode_check(i)) {
-      bbb[j] = -0.5*evscale*electrode_check(i);
-      elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i);
-      j++;
+  if (ff_flag == FFIELD) {
+    double **x = atom->x;
+    double zprd = domain->zprd;
+    double zprd_half = domain->zprd_half;
+    double zhalf = zprd_half + domain->boxlo[2];
+    for (i = 0; i < nlocal; i++) {
+      if (electrode_check(i)) {
+        if (electrode_check(i) == 1 && x[i][2] < zhalf) {
+          bbb[j] = -(x[i][2]/zprd + 1)*evscale;
+        }
+        else bbb[j] = -x[i][2]*evscale/zprd;
+        elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i);
+        j++;
+      }
+    }
+  }
+  else {
+    for (i = 0; i < nlocal; i++) {
+      if (electrode_check(i)) {
+        bbb[j] = -0.5*evscale*electrode_check(i);
+        elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i);
+        j++;
+      }
     }
   }
   MPI_Allreduce(MPI_IN_PLACE,elecheck_eleall,elenum_all,MPI_INT,MPI_SUM,world);
-  b_comm(elenum, ele2tag, bbb);
+  b_comm(elenum, ele2tag, bbb, bbb_all);
   if (runstage == 1) runstage = 2;
 }
 
 
 /* ----------------------------------------------------------------------*/
 
-void FixConpV3::b_comm(int elenum, int* ele2tag, double* bbb)
+void FixConpV3::b_comm(int elenum, int* ele2tag, double* bbb, double* btarget)
 {
   int i, tagi, elei;
   for (i = 0; i < elenum_all; i++) {
-    bbb_all[i] = 0;
+    btarget[i] = 0;
   }
   for (i = 0; i < elenum; i++) {
     tagi = ele2tag[i];
     elei = tag2eleall[tagi];
-    bbb_all[elei] = bbb[i];
+    btarget[elei] = bbb[i];
   }
-  MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+  MPI_Allreduce(MPI_IN_PLACE,btarget,elenum_all,MPI_DOUBLE,MPI_SUM,world);
 }
 
 /* ----------------------------------------------------------------------*/
@@ -463,9 +483,14 @@ void FixConpV3::b_cal()
     if(electrode_check(i)) elenum++;
   }
   double bbb[elenum];
+  // initialize bbb and create ele tag list in current time step
   j = 0;
-  for (j = 0; j < elenum; j++) {
-    bbb[j] = 0;
+  for (i = 0; i < nlocal; i++) {
+    if (electrode_check(i)) {
+      bbb[j] = 0;
+      ele2tag[j] = tag[i];
+      j++;
+    }
   }
   for (k = 0; k < kcount; k++) {
     kx = kxvecs[k];
@@ -484,28 +509,26 @@ void FixConpV3::b_cal()
     }
   }
 
-  //slabcorrection and create ele tag list in current timestep
-  double slabcorrtmp = 0.0;
-  double slabcorrtmp_all = 0.0;
-  for (i = 0; i < nlocal; i++) {
-    if (electrode_check(i) == 0) {
-      slabcorrtmp += 4*q[i]*MY_PI*x[i][2]/volume;
+  //slabcorrection in current timestep -- skip if ff / noslab
+  if (ff_flag == NORMAL) {
+    double slabcorrtmp = 0.0;
+    double slabcorrtmp_all = 0.0;
+    for (i = 0; i < nlocal; i++) {
+      if (electrode_check(i) == 0) {
+        slabcorrtmp += 4*q[i]*MY_PI*x[i][2]/volume;
+      }
     }
-  }
-  MPI_Allreduce(&slabcorrtmp,&slabcorrtmp_all,1,MPI_DOUBLE,MPI_SUM,world);
-  j = 0;
-  for (i = 0; i < nlocal; i++) {
-    if (electrode_check(i)) {
-      bbb[j] -= x[i][2]*slabcorrtmp_all;
-      ele2tag[j] = tag[i];
-      j++;
+    MPI_Allreduce(&slabcorrtmp,&slabcorrtmp_all,1,MPI_DOUBLE,MPI_SUM,world);
+    j = 0;
+    for (j = 0; j < elenum; ++j) {
+      bbb[j] -= x[atom->map(ele2tag[j])][2]*slabcorrtmp_all;
     }
   }
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
   
   coul_cal(1,bbb,ele2tag);
-  b_comm(elenum,ele2tag,bbb);
+  b_comm(elenum,ele2tag,bbb,bbb_all);
 }
 
 /*----------------------------------------------------------------------- */
@@ -669,7 +692,7 @@ void FixConpV3::a_cal()
         for (k = 0; k < kcount; ++k) {
           aaa[idx1d] += 2.0*ug[k]*(csk[k][elealli]*csk[k][j]+snk[k][elealli]*snk[k][j]);
         }
-        aaa[idx1d] += CON_4PIoverV*zi*eleallx[j][2];
+        if (ff_flag == NORMAL) aaa[idx1d] += CON_4PIoverV*zi*eleallx[j][2];
       }
       idx1d = elei*elenum_all+elealli;
       aaa[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction

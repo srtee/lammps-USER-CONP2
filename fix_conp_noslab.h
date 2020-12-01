@@ -33,10 +33,8 @@ namespace LAMMPS_NS {
 
 class FixConpNoslab : public FixConpV3 {
  public:
-  FixConpNoslab(class LAMMPS *lmp, int narg, char **arg):FixConpV3(lmp,narg,arg) {};
+  FixConpNoslab(class LAMMPS *, int, char **);
   ~FixConpNoslab() {}
-  void a_cal();
-  void b_cal();
 };
 
 }

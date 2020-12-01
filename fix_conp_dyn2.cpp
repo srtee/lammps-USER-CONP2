@@ -289,5 +289,5 @@ void FixConpDyn2::b_cal()
   Ktime += Ktime2-Ktime1;
   
   coul_cal(1,bbb,ele2tag);
-  b_comm(elenum,ele2tag,bbb);
+  b_comm(elenum,ele2tag,bbb,bbb_all);
 }

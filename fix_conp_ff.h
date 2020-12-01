@@ -33,11 +33,8 @@ namespace LAMMPS_NS {
 
 class FixConpFF : public FixConpV3 {
  public:
-  FixConpFF(class LAMMPS *lmp, int narg, char **arg):FixConpV3(lmp,narg,arg) {};
+  FixConpFF(class LAMMPS *, int, char **);
   ~FixConpFF() {}
-  void b_setq_cal();
-  void a_cal();
-  void b_cal();
 };
 
 }
