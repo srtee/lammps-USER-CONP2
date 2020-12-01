@@ -1,0 +1,1 @@
+ERROR on proc 0: Cannot open input script example_input_dyn: No such file or directory (src/lammps.cpp:461)

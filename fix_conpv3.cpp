@@ -40,6 +40,7 @@
 #include "math_const.h"
 #include "neigh_list.h"
 #include "domain.h"
+#include "utils.h"
 #include "iostream"
 
 #define EWALD_F   1.12837917
@@ -86,7 +87,7 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
     qlstyle = EQUAL;
   } else {
     // qL = force->numeric(FLERR,arg[7]);
-
+    qL = utils::numeric(FLERR,arg[7],false,lmp);
   }
   if (strstr(arg[8],"v_") == arg[8]) {
     int n = strlen(&arg[8][2]) + 1;
@@ -331,8 +332,8 @@ void FixConpV3::setup(int vflag)
     }
     runstage = 1;
     
-    int gotsetq = 0;
-    double totsetq = 0;
+    //int gotsetq = 0;
+    //double totsetq = 0;
     b_setq_cal();
     equation_solve();
     double addv = 0;
@@ -402,7 +403,7 @@ void FixConpV3::b_setq_cal()
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
   double evscale = force->qe2f/force->qqr2e;
-  fprintf(outf,"%g \n",evscale);
+  // fprintf(outf,"%g \n",evscale);
   double bbb[elenum]; // we know elenum because things haven't changed since a_cal/read
   j = 0;
   for (i = 0; i < nlocal; i++) {
@@ -431,10 +432,7 @@ void FixConpV3::b_comm(int elenum, int* ele2tag, double* bbb)
     elei = tag2eleall[tagi];
     bbb_all[elei] = bbb[i];
   }
-  if (minimizer == CG) {
-    MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
-  }
-  // if minimizer == INV, we can parallelize multiplications
+  MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
 }
 
 /* ----------------------------------------------------------------------*/
@@ -1073,8 +1071,8 @@ void FixConpV3::inv()
       for (i = 0; i < elenum_all; i++) {
         for (j = 0; j < elenum_all; j++) {
           aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
-	  idx1d++;
-	}
+	        idx1d++;
+	      }
       }
     }
 
@@ -1127,20 +1125,20 @@ void FixConpV3::get_setq()
     }
     for (iloc = 0; iloc < elenum; ++iloc) {
       iall = tag2eleall[ele2tag[iloc]];
-      idx1d = iall*elenum_all; 
+      idx1d = iall*elenum_all;
       for (jall = 0; jall < elenum_all; ++jall) {
-        elesetq[jall] += aaa_all[idx1d+jall]*bbb_all[iall];
+        elesetq[iall] += aaa_all[idx1d+jall]*bbb_all[jall];
       }
     }
+    MPI_Allreduce(MPI_IN_PLACE,elesetq,elenum_all,MPI_DOUBLE,MPI_SUM,world);
   }
-
-  MPI_Allreduce(MPI_IN_PLACE,elesetq,elenum_all,MPI_DOUBLE,MPI_SUM,world);
   totsetq = 0;
   for (i = 0; i < elenum_all; ++i) {
     if (elecheck_eleall[i] == 1) {
       totsetq += elesetq[i];
     }
   }
+  //printf("%g\n",totsetq);
   //MPI_Allreduce(&netcharge_left_local,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
 }
 
@@ -1174,12 +1172,10 @@ void FixConpV3::update_charge()
       iall = tag2eleall[ele2tag[iloc]];
       idx1d = iall*elenum_all;
       for (jall = 0; jall < elenum_all; ++jall) {
-        eleallq[jall] += aaa_all[idx1d]*bbb_all[iall];
-        idx1d++;
+        eleallq[iall] += aaa_all[idx1d+jall]*bbb_all[jall];
       }
     }
     MPI_Allreduce(MPI_IN_PLACE,eleallq,elenum_all,MPI_DOUBLE,MPI_SUM,world);
-
     for (i = 0; i < nall; ++i) {
       if (electrode_check(i)) q[i] = eleallq[tag2eleall[tag[i]]];
     }
@@ -1200,6 +1196,7 @@ void FixConpV3::update_charge()
   if (qlstyle == EQUAL) qL = input->variable->compute_equal(qlvar);
   if (qrstyle == EQUAL) qR = input->variable->compute_equal(qrvar);
   addv = qR - qL;
+  // printf("%g\n",addv)
   for (i = 0; i < nall; ++i) {
     if (electrode_check(i)) {
       tagi = tag[i];
@@ -1210,7 +1207,6 @@ void FixConpV3::update_charge()
   //  hack: we will use addv to store total electrode charge
   addv *= totsetq;
   addv += netcharge_left;
-
 }
 /* ---------------------------------------------------------------------- */
 void FixConpV3::force_cal(int vflag)

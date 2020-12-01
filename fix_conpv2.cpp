@@ -40,6 +40,7 @@
 #include "math_const.h"
 #include "neigh_list.h"
 #include "domain.h"
+#include "utils.h"
 #include "iostream"
 
 #define EWALD_F   1.12837917

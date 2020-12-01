@@ -30,12 +30,14 @@ neighbor            2 bin
 group ele type 3
 group eleleft molecule 81
 group eleright molecule 82
+group eletrace id 305
 variable q atom q
 compute qleft  eleleft  reduce sum v_q
 compute qright eleright reduce sum v_q
 group sol type 1 2 4
 compute tempsl sol      temp
 variable nsteps file nsteps
+dump 1 eletrace custom 1 output_eletrace q
 #dump 1 ele custom 500 ele id q
 #dump_modify 1 sort id
 #dump 2 all dcd 500 lmp.dcd

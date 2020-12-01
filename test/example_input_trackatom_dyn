@@ -30,12 +30,14 @@ neighbor            2 bin
 group ele type 3
 group eleleft molecule 81
 group eleright molecule 82
+group eletrace id 305
 variable q atom q
 compute qleft  eleleft  reduce sum v_q
 compute qright eleright reduce sum v_q
 group sol type 1 2 4
 compute tempsl sol      temp
 variable nsteps file nsteps
+dump 1 eletrace custom 1 output_eletrace_dyn q
 #dump 1 ele custom 500 ele id q
 #dump_modify 1 sort id
 #dump 2 all dcd 500 lmp.dcd
@@ -44,7 +46,7 @@ run_style           verlet
 timestep            1  
 velocity ele set 0.0 0.0 0.0
 fix 0 ele setforce 0.0 0.0 0.0
-fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter_v3
+fix e all conp/dyn 1 1.979 81 82 -0.5 0.5 inv iter_dyn
 fix 1 sol nvt temp 298.0 298.0 100.0
 thermo_style custom step temp c_tempsl c_qleft c_qright f_e
 thermo              10
