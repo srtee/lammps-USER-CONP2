@@ -342,7 +342,7 @@ void FixConpV3::setup(int vflag)
     elesetq = new double[elenum_all]; 
     get_setq();
     gotsetq = 1;
-
+    dyn_setup(); // additional setup for dynamic versions
   }
     
 }

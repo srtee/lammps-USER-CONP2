@@ -55,6 +55,7 @@ class FixConpV3 : public Fix {
   void b_comm(int, int *, double *, double *);
   void coul_cal(int, double *,int *);
   virtual double compute_scalar();
+  virtual void dyn_setup() {}
 
  protected:
   int ff_flag; 

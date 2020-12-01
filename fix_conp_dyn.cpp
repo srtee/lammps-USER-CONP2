@@ -67,152 +67,16 @@ extern "C" {
 
 /* ---------------------------------------------------------------------- */
 
-void FixConpDyn::setup(int vflag)
+void FixConpDyn::dyn_setup()
 {
-  //Pair *coulpair;
-
-  // assign coulpair to either the existing pair style if it matches 'coul'
-  // or, if hybrid, the pair style matching 'coul'
-  // and if neither are true then something has gone horribly wrong!
-  coulpair = NULL;
-  coulpair = (Pair *) force->pair_match("coul",0);
-  if (coulpair == NULL) {
-    // return 1st hybrid substyle matching coul (inexactly)
-    coulpair = (Pair *) force->pair_match("coul",0,1);
-    }
-  if (coulpair == NULL) error->all(FLERR,"Must use conp with coul pair style");
-  //PairHybrid *pairhybrid = dynamic_cast<PairHybrid*>(force->pair);
-  //Pair *coulpair = pairhybrid->styles[0];
-
-
-
-  g_ewald = force->kspace->g_ewald;
-  slab_volfactor = force->kspace->slab_volfactor;
-  double accuracy = force->kspace->accuracy;
-  
-  int i;
-  double qsqsum = 0.0;
-  for (i = 0; i < atom->nlocal; i++) {
-    qsqsum += atom->q[i]*atom->q[i];
-  }
-  double tmp,q2;
-  MPI_Allreduce(&qsqsum,&tmp,1,MPI_DOUBLE,MPI_SUM,world);
-  qsqsum = tmp;
-  q2 = qsqsum * force->qqrd2e / force->dielectric;
-
-// Copied from ewald.cpp
-  double xprd = domain->xprd;
-  double yprd = domain->yprd;
-  double zprd = domain->zprd;
-  double zprd_slab = zprd*slab_volfactor;
-  volume = xprd * yprd * zprd_slab;
-
-  unitk[0] = 2.0*MY_PI/xprd;
-  unitk[1] = 2.0*MY_PI/yprd;
-  unitk[2] = 2.0*MY_PI/zprd_slab;
-
-  bigint natoms = atom->natoms;
-  double err;
-  kxmax = 1;
-  kymax = 1;
-  kzmax = 1;
-
-  err = rms(kxmax,xprd,natoms,q2);
-  while (err > accuracy) {
-    kxmax++;
-    err = rms(kxmax,xprd,natoms,q2);
-  }
-
-  err = rms(kymax,yprd,natoms,q2);
-  while (err > accuracy) {
-    kymax++;
-    err = rms(kymax,yprd,natoms,q2);
-  }
-
-  err = rms(kzmax,zprd_slab,natoms,q2);
-  while (err > accuracy) {
-    kzmax++;
-    err = rms(kzmax,zprd_slab,natoms,q2);
-  }
-
-  kmax = MAX(kxmax,kymax);
-  kmax = MAX(kmax,kzmax);
-  kmax3d = 4*kmax*kmax*kmax + 6*kmax*kmax + 3*kmax;
-
-  kxvecs = new int[kmax3d];
-  kyvecs = new int[kmax3d];
-  kzvecs = new int[kmax3d];
-  ug = new double[kmax3d];
-
-  double gsqxmx = unitk[0]*unitk[0]*kxmax*kxmax;
-  double gsqymx = unitk[1]*unitk[1]*kymax*kymax;
-  double gsqzmx = unitk[2]*unitk[2]*kzmax*kzmax;
-  gsqmx = MAX(gsqxmx,gsqymx);
-  gsqmx = MAX(gsqmx,gsqzmx);
-
-  gsqmx *= 1.00001;
-
-  coeffs();
-  kmax_created = kmax;
-
-//copied from ewald.cpp end
-
-  int nmax = atom->nmax;
-  //double evscale = 0.069447;
-  //vL *= evscale;
-  //vR *= evscale;
-  
-  memory->create3d_offset(cs,-kmax,kmax,3,nmax,"fixconpv3:cs");
-  memory->create3d_offset(sn,-kmax,kmax,3,nmax,"fixconpv3:sn");
-  sfacrl = new double[kmax3d];
-  sfacim = new double[kmax3d];
-  sfacrl_all = new double[kmax3d];
-  sfacim_all = new double[kmax3d];
-  tag2eleall = new int[natoms+1];
-  curr_tag2eleall = new int[natoms+1];
-  if (runstage == 0) {
-    int i;
-    int nlocal = atom->nlocal;
-    for ( i = 0; i < nlocal; i++) {
-      if (electrode_check(i)) ++elenum;
-    }
-    MPI_Allreduce(&elenum,&elenum_all,1,MPI_INT,MPI_SUM,world);
-    
-    eleall2tag = new int[elenum_all];
-    elecheck_eleall = new int[elenum_all];
-    // elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i)
-    for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
-    aaa_all = new double[elenum_all*elenum_all];
-    bbb_all = new double[elenum_all];
-    ele2tag = new int[elenum];
-    for (i = 0; i < natoms+1; i++) tag2eleall[i] = -1;
-    for (i = 0; i < natoms+1; i++) curr_tag2eleall[i] = -1;
-    eleallq = new double[elenum_all];
-    if (a_matrix_f == 0) {
-      if (me == 0) outa = fopen("amatrix","w");
-      a_cal();
-    } else {
-      a_read();
-    }
-    runstage = 1;
-    
-    int gotsetq = 0;
-    double totsetq = 0;
-    b_setq_cal();
-    equation_solve();
-    double addv = 0;
-    elesetq = new double[elenum_all]; 
-    get_setq();
-    gotsetq = 1;
-    qold = new double[elenum_all];
-    vq = new double[elenum_all];
-    aq = new double[elenum_all];
-    dyn_step = 0;
-    dyn_interval = 1;
-    dyn_fails = 0;
-    dyn_status = NO_QOLD;
-    //if (me == 0) printf("%d\t%d\t%d\t%d\n",dyn_status,dyn_interval,dyn_step,dyn_fails);
-  }
+  qold = new double[elenum_all];
+  vq = new double[elenum_all];
+  aq = new double[elenum_all];
+  dyn_step = 0;
+  dyn_interval = 1;
+  dyn_fails = 0;
+  dyn_status = NO_QOLD;
+  //if (me == 0) printf("%d\t%d\t%d\t%d\n",dyn_status,dyn_interval,dyn_step,dyn_fails);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -267,7 +131,7 @@ void FixConpDyn::pre_force(int vflag)
       else update_q_from_diffvecs();
     }
     if (dyn_fails <= 10) ++dyn_step;
-    //if (me == 0) printf("%d\t%d\t%d\t%d\n",dyn_status,dyn_interval,dyn_step,dyn_fails);
+    // if (me == 0) printf("%d\t%d\t%d\t%d\n",dyn_status,dyn_interval,dyn_step,dyn_fails);
   }
   force_cal(vflag);
 }

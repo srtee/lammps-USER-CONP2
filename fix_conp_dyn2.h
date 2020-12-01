@@ -35,7 +35,7 @@ class FixConpDyn2 : public FixConpV3 {
  public:
   FixConpDyn2(class LAMMPS *lmp, int narg, char **arg):FixConpV3(lmp,narg,arg) {};
   ~FixConpDyn2() {}
-  void setup(int);
+  void dyn_setup();
   void b_cal();
  private:
   double *bk,*bkold,*vbk,*abk;
