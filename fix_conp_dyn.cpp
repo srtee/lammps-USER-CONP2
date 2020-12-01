@@ -200,23 +200,25 @@ int FixConpDyn::update_diffvecs_from_q()
 
 void FixConpDyn::update_q_from_diffvecs()
 {
-  int i,tagi,elealli;
+  int i,tagi,elealli,iall;
   int* tag = atom->tag;
   double* q = atom->q;
   int nlocal = atom->nlocal;
   int nall = nlocal+atom->nghost;
   double netcharge_left = 0;
-  for (i = 0; i < elenum_all; ++i) {
-    vq[i] += aq[i];
-    qold[i] += vq[i];
-    if (elecheck_eleall[i] == 1) netcharge_left += qold[i];
+  for (iall = 0; iall < elenum_all; ++iall) {
+    vq[iall] += aq[iall];
+    qold[iall] += vq[iall];
+    if (elecheck_eleall[iall] == 1) netcharge_left += qold[iall];
+    i = atom->map(eleall2tag[iall]);
+    if (i != -1) q[i] = qold[iall];
   }
-  for (i = 0; i < nall; ++i) {
-    if (electrode_check(i)) {
-      tagi = tag[i];
-      elealli = tag2eleall[tagi];
-      q[i] = qold[elealli];
-    }
-  }
+  //for (i = 0; i < nall; ++i) {
+  //  if (electrode_check(i)) {
+  //    tagi = tag[i];
+  //    elealli = tag2eleall[tagi];
+  //    q[i] = qold[elealli];
+  //  }
+  //}
   addv = netcharge_left;
 }

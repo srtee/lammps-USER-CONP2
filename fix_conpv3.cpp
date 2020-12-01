@@ -1199,8 +1199,9 @@ void FixConpV3::update_charge()
       }
     }
     MPI_Allreduce(MPI_IN_PLACE,eleallq,elenum_all,MPI_DOUBLE,MPI_SUM,world);
-    for (i = 0; i < nall; ++i) {
-      if (electrode_check(i)) q[i] = eleallq[tag2eleall[tag[i]]];
+    for (iall = 0; iall < elenum_all; ++iall) {
+      i = atom->map(eleall2tag[iall]);
+      if (i != -1) q[i] = eleallq[iall];
     }
   }
   netcharge_left = 0;
@@ -1220,12 +1221,9 @@ void FixConpV3::update_charge()
   if (qrstyle == EQUAL) qR = input->variable->compute_equal(qrvar);
   addv = qR - qL;
   // printf("%g\n",addv)
-  for (i = 0; i < nall; ++i) {
-    if (electrode_check(i)) {
-      tagi = tag[i];
-      elealli = tag2eleall[tagi];
-      q[i] += addv*elesetq[elealli];
-    }
+  for (iall = 0; iall < elenum_all; ++iall) {
+    i = atom->map(eleall2tag[iall]);
+    if (i != -1) q[i] += addv*elesetq[iall];
   }
   //  hack: we will use addv to store total electrode charge
   addv *= totsetq;
