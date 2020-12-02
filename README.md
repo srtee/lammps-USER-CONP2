@@ -26,6 +26,14 @@ instead of directly assigning target potentials to electrode atoms. *WARNING: Th
 *Note: In [2], electrode atoms are mentioned as being "set at 0V". This is automatically
 done inside the conp/ff code, and so the fix conp/ff command has the same syntax as the other conps.
 
+# Conp/dyn2 -- dynamic timestepping
+
+conp/dyn2 attempts to get away with explicitly re-evaluating the kspace and pair parts of the B-vector every N timesteps!
+
+In between, it uses a quadratic extrapolation from the last two explicit calculations to predict the instantaneous B-vector. It accumulates these changes and then, at the next explicit evaluation, sees how far off it is -- if the error is less than some lower tolerance, the evaluation period increases from N to N+1, and otherwise the evaluation period either stays the same or gets cut in half (rounded upward) if the error is more than some upper tolerance.
+
+Currently, the ff and noslab flavors of conp do not come with dyn2 support -- but they will very, very soon!
+
 # Installation instructions
 
 As per the old conp: Simply copy all .cpp and .h files to the lammps/src folder, and compile.
