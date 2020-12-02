@@ -81,7 +81,6 @@ void FixConpDyn2::dyn_setup()
   bp_step = bp_fails = bk_step = bk_fails = 0;
   bp_interval = bk_interval = 1;
   bp_status = bk_status = NO_BOLD;
-  //if (me == 0) printf("%d\t%d\t%d\t%d\n",dyn_status,dyn_interval,dyn_step,dyn_fails);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -161,7 +160,7 @@ void FixConpDyn2::b_cal()
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
   
-  coul_cal(1);
+  coul_cal(1,bbb_all);
   MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
   delete [] ele2i;
   delete [] ele2eleall;

@@ -53,7 +53,7 @@ class FixConpV3 : public Fix {
   void inv();
   void get_setq();
   void b_comm(int, int *, double *, double *);
-  void coul_cal(int);
+  void coul_cal(int, double *);
   virtual double compute_scalar();
   virtual void dyn_setup() {}
 

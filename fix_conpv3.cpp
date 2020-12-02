@@ -520,7 +520,7 @@ void FixConpV3::b_cal()
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
   
-  coul_cal(1);
+  coul_cal(1,bbb_all);
   MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
   delete [] ele2i;
   delete [] ele2eleall;
@@ -689,7 +689,7 @@ void FixConpV3::a_cal()
   memory->destroy(csk);
   memory->destroy(snk);
 
-  coul_cal(2);
+  coul_cal(2,aaa_all);
   
   int elenum_list3[nprocs];
   int displs3[nprocs];
@@ -1233,11 +1233,11 @@ void FixConpV3::force_cal(int vflag)
     double qscale = force->qqrd2e*scale;
     force->kspace->energy += qscale*eta*eleqsqsum/(sqrt(2)*MY_PIS);
   }
-  coul_cal(0);
+  coul_cal(0,nullptr);
 
 }
 /* ---------------------------------------------------------------------- */
-void FixConpV3::coul_cal(int coulcalflag)
+void FixConpV3::coul_cal(int coulcalflag, double* m)
 {
   Ctime1 = MPI_Wtime();
   //coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
@@ -1325,20 +1325,20 @@ void FixConpV3::coul_cal(int coulcalflag)
                 dudq -= erfc/r;
                 if (i < nlocal && eci) {
                   elealli = tag2eleall[tag[i]];
-                  if (coulcalflag == 1) bbb_all[elealli] -= q[j]*dudq;
+                  if (coulcalflag == 1) m[elealli] -= q[j]*dudq;
                   else if (coulcalflag == 2 && checksum == 2) {
                     eleallj = tag2eleall[tag[j]];
                     idx1d = elealli*elenum_all + eleallj;
-                    aaa_all[idx1d] += dudq;
+                    m[idx1d] += dudq;
                   }
                 }
                 if (j < nlocal && ecj) {
                   eleallj = tag2eleall[tag[j]];
-                  if (coulcalflag == 1) bbb_all[eleallj] -= q[i]*dudq;
+                  if (coulcalflag == 1) m[eleallj] -= q[i]*dudq;
                   else if (coulcalflag == 2 && checksum == 2) {
                     elealli = tag2eleall[tag[i]];
                     idx1d = eleallj*elenum_all + elealli;
-                    aaa_all[idx1d] += dudq;
+                    m[idx1d] += dudq;
                   }
                 }
               }
