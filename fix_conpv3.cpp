@@ -309,11 +309,10 @@ void FixConpV3::setup(int vflag)
   if (runstage == 0) {
     int i;
     int nlocal = atom->nlocal;
-    for ( i = 0; i < nlocal; i++) {
+    for (i = 0; i < nlocal; i++) {
       if (electrode_check(i)) ++elenum;
     }
     MPI_Allreduce(&elenum,&elenum_all,1,MPI_INT,MPI_SUM,world);
-    
     eleall2tag = new int[elenum_all];
     elecheck_eleall = new int[elenum_all];
     // elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i)
@@ -402,8 +401,6 @@ void FixConpV3::b_setq_cal()
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
   double evscale = force->qe2f/force->qqr2e;
-  // fprintf(outf,"%g \n",evscale);
-  // double bbb[elenum]; // we know elenum because things haven't changed since a_cal/read
   double **x = atom->x;
   double zprd = domain->zprd;
   double zprd_half = domain->zprd_half;
@@ -472,15 +469,13 @@ void FixConpV3::b_cal()
   for (i = 0; i < nlocal; i++) {
     if(electrode_check(i)) elenum++;
   }
-  // double bbb[elenum];
   int *ele2i = new int[elenum];
   int *ele2eleall = new int[elenum];
   // initialize bbb and create ele tag list in current time step
   j = 0;
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
-      // bbb[j] = 0;
-      // ele2tag[j] = tag[i];
+      ele2tag[j] = tag[i];
       ele2i[j] = i;
       ele2eleall[j] = tag2eleall[tag[i]];
       j++;
@@ -525,9 +520,8 @@ void FixConpV3::b_cal()
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
   
-  coul_cal(1,bbb_all,ele2tag);
+  coul_cal(1);
   MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
-  //b_comm(elenum,ele2tag,bbb,bbb_all);
   delete [] ele2i;
   delete [] ele2eleall;
 }
@@ -606,6 +600,7 @@ void FixConpV3::a_cal()
   int nlocal = atom->nlocal;
   int *tag = atom->tag;
   int i,j,k;
+  int *ele2i = new int[elenum];
   int elenum_list[nprocs];
   MPI_Allgather(&elenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
   int displs[nprocs];
@@ -618,6 +613,7 @@ void FixConpV3::a_cal()
   j = 0;
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
+      // ele2i[j] = i;
       ele2tag[j] = tag[i];
       j++;
     }
@@ -647,10 +643,9 @@ void FixConpV3::a_cal()
     displs2[i] = displs[i]*3;
   }
   MPI_Allgatherv(elexyzlist,elenum*3,MPI_DOUBLE,elexyzlist_all,elenum_list2,displs2,MPI_DOUBLE,world);
-
-  double *aaa = new double[elenum*elenum_all];
-  for (i = 0; i < elenum*elenum_all; i++) {
-    aaa[i] = 0.0;
+  int iall;
+  for (iall = 0; iall < elenum_all*elenum_all; ++iall) {
+    aaa_all[iall] = 0.0;
   }
   j = 0;
   for (i = 0; i < elenum_all; i++) {
@@ -664,47 +659,37 @@ void FixConpV3::a_cal()
     eleallx[i][2] = elexyzlist_all[j];
     j++;
   }
-  if (me == 0) fprintf (outa,"\n");
-
-
+  int *ele2eleall = new int[elenum];
+  for (iall = 0; iall < elenum; iall++) {
+    ele2eleall[iall] = tag2eleall[ele2tag[iall]];
+  }
   memory->create(csk,kcount,elenum_all,"fixconpv3:csk");
   memory->create(snk,kcount,elenum_all,"fixconpv3:snk");
   sincos_a(eleallx);
   delete [] elexyzlist;
   delete [] elexyzlist_all;
-
   int elealli,elei,idx1d,tagi;
   double zi;
   double CON_4PIoverV = MY_4PI/volume;
   double CON_s2overPIS = sqrt(2.0)/MY_PIS;
   double CON_2overPIS = 2.0/MY_PIS;
-  for (elealli = 0; elealli < elenum_all; ++elealli) {
-    tagi = eleall2tag[elealli];
-    i = atom->map(tagi);
-    if (i > -1 && i < nlocal) {
-      for (k = 0; k < elenum; ++k) {
-        if (ele2tag[k] == tag[i]) {
-          elei = k;
-          break;
-        }
+  for (elei = 0; elei < elenum; ++elei) {
+    elealli = ele2eleall[elei];
+    for (j = 0; j < elenum_all; ++j) {
+      idx1d = elealli*elenum_all+j;
+      for (k = 0; k < kcount; ++k) {
+        aaa_all[idx1d] += 2.0*ug[k]*(csk[k][elealli]*csk[k][j]+snk[k][elealli]*snk[k][j]);
       }
-      for (j = 0; j < elenum_all; ++j) {
-        idx1d = elei*elenum_all+j;
-        for (k = 0; k < kcount; ++k) {
-          aaa[idx1d] += 2.0*ug[k]*(csk[k][elealli]*csk[k][j]+snk[k][elealli]*snk[k][j]);
-        }
-        if (ff_flag == NORMAL) aaa[idx1d] += CON_4PIoverV*x[i][2]*eleallx[j][2];
-      }
-      idx1d = elei*elenum_all+elealli;
-      aaa[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction
+      if (ff_flag == NORMAL) aaa_all[idx1d] += CON_4PIoverV*eleallx[elealli][2]*eleallx[j][2];
     }
+    idx1d = elealli*elenum_all+elealli;
+    aaa_all[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction
   }
-  
   memory->destroy(eleallx);
   memory->destroy(csk);
   memory->destroy(snk);
 
-  coul_cal(2,aaa,ele2tag);
+  coul_cal(2);
   
   int elenum_list3[nprocs];
   int displs3[nprocs];
@@ -712,9 +697,7 @@ void FixConpV3::a_cal()
     elenum_list3[i] = elenum_list[i]*elenum_all;
     displs3[i] = displs[i]*elenum_all;
   }
-  MPI_Allgatherv(aaa,elenum*elenum_all,MPI_DOUBLE,aaa_all,elenum_list3,displs3,MPI_DOUBLE,world);
-  delete [] aaa;
-  aaa = NULL;
+  MPI_Allreduce(MPI_IN_PLACE,aaa_all,elenum_all*elenum_all,MPI_DOUBLE,MPI_SUM,world);
   for (i = 0; i < elenum_all; ++i) {
     for (j = 0; j < elenum_all; ++j) {
       idx1d = i*elenum_all+j;
@@ -735,6 +718,8 @@ void FixConpV3::a_cal()
   }
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
+  // delete [] ele2i;
+  delete [] ele2eleall;
 }
 /*--------------------------------------------------------------*/
 
@@ -1221,7 +1206,6 @@ void FixConpV3::update_charge()
   if (qlstyle == EQUAL) qL = input->variable->compute_equal(qlvar);
   if (qrstyle == EQUAL) qR = input->variable->compute_equal(qrvar);
   addv = qR - qL;
-  // printf("%g\n",addv)
   for (iall = 0; iall < elenum_all; ++iall) {
     i = atom->map(eleall2tag[iall]);
     if (i != -1) q[i] += addv*elesetq[iall];
@@ -1249,15 +1233,16 @@ void FixConpV3::force_cal(int vflag)
     double qscale = force->qqrd2e*scale;
     force->kspace->energy += qscale*eta*eleqsqsum/(sqrt(2)*MY_PIS);
   }
-  coul_cal(0,NULL,NULL);
+  coul_cal(0);
 
 }
 /* ---------------------------------------------------------------------- */
-void FixConpV3::coul_cal(int coulcalflag,double *m,int *ele2tag)
+void FixConpV3::coul_cal(int coulcalflag)
 {
   Ctime1 = MPI_Wtime();
   //coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
+  int eci,ecj;
   int checksum,elei,elej,elealli,eleallj;
   double qtmp,xtmp,ytmp,ztmp,delx,dely,delz;
   double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
@@ -1284,6 +1269,7 @@ void FixConpV3::coul_cal(int coulcalflag,double *m,int *ele2tag)
 
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
+    eci = electrode_check(i);
     qtmp = q[i];
     xtmp = x[i][0];
     ytmp = x[i][1];
@@ -1294,7 +1280,8 @@ void FixConpV3::coul_cal(int coulcalflag,double *m,int *ele2tag)
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
       j &= NEIGHMASK;
-      checksum = abs(electrode_check(i))+abs(electrode_check(j));
+      ecj = electrode_check(j);
+      checksum = abs(eci)+abs(ecj);
       if (checksum == 1 || checksum == 2) {
         if (coulcalflag == 0 || checksum == coulcalflag) {
           delx = xtmp - x[j][0];
@@ -1336,38 +1323,22 @@ void FixConpV3::coul_cal(int coulcalflag,double *m,int *ele2tag)
                 force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
               } else {
                 dudq -= erfc/r;
-                elei = -1;
-                elej = -1;
-                for (k = 0; k < elenum; ++k) {
-                  if (i < nlocal) {
-                    if (ele2tag[k] == tag[i]) {
-                      elei = k;
-                      if (coulcalflag == 1) {
-                        bbb_all[tag2eleall[tag[i]]] -= q[j]*dudq;
-                        break;
-                      }
-                    }
-                  }
-                  if (j < nlocal) {
-                    if (ele2tag[k] == tag[j]) {
-                      elej = k;
-                      if (coulcalflag == 1) {
-                        bbb_all[tag2eleall[tag[j]]] -= q[i]*dudq;
-                        break;
-                      }
-                    }
+                if (i < nlocal && eci) {
+                  elealli = tag2eleall[tag[i]];
+                  if (coulcalflag == 1) bbb_all[elealli] -= q[j]*dudq;
+                  else if (coulcalflag == 2 && checksum == 2) {
+                    eleallj = tag2eleall[tag[j]];
+                    idx1d = elealli*elenum_all + eleallj;
+                    aaa_all[idx1d] += dudq;
                   }
                 }
-                if (coulcalflag == 2 && checksum == 2) {
-                  elealli = tag2eleall[tag[i]];
+                if (j < nlocal && ecj) {
                   eleallj = tag2eleall[tag[j]];
-                  if (elei != -1) {
-                    idx1d = elei*elenum_all+eleallj;
-                    m[idx1d] += dudq;
-                  }
-                  if (elej != -1) {
-                    idx1d = elej*elenum_all+elealli;
-                    m[idx1d] += dudq;
+                  if (coulcalflag == 1) bbb_all[eleallj] -= q[i]*dudq;
+                  else if (coulcalflag == 2 && checksum == 2) {
+                    elealli = tag2eleall[tag[i]];
+                    idx1d = eleallj*elenum_all + elealli;
+                    aaa_all[idx1d] += dudq;
                   }
                 }
               }

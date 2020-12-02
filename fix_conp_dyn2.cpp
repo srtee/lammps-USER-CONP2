@@ -59,6 +59,7 @@ enum{CONSTANT,EQUAL,ATOM};
 enum{CG,INV};
 enum{DYN_INIT,DYN_INCR,DYN_MAINTAIN,DYN_DECR};
 enum{NO_BOLD,NO_VB,NO_AB,DYN_READY};
+enum{NORMAL,FFIELD,NOSLAB};
 extern "C" {
   void daxpy_(const int *N, const double *alpha, const double *X, const size_t *incX, double *Y, const size_t *incY);
   void dgetrf_(const int *M,const int *N,double *A,const int *lda,int *ipiv,int *info);
@@ -110,48 +111,58 @@ void FixConpDyn2::b_cal()
   for (i = 0; i < nlocal; i++) {
     if(electrode_check(i)) elenum++;
   }
-  double bbb[elenum];
+  int *ele2i = new int[elenum];
+  int *ele2eleall = new int[elenum];
+  // initialize bbb and create ele tag list in current time step
   j = 0;
-  for (j = 0; j < elenum; j++) {
-    bbb[j] = 0;
+  for (i = 0; i < nlocal; i++) {
+    if (electrode_check(i)) {
+      ele2i[j] = i;
+      ele2eleall[j] = tag2eleall[tag[i]];
+      j++;
+    }
+  }
+  int iall,iele;
+  for (iall = 0; iall < elenum_all; ++iall) {
+    bbb_all[iall] = 0;
   }
   for (k = 0; k < kcount; k++) {
     kx = kxvecs[k];
     ky = kyvecs[k];
     kz = kzvecs[k];
     j = 0;
-    for (i = 0; i < nlocal; i++) {
-      if (electrode_check(i)) {
-        cypz = cs[ky][1][i]*cs[kz][2][i] - sn[ky][1][i]*sn[kz][2][i];
-        sypz = sn[ky][1][i]*cs[kz][2][i] + cs[ky][1][i]*sn[kz][2][i];
-        exprl = cs[kx][0][i]*cypz - sn[kx][0][i]*sypz;
-        expim = sn[kx][0][i]*cypz + cs[kx][0][i]*sypz;
-        bbb[j] -= 2.0*ug[k]*(exprl*sfacrl_all[k]+expim*sfacim_all[k]);
-        j++;
-      }
+    for (iele = 0; iele < elenum; ++iele) {
+      i = ele2i[iele];
+      iall = ele2eleall[iele];
+      cypz = cs[ky][1][i]*cs[kz][2][i] - sn[ky][1][i]*sn[kz][2][i];
+      sypz = sn[ky][1][i]*cs[kz][2][i] + cs[ky][1][i]*sn[kz][2][i];
+      exprl = cs[kx][0][i]*cypz - sn[kx][0][i]*sypz;
+      expim = sn[kx][0][i]*cypz + cs[kx][0][i]*sypz;
+      bbb_all[iall] -= 2.0*ug[k]*(exprl*sfacrl_all[k]+expim*sfacim_all[k]);
     }
   }
 
-  //slabcorrection and create ele tag list in current timestep
-  double slabcorrtmp = 0.0;
-  double slabcorrtmp_all = 0.0;
-  for (i = 0; i < nlocal; i++) {
-    if (electrode_check(i) == 0) {
-      slabcorrtmp += 4*q[i]*MY_PI*x[i][2]/volume;
+  //slabcorrection in current timestep -- skip if ff / noslab
+  if (ff_flag == NORMAL) {
+    double slabcorrtmp = 0.0;
+    double slabcorrtmp_all = 0.0;
+    for (i = 0; i < nlocal; i++) {
+      if (electrode_check(i) == 0) {
+        slabcorrtmp += 4*q[i]*MY_PI*x[i][2]/volume;
+      }
     }
-  }
-  MPI_Allreduce(&slabcorrtmp,&slabcorrtmp_all,1,MPI_DOUBLE,MPI_SUM,world);
-  j = 0;
-  for (i = 0; i < nlocal; i++) {
-    if (electrode_check(i)) {
-      bbb[j] -= x[i][2]*slabcorrtmp_all;
-      ele2tag[j] = tag[i];
-      j++;
+    MPI_Allreduce(&slabcorrtmp,&slabcorrtmp_all,1,MPI_DOUBLE,MPI_SUM,world);
+    for (iele = 0; iele < elenum; ++iele) {
+      i = ele2i[iele];
+      iall = ele2eleall[iele];
+      bbb_all[iall] -= x[i][2]*slabcorrtmp_all;
     }
   }
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
   
-  coul_cal(1,bbb,ele2tag);
-  b_comm(elenum,ele2tag,bbb,bbb_all);
+  coul_cal(1);
+  MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+  delete [] ele2i;
+  delete [] ele2eleall;
 }
