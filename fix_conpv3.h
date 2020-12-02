@@ -40,9 +40,9 @@ class FixConpV3 : public Fix {
   void pre_force(int);
   void pre_force_respa(int,int,int);
   void force_cal(int);
-  virtual void a_cal();
+  void a_cal();
   void a_read();
-  virtual void b_setq_cal();
+  void b_setq_cal();
   virtual void b_cal();
   void equation_solve();
   virtual void update_charge();
@@ -66,7 +66,7 @@ class FixConpV3 : public Fix {
   double *eleallq;
   double *elesetq;
   double *aaa_all,*bbb_all;
-  int *tag2eleall,*eleall2tag,*curr_tag2eleall,*ele2tag;
+  int *tag2eleall,*eleall2tag,*ele2tag;
   int *elecheck_eleall;
   double totsetq,addv;
 

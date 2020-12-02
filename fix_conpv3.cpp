@@ -124,7 +124,7 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   csk = snk = NULL;
   aaa_all = NULL;
   bbb_all = NULL;
-  tag2eleall = eleall2tag = curr_tag2eleall = ele2tag = NULL;
+  tag2eleall = eleall2tag = ele2tag = NULL;
   elecheck_eleall = NULL;
   Btime = cgtime = Ctime = Ktime = 0;
   runstage = 0; //after operation
@@ -147,7 +147,6 @@ FixConpV3::~FixConpV3()
   memory->destroy3d_offset(sn,-kmax_created);
   delete [] aaa_all;
   delete [] bbb_all;
-  delete [] curr_tag2eleall;
   delete [] tag2eleall;
   delete [] eleall2tag;
   delete [] ele2tag;
@@ -307,7 +306,6 @@ void FixConpV3::setup(int vflag)
   sfacrl_all = new double[kmax3d];
   sfacim_all = new double[kmax3d];
   tag2eleall = new int[natoms+1];
-  curr_tag2eleall = new int[natoms+1];
   if (runstage == 0) {
     int i;
     int nlocal = atom->nlocal;
@@ -324,7 +322,6 @@ void FixConpV3::setup(int vflag)
     bbb_all = new double[elenum_all];
     ele2tag = new int[elenum];
     for (i = 0; i < natoms+1; i++) tag2eleall[i] = -1;
-    for (i = 0; i < natoms+1; i++) curr_tag2eleall[i] = -1;
     eleallq = new double[elenum_all];
     if (a_matrix_f == 0) {
       if (me == 0) outa = fopen("amatrix","w");
@@ -422,7 +419,7 @@ void FixConpV3::b_setq_cal()
         else bbb_all[iall] = -x[i][2]*evscale/zprd;
       }
       else bbb_all[iall] = -0.5*evscale*eci;
-      elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i);
+      elecheck_eleall[iall] = eci;
     }
   }
   MPI_Allreduce(MPI_IN_PLACE,elecheck_eleall,elenum_all,MPI_INT,MPI_SUM,world);
@@ -475,15 +472,15 @@ void FixConpV3::b_cal()
   for (i = 0; i < nlocal; i++) {
     if(electrode_check(i)) elenum++;
   }
-  double bbb[elenum];
+  // double bbb[elenum];
   int *ele2i = new int[elenum];
   int *ele2eleall = new int[elenum];
   // initialize bbb and create ele tag list in current time step
   j = 0;
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
-      bbb[j] = 0;
-      ele2tag[j] = tag[i];
+      // bbb[j] = 0;
+      // ele2tag[j] = tag[i];
       ele2i[j] = i;
       ele2eleall[j] = tag2eleall[tag[i]];
       j++;
@@ -528,7 +525,7 @@ void FixConpV3::b_cal()
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
   
-  coul_cal(1,bbb,ele2tag);
+  coul_cal(1,bbb_all,ele2tag);
   MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
   //b_comm(elenum,ele2tag,bbb,bbb_all);
   delete [] ele2i;
