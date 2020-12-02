@@ -38,9 +38,12 @@ class FixConpDyn2 : public FixConpV3 {
   void dyn_setup();
   void b_cal();
   void update_bk();
+  void update_bp();
+  int update_dynv(double*, double*, int*, int);
+  void update_from_dynv(double*, double*);
  private:
-  double *bk,*bkold,*vbk,*abk;
-  double *bp,*bpold,*vbp,*abp;
+  double *bk,*bkvec;
+  double *bp,*bpvec;
   int bk_step, bk_interval, bk_status, bk_fails;
   int bp_step, bp_interval, bp_status, bp_fails;
 };

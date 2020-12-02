@@ -71,32 +71,53 @@ extern "C" {
 void FixConpDyn2::dyn_setup()
 {
   bk = new double[elenum_all];
-  bkold = new double[elenum_all];
-  vbk = new double[elenum_all];
-  abk = new double[elenum_all];
+  bkvec = new double[elenum_all*3];
   bp = new double[elenum_all];
-  bpold = new double[elenum_all];
-  vbp = new double[elenum_all];
-  abp = new double[elenum_all];
+  bpvec = new double[elenum_all*3];
   bp_step = bp_fails = bk_step = bk_fails = 0;
   bp_interval = bk_interval = 1;
   bp_status = bk_status = NO_BOLD;
+  int iall, j;
+  for (iall = 0; iall < 3*elenum_all; ++iall) {
+    bkvec[iall] = bpvec[iall] = 0.0;
+  }
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixConpDyn2::b_cal()
 {
-  int iall;
-  
-  update_bk(); // after this bk[elenum_all] holds kspace
-
-  for (iall = 0; iall < elenum_all; ++iall) {
-    bp[iall] = 0.0;
+  //printf("%d\t%d\t%d\t%d\n",bk_step,bk_interval,bk_fails,bk_status);
+  //printf("%d\t%d\t%d\t%d\n",bp_step,bp_interval,bp_fails,bp_status);
+  if (bk_step % bk_interval == 0 || bk_fails > 10) {
+    update_bk(); 
+    if (bk_fails <= 10) {
+      int bk_action = update_dynv(bk,bkvec,&bk_status,bk_interval);
+      if (bk_action == DYN_MAINTAIN && bk_interval == 1) ++bk_fails;
+      else if (bk_action == DYN_INCR) ++bk_interval;
+      else if (bk_action == DYN_DECR) bk_interval = bk_interval % 2 + bk_interval / 2;
+      bk_step = 0; 
+    }
   }
-  coul_cal(1,bp);
-  MPI_Allreduce(MPI_IN_PLACE,bp,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+  else update_from_dynv(bk,bkvec);
+  if (bk_fails <= 10) ++bk_step;
+  // after this bk[elenum_all] holds kspace
 
+  if (bp_step % bp_interval == 0 || bp_fails > 10) {
+    update_bp(); 
+    if (bp_fails <= 10) {
+      int bp_action = update_dynv(bp,bpvec,&bp_status,bp_interval);
+      if (bp_action == DYN_MAINTAIN && bp_interval == 1) ++bp_fails;
+      else if (bp_action == DYN_INCR) ++bp_interval;
+      else if (bp_action == DYN_DECR) bp_interval = bp_interval % 2 + bp_interval / 2;
+      bp_step = 0; 
+    }
+  }
+  else update_from_dynv(bp,bpvec);
+  if (bp_fails <= 10) ++bp_step;
+  // after this bp[elenum_all] holds rspace
+
+  int iall;
   for (iall = 0; iall < elenum_all; ++iall) {
     bbb_all[iall] = bk[iall] + bp[iall];
   }
@@ -179,4 +200,84 @@ void FixConpDyn2::update_bk() {
   Ktime += Ktime2-Ktime1;
   delete [] ele2i;
   delete [] ele2eleall;
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixConpDyn2::update_bp() {
+  int iall;
+  for (iall = 0; iall < elenum_all; ++iall) {
+    bp[iall] = 0.0;
+  }
+  coul_cal(1,bp);
+  MPI_Allreduce(MPI_IN_PLACE,bp,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+}
+
+/* ---------------------------------------------------------------------- */
+
+int FixConpDyn2::update_dynv(double *v, 
+        double *vec, int* vstatus, int vinterval) {
+  int iall;
+  if (*vstatus == DYN_READY) {
+    double vid = static_cast<double>(vinterval);
+    double adenom = 1.0/(vid*vid);
+    double vdenom = 0.5*(3*vid-1)*adenom;
+    double vecsq = 0.0;
+    double err = 0.0;
+    double errsq = 0.0;
+    double upp_tol = 9e-4;
+    double low_tol = 4e-4;
+    for (iall = 0; iall < elenum_all; ++iall) {
+      vec[elenum_all+iall] += vec[2*elenum_all+iall];
+      vec[iall] += vec[elenum_all+iall];
+      err = v[iall] - vec[iall];
+      vecsq += v[iall]*v[iall];
+      errsq += err*err;
+      vec[2*elenum_all+iall] += err*adenom;
+      vec[elenum_all+iall] += err*vdenom;
+      vec[iall] = v[iall];
+    }
+    double tolcheck = errsq/vecsq;
+    if (me == 0) fprintf(outf,"%g\t%g\t%g\n",errsq,vecsq,tolcheck);
+    if (tolcheck >= upp_tol) return DYN_DECR;
+    else if (tolcheck >= low_tol) return DYN_MAINTAIN;
+    else return DYN_INCR;
+  }
+  else if (*vstatus == NO_BOLD) {
+    for (iall = 0; iall < elenum_all; ++iall) {
+      vec[iall] = v[iall];
+    }
+    *vstatus = NO_VB;
+    return DYN_INIT;
+  }
+  else if (*vstatus == NO_VB) {
+    double vid = static_cast<double>(vinterval);
+    for (iall = 0; iall < elenum_all; ++iall) {
+      vec[elenum_all+iall] = (v[iall] - vec[iall])/vid;
+      vec[iall] = v[iall];
+    }
+    *vstatus = NO_AB;
+    return DYN_INIT;
+  }
+  else if (*vstatus == NO_AB) {
+    double vid = static_cast<double>(vinterval);
+    for (iall = 0; iall < elenum_all; ++iall) {
+      vec[2*elenum_all+iall] = (v[iall] - vec[iall] - vec[elenum_all+iall])/vid;
+      vec[elenum_all+iall] = (v[iall] - vec[iall])/vid;
+      vec[iall] = v[iall]; 
+    }
+    *vstatus = DYN_READY;
+    return DYN_INIT;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixConpDyn2::update_from_dynv(double *v, double *vec) {
+  int iall;
+  for (iall = 0; iall < elenum_all; ++iall) {
+    vec[elenum_all+iall] += vec[2*elenum_all+iall];
+    vec[iall] += vec[elenum_all+iall];
+    v[iall] = vec[iall];
+  }
 }
