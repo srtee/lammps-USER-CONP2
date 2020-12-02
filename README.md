@@ -32,6 +32,8 @@ conp/dyn2 attempts to get away with explicitly re-evaluating the kspace and pair
 
 In between, it uses a quadratic extrapolation from the last two explicit calculations to predict the instantaneous B-vector. It accumulates these changes and then, at the next explicit evaluation, sees how far off it is -- if the error is less than some lower tolerance, the evaluation period increases from N to N+1, and otherwise the evaluation period either stays the same or gets cut in half (rounded upward) if the error is more than some upper tolerance.
 
+The lower and upper tolerances are currently 1e-4 and 4e-4 respectively (total square deviation divided by total square of all vector entries). The ability to explicitly specify tolerances is on the cards as well.
+
 Currently, the ff and noslab flavors of conp do not come with dyn2 support -- but they will very, very soon!
 
 # Installation instructions
