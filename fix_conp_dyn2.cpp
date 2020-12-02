@@ -87,7 +87,24 @@ void FixConpDyn2::dyn_setup()
 
 void FixConpDyn2::b_cal()
 {
-  //fprintf(outf,"i   id    Bvec\n");
+  int iall;
+  
+  update_bk(); // after this bk[elenum_all] holds kspace
+
+  for (iall = 0; iall < elenum_all; ++iall) {
+    bp[iall] = 0.0;
+  }
+  coul_cal(1,bp);
+  MPI_Allreduce(MPI_IN_PLACE,bp,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+
+  for (iall = 0; iall < elenum_all; ++iall) {
+    bbb_all[iall] = bk[iall] + bp[iall];
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixConpDyn2::update_bk() {
   Ktime1 = MPI_Wtime();
   int i,j,k;
   int nmax = atom->nmax;
@@ -121,9 +138,9 @@ void FixConpDyn2::b_cal()
       j++;
     }
   }
-  int iall,iele;
+  int iele,iall;
   for (iall = 0; iall < elenum_all; ++iall) {
-    bbb_all[iall] = 0;
+    bk[iall] = 0.0;
   }
   for (k = 0; k < kcount; k++) {
     kx = kxvecs[k];
@@ -137,7 +154,7 @@ void FixConpDyn2::b_cal()
       sypz = sn[ky][1][i]*cs[kz][2][i] + cs[ky][1][i]*sn[kz][2][i];
       exprl = cs[kx][0][i]*cypz - sn[kx][0][i]*sypz;
       expim = sn[kx][0][i]*cypz + cs[kx][0][i]*sypz;
-      bbb_all[iall] -= 2.0*ug[k]*(exprl*sfacrl_all[k]+expim*sfacim_all[k]);
+      bk[iall] -= 2.0*ug[k]*(exprl*sfacrl_all[k]+expim*sfacim_all[k]);
     }
   }
 
@@ -154,14 +171,12 @@ void FixConpDyn2::b_cal()
     for (iele = 0; iele < elenum; ++iele) {
       i = ele2i[iele];
       iall = ele2eleall[iele];
-      bbb_all[iall] -= x[i][2]*slabcorrtmp_all;
+      bk[iall] -= x[i][2]*slabcorrtmp_all;
     }
   }
+  MPI_Allreduce(MPI_IN_PLACE,bk,elenum_all,MPI_DOUBLE,MPI_SUM,world);
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
-  
-  coul_cal(1,bbb_all);
-  MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
   delete [] ele2i;
   delete [] ele2eleall;
 }

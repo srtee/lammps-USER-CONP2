@@ -37,6 +37,7 @@ class FixConpDyn2 : public FixConpV3 {
   ~FixConpDyn2() {}
   void dyn_setup();
   void b_cal();
+  void update_bk();
  private:
   double *bk,*bkold,*vbk,*abk;
   double *bp,*bpold,*vbp,*abp;
