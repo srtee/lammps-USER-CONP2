@@ -39,7 +39,7 @@ class FixConpDyn2 : public FixConpV3 {
   void b_cal();
   void update_bk();
   void update_bp();
-  int update_dynv(double*, double*, int*, int);
+  double update_dynv(double*, double*, int*, int);
   void update_from_dynv(double*, double*);
  private:
   double *bk,*bkvec;
