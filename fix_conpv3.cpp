@@ -106,19 +106,26 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   } else error->all(FLERR,"Unknown minimization method");
   
   outf = fopen(arg[10],"w");
-  if (narg == 12) {
-    outa = NULL;
-    a_matrix_fp = fopen(arg[11],"r");
-    if (a_matrix_fp == NULL) error->all(FLERR,"Cannot open A matrix file");
-    if (strcmp(arg[11],"org") == 0) {
-      a_matrix_f = 1;
-    } else if (strcmp(arg[11],"inv") == 0) {
-      a_matrix_f = 2;
-    } else {
-      error->all(FLERR,"Unknown A matrix type");
+  ff_flag = NORMAL; // turn on ff / noslab options if needed.
+  a_matrix_f = 0;
+  int iarg;
+  for (iarg = 11; iarg < narg; ++iarg){
+    if (strcmp(arg[iarg],"ffield") == 0) {
+      if (ff_flag == NOSLAB) error->all(FLERR,"ffield and noslab cannot both be chosen!");
+      ff_flag = FFIELD;
     }
-  } else {
-    a_matrix_f = 0;
+    else if (strcmp(arg[iarg],"noslab") == 0) {
+      if (ff_flag == FFIELD) error->all(FLERR,"ffield and noslab cannot both be chosen!");
+      ff_flag = NOSLAB;     
+    }
+    else if (strcmp(arg[iarg],"org") == 0 || strcmp(arg[iarg],"inv") == 0) {
+      outa = nullptr;
+      a_matrix_fp = fopen(arg[iarg],"r");
+      if (a_matrix_fp == nullptr) error->all(FLERR,"Cannot open A matrix file");
+      if (strcmp(arg[iarg],"org") == 0) a_matrix_f = 1;
+      else if (strcmp(arg[iarg],"inv") == 0) a_matrix_f = 2;
+      else error->all(FLERR,"Unknown A matrix type");
+    }
   }
   elenum = elenum_old = 0;
   csk = snk = NULL;
@@ -135,7 +142,6 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   scalar_flag = 1;
   extscalar = 0;
   global_freq = 1;
-  ff_flag = NORMAL; // turn on ff / noslab options if needed.
 }
 
 /* ---------------------------------------------------------------------- */
@@ -334,7 +340,7 @@ void FixConpV3::setup(int vflag)
     //double totsetq = 0;
     b_setq_cal();
     equation_solve();
-    double addv = 0;
+    // double addv = 0;
     elesetq = new double[elenum_all]; 
     get_setq();
     gotsetq = 1;
@@ -600,7 +606,7 @@ void FixConpV3::a_cal()
   int nlocal = atom->nlocal;
   int *tag = atom->tag;
   int i,j,k;
-  int *ele2i = new int[elenum];
+  //int *ele2i = new int[elenum];
   int elenum_list[nprocs];
   MPI_Allgather(&elenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
   int displs[nprocs];
