@@ -18,9 +18,9 @@ to
 
 All of these conp improvements also apply to the next two versions.
 
-conp/noslab -- removes slab correction terms from conp, primarily for implementing two-slab simulations [1].
+conp/noslab -- removes slab correction terms from conp, primarily for implementing two-slab simulations, using the method inspired by Raiteri et al in [1].
 
-conp/ff -- removes slab correction terms and calculates electrode induced charges using the finite field method [2],
+conp/ff -- removes slab correction terms and calculates electrode induced charges using the finite field method introduced by Dufils et al in [2],
 instead of directly assigning target potentials to electrode atoms. *WARNING: This fix requires "fix efield" to be manually added to the script, see below.
 
 *Note: In [2], electrode atoms are mentioned as being "set at 0V". This is automatically
