@@ -63,6 +63,7 @@ extern "C" {
   void dgetrf_(const int *M,const int *N,double *A,const int *lda,int *ipiv,int *info);
   void dgetri_(const int *N,double *A,const int *lda,const int *ipiv,double *work,const int *lwork,int *info);
 }
+
 /* ---------------------------------------------------------------------- */
 
 FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :

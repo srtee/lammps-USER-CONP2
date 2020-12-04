@@ -103,3 +103,26 @@ class FixConpV3 : public Fix {
 
 #endif
 #endif
+
+// crosslist naming conventions:
+// the array 'A2B' holds values such that A2B[A] == B
+// for example, 'ele2eleall[elei]' returns the eleall index
+// of atom with ele index i
+//
+// Important lists:
+// eleall: global permanent numbering of electrode atoms
+// from 0 to elenum_all-1
+// ele: local volatile numbering of electrode atoms
+// from 0 to elenum-1
+// i: local volatile numbering of all atoms
+// from 0 to nlocal-1 for locals 
+// and nlocal to nlocal+nghost-1 for ghosts
+// tag: global permanent numbering of all atoms
+// from *1* to natoms
+//
+// Important cross-lists:
+// ele2eleall: length elenum     list holding eleall idx
+// ele2i:      length elenum     list holding i      idx
+// ele2tag:    length elenum     list holding tag    idx
+// tag2eleall: length natoms+1   list holding eleall idx
+// eleall2tag: length elenum_all list holding tag    idx
