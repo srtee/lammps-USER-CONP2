@@ -446,6 +446,11 @@ void FixConpV3::b_comm(int elenum, int* ele2tag, double* bbb, double* btarget)
     elei = tag2eleall[tagi];
     btarget[elei] = bbb[i];
   }
+  // new pattern:
+  // allgatherv(elenum) -> displs
+  // allgatherv(ele2eleall,displs) -> elebuf2eleall
+  // allgatherv(blocal,displs) -> bbuf
+  // for (i in elenum_all) btarget[elebuf2eleall[i]] = bbuf[i]
   MPI_Allreduce(MPI_IN_PLACE,btarget,elenum_all,MPI_DOUBLE,MPI_SUM,world);
 }
 

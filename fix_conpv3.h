@@ -124,5 +124,6 @@ class FixConpV3 : public Fix {
 // ele2eleall: length elenum     list holding eleall idx
 // ele2i:      length elenum     list holding i      idx
 // ele2tag:    length elenum     list holding tag    idx
-// tag2eleall: length natoms+1   list holding eleall idx
 // eleall2tag: length elenum_all list holding tag    idx
+// i2ele:      length nlocal     list holding ele    idx
+// tag2eleall: length natoms+1   list holding eleall idx
