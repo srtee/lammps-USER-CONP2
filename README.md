@@ -18,13 +18,23 @@ to
 
 All of these conp improvements also apply to the next two versions.
 
-conp/noslab -- removes slab correction terms from conp, primarily for implementing two-slab simulations [1].
+conp/noslab -- removes slab correction terms from conp, primarily for implementing two-slab simulations, using the method inspired by Raiteri et al in [1].
 
-conp/ff -- removes slab correction terms and calculates electrode induced charges using the finite field method [2],
+conp/ff -- removes slab correction terms and calculates electrode induced charges using the finite field method introduced by Dufils et al in [2],
 instead of directly assigning target potentials to electrode atoms. *WARNING: This fix requires "fix efield" to be manually added to the script, see below.
 
 *Note: In [2], electrode atoms are mentioned as being "set at 0V". This is automatically
 done inside the conp/ff code, and so the fix conp/ff command has the same syntax as the other conps.
+
+# Conp/dyn2 -- dynamic timestepping
+
+conp/dyn2 attempts to get away with explicitly re-evaluating the kspace and pair parts of the B-vector every N timesteps!
+
+In between, it uses a quadratic extrapolation from the last two explicit calculations to predict the instantaneous B-vector. It accumulates these changes and then, at the next explicit evaluation, sees how far off it is -- if the error is less than some lower tolerance, the evaluation period increases from N to N+1, and otherwise the evaluation period either stays the same or gets cut in half (rounded upward) if the error is more than some upper tolerance.
+
+The lower and upper tolerances are currently 1e-4 and 4e-4 respectively (total square deviation divided by total square of all vector entries). The ability to explicitly specify tolerances is on the cards as well.
+
+Currently, the ff and noslab flavors of conp do not come with dyn2 support -- but they will very, very soon!
 
 # Installation instructions
 
