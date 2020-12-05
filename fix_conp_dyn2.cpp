@@ -92,7 +92,8 @@ void FixConpDyn2::b_cal()
   double bk_uerr = 4e-3;
   double bk_lerr = 1e-3;
   if (bk_step % bk_interval == 0 || bk_fails > 10) {
-    update_bk(); 
+    bool do_bp = false;
+    update_bk(do_bp,bk); 
     if (bk_fails <= 10) {
       double bk_err = update_dynv(bk,bkvec,&bk_status,bk_interval);
       if (bk_err > 0.0 && bk_err <= bk_lerr) ++bk_interval;
@@ -133,92 +134,10 @@ void FixConpDyn2::b_cal()
 
 /* ---------------------------------------------------------------------- */
 
-void FixConpDyn2::update_bk() {
-  Ktime1 = MPI_Wtime();
-  int i,j,k;
-  int nmax = atom->nmax;
-  if (atom->nlocal > nmax) {
-    memory->destroy3d_offset(cs,-kmax_created);
-    memory->destroy3d_offset(sn,-kmax_created);
-    nmax = atom->nmax;
-    kmax_created = kmax;
-  }
-  sincos_b();
-  MPI_Allreduce(sfacrl,sfacrl_all,kcount,MPI_DOUBLE,MPI_SUM,world);
-  MPI_Allreduce(sfacim,sfacim_all,kcount,MPI_DOUBLE,MPI_SUM,world);
-  double **x = atom->x;
-  double *q = atom->q;
-  int *tag = atom->tag;
-  int nlocal = atom->nlocal;
-  int kx,ky,kz;
-  double cypz,sypz,exprl,expim,kspacetmp;
-  int elenum = 0;
-  for (i = 0; i < nlocal; i++) {
-    if(electrode_check(i)) elenum++;
-  }
-  int *ele2i = new int[elenum];
-  int *ele2eleall = new int[elenum];
-  // initialize bbb and create ele tag list in current time step
-  j = 0;
-  for (i = 0; i < nlocal; i++) {
-    if (electrode_check(i)) {
-      ele2i[j] = i;
-      ele2eleall[j] = tag2eleall[tag[i]];
-      j++;
-    }
-  }
-  int iele,iall;
-  for (iall = 0; iall < elenum_all; ++iall) {
-    bk[iall] = 0.0;
-  }
-  for (k = 0; k < kcount; k++) {
-    kx = kxvecs[k];
-    ky = kyvecs[k];
-    kz = kzvecs[k];
-    j = 0;
-    for (iele = 0; iele < elenum; ++iele) {
-      i = ele2i[iele];
-      iall = ele2eleall[iele];
-      cypz = cs[ky][1][i]*cs[kz][2][i] - sn[ky][1][i]*sn[kz][2][i];
-      sypz = sn[ky][1][i]*cs[kz][2][i] + cs[ky][1][i]*sn[kz][2][i];
-      exprl = cs[kx][0][i]*cypz - sn[kx][0][i]*sypz;
-      expim = sn[kx][0][i]*cypz + cs[kx][0][i]*sypz;
-      bk[iall] -= 2.0*ug[k]*(exprl*sfacrl_all[k]+expim*sfacim_all[k]);
-    }
-  }
-
-  //slabcorrection in current timestep -- skip if ff / noslab
-  if (ff_flag == NORMAL) {
-    double slabcorrtmp = 0.0;
-    double slabcorrtmp_all = 0.0;
-    for (i = 0; i < nlocal; i++) {
-      if (electrode_check(i) == 0) {
-        slabcorrtmp += 4*q[i]*MY_PI*x[i][2]/volume;
-      }
-    }
-    MPI_Allreduce(&slabcorrtmp,&slabcorrtmp_all,1,MPI_DOUBLE,MPI_SUM,world);
-    for (iele = 0; iele < elenum; ++iele) {
-      i = ele2i[iele];
-      iall = ele2eleall[iele];
-      bk[iall] -= x[i][2]*slabcorrtmp_all;
-    }
-  }
-  MPI_Allreduce(MPI_IN_PLACE,bk,elenum_all,MPI_DOUBLE,MPI_SUM,world);
-  Ktime2 = MPI_Wtime();
-  Ktime += Ktime2-Ktime1;
-  delete [] ele2i;
-  delete [] ele2eleall;
-}
-
-/* ---------------------------------------------------------------------- */
-
 void FixConpDyn2::update_bp() {
-  int iall;
-  for (iall = 0; iall < elenum_all; ++iall) {
-    bp[iall] = 0.0;
-  }
-  coul_cal(1,bp);
-  MPI_Allreduce(MPI_IN_PLACE,bp,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+  double bbb[elenum];
+  coul_cal(1,bbb);
+  b_comm(bbb,bp);
 }
 
 /* ---------------------------------------------------------------------- */

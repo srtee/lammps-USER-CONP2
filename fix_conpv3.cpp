@@ -59,7 +59,8 @@ enum{CONSTANT,EQUAL,ATOM};
 enum{CG,INV};
 enum{NORMAL,FFIELD,NOSLAB};
 extern "C" {
-  void daxpy_(const int *N, const double *alpha, const double *X, const size_t *incX, double *Y, const size_t *incY);
+  double ddot_(const int *N, const double *SX, const int *INCX, const double *SY, const int *INCY);
+  void daxpy_(const int *N, const double *alpha, const double *X, const int *incX, double *Y, const int *incY);
   void dgetrf_(const int *M,const int *N,double *A,const int *lda,int *ipiv,int *info);
   void dgetri_(const int *N,double *A,const int *lda,const int *ipiv,double *work,const int *lwork,int *info);
 }
@@ -129,11 +130,12 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
     }
   }
   elenum = elenum_old = 0;
-  csk = snk = NULL;
-  aaa_all = NULL;
-  bbb_all = NULL;
-  tag2eleall = eleall2tag = ele2tag = NULL;
-  elecheck_eleall = NULL;
+  csk = snk = nullptr;
+  aaa_all = nullptr;
+  bbb_all = nullptr;
+  tag2eleall = eleall2tag = ele2tag = nullptr;
+  elecheck_eleall = nullptr;
+  i2ele = ele2eleall = elebuf2eleall = nullptr;
   Btime = cgtime = Ctime = Ktime = 0;
   runstage = 0; //after operation
                 //0:init; 1: a_cal; 2: first sin/cos cal; 3: inv only, aaa inverse
@@ -169,6 +171,11 @@ FixConpV3::~FixConpV3()
   delete [] qrstr;
   delete [] elesetq;
   delete [] elecheck_eleall;
+  delete [] ele2eleall;
+  delete [] ele2i;
+  delete [] i2ele;
+  delete [] displs;
+  delete [] elenum_list;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -177,6 +184,7 @@ int FixConpV3::setmask()
 {
   int mask = 0;
   mask |= PRE_FORCE;
+  mask |= PRE_NEIGHBOR;
   mask |= PRE_FORCE_RESPA;
   return mask;
 }
@@ -323,10 +331,13 @@ void FixConpV3::setup(int vflag)
     eleall2tag = new int[elenum_all];
     elecheck_eleall = new int[elenum_all];
     // elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i)
+    int nprocs = comm->nprocs;
+    elenum_list = new int[nprocs];
     for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
     aaa_all = new double[elenum_all*elenum_all];
     bbb_all = new double[elenum_all];
     ele2tag = new int[elenum];
+    memory->create(ele2i,elenum,"fixconpv3:ele2i");
     for (i = 0; i < natoms+1; i++) tag2eleall[i] = -1;
     eleallq = new double[elenum_all];
     if (a_matrix_f == 0) {
@@ -339,12 +350,15 @@ void FixConpV3::setup(int vflag)
     
     //int gotsetq = 0;
     //double totsetq = 0;
+    elebuf2eleall = new int[elenum_all];
+    pre_neighbor();
     b_setq_cal();
     equation_solve();
     // double addv = 0;
     elesetq = new double[elenum_all]; 
     get_setq();
     gotsetq = 1;
+    dyn1flag = false;
     dyn_setup(); // additional setup for dynamic versions
   }
     
@@ -428,39 +442,73 @@ void FixConpV3::b_setq_cal()
   }
   MPI_Allreduce(MPI_IN_PLACE,elecheck_eleall,elenum_all,MPI_INT,MPI_SUM,world);
   MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
-  // b_comm(elenum, ele2tag, bbb, bbb_all);
   if (runstage == 1) runstage = 2;
 }
 
 
 /* ----------------------------------------------------------------------*/
 
-void FixConpV3::b_comm(int elenum, int* ele2tag, double* bbb, double* btarget)
+void FixConpV3::pre_neighbor()
 {
-  int i, tagi, elei;
-  for (i = 0; i < elenum_all; i++) {
-    btarget[i] = 0;
+  int* tag = atom->tag;
+  int nlocal = atom->nlocal;
+  int nprocs = comm->nprocs;
+  memory->grow(i2ele,nlocal,"fixconpv3:i2ele");
+  int i,elealli,tagi;
+  int j = 0;
+  for (i = 0; i < nlocal; ++i) {
+    if (electrode_check(i)) {
+      i2ele[i] = j;
+      j++;
+    }
+    else i2ele[i] = -1; 
   }
-  for (i = 0; i < elenum; i++) {
-    tagi = ele2tag[i];
-    elei = tag2eleall[tagi];
-    btarget[elei] = bbb[i];
+  elenum = j;
+  memory->grow(ele2i,elenum,"fixconpv3:ele2i");
+  memory->grow(ele2eleall,elenum,"fixconpv3:ele2eleall");
+  j = 0;
+  for (i = 0; i < nlocal; ++i) {
+    if (electrode_check(i)) {
+      ele2i[j] = i;
+      ele2eleall[j] = tag2eleall[tag[i]];
+      ++j;
+    }
   }
-  // new pattern:
-  // allgatherv(elenum) -> displs
-  // allgatherv(ele2eleall,displs) -> elebuf2eleall
-  // allgatherv(blocal,displs) -> bbuf
-  // for (i in elenum_all) btarget[elebuf2eleall[i]] = bbuf[i]
-  MPI_Allreduce(MPI_IN_PLACE,btarget,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+  MPI_Allgather(&elenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
+  int displssum = 0;
+  for (i = 0; i < nprocs; ++i) {
+    displs[i] = displssum;
+    displssum += elenum_list[i];
+  }
+  MPI_Allgatherv(ele2eleall,elenum,MPI_INT,elebuf2eleall,elenum_list,displs,MPI_INT,world);
 }
 
 /* ----------------------------------------------------------------------*/
 
-void FixConpV3::b_cal()
+void FixConpV3::b_comm(double* bsend, double* brecv)
+{
+  double bbuf[elenum_all];
+  MPI_Allgatherv(bsend,elenum,MPI_DOUBLE,&bbuf,elenum_list,displs,MPI_DOUBLE,world);
+  int iall;
+  for (iall = 0; iall < elenum_all; ++iall) {
+    brecv[elebuf2eleall[iall]] = bbuf[iall];
+  }
+}
+
+/* ----------------------------------------------------------------------*/
+
+void FixConpV3::b_cal() {
+  bool do_bp = true;
+  update_bk(do_bp,bbb_all);
+}
+
+/* ----------------------------------------------------------------------*/
+
+void FixConpV3::update_bk(bool coulyes, double* bbb_all)
 {
   //fprintf(outf,"i   id    Bvec\n");
   Ktime1 = MPI_Wtime();
-  int i,j,k;
+  int i,j,k,elei;
   int nmax = atom->nmax;
   if (atom->nlocal > nmax) {
     memory->destroy3d_offset(cs,-kmax_created);
@@ -477,39 +525,22 @@ void FixConpV3::b_cal()
   int nlocal = atom->nlocal;
   int kx,ky,kz;
   double cypz,sypz,exprl,expim,kspacetmp;
-  int elenum = 0;
-  for (i = 0; i < nlocal; i++) {
-    if(electrode_check(i)) elenum++;
-  }
-  int *ele2i = new int[elenum];
-  int *ele2eleall = new int[elenum];
-  // initialize bbb and create ele tag list in current time step
-  j = 0;
-  for (i = 0; i < nlocal; i++) {
-    if (electrode_check(i)) {
-      ele2tag[j] = tag[i];
-      ele2i[j] = i;
-      ele2eleall[j] = tag2eleall[tag[i]];
-      j++;
-    }
-  }
-  int iall,iele;
-  for (iall = 0; iall < elenum_all; ++iall) {
-    bbb_all[iall] = 0;
+  double bbb[elenum];
+  for (elei = 0; elei < elenum; ++elei) {
+    bbb[elei] = 0;
   }
   for (k = 0; k < kcount; k++) {
     kx = kxvecs[k];
     ky = kyvecs[k];
     kz = kzvecs[k];
     j = 0;
-    for (iele = 0; iele < elenum; ++iele) {
-      i = ele2i[iele];
-      iall = ele2eleall[iele];
+    for (elei = 0; elei < elenum; ++elei) {
+      i = ele2i[elei];
       cypz = cs[ky][1][i]*cs[kz][2][i] - sn[ky][1][i]*sn[kz][2][i];
       sypz = sn[ky][1][i]*cs[kz][2][i] + cs[ky][1][i]*sn[kz][2][i];
       exprl = cs[kx][0][i]*cypz - sn[kx][0][i]*sypz;
       expim = sn[kx][0][i]*cypz + cs[kx][0][i]*sypz;
-      bbb_all[iall] -= 2.0*ug[k]*(exprl*sfacrl_all[k]+expim*sfacim_all[k]);
+      bbb[elei] -= 2.0*ug[k]*(exprl*sfacrl_all[k]+expim*sfacim_all[k]);
     }
   }
 
@@ -523,19 +554,16 @@ void FixConpV3::b_cal()
       }
     }
     MPI_Allreduce(&slabcorrtmp,&slabcorrtmp_all,1,MPI_DOUBLE,MPI_SUM,world);
-    for (iele = 0; iele < elenum; ++iele) {
-      i = ele2i[iele];
-      iall = ele2eleall[iele];
-      bbb_all[iall] -= x[i][2]*slabcorrtmp_all;
+    for (elei = 0; elei < elenum; ++elei) {
+      i = ele2i[elei];
+      bbb[elei] -= x[i][2]*slabcorrtmp_all;
     }
   }
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
   
-  coul_cal(1,bbb_all);
-  MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
-  delete [] ele2i;
-  delete [] ele2eleall;
+  if (coulyes == true) coul_cal(1,bbb);
+  b_comm(bbb,bbb_all);
 }
 
 /*----------------------------------------------------------------------- */
@@ -605,17 +633,16 @@ void FixConpV3::a_cal()
     fprintf(outf,"A matrix calculating ...\n");
   }
 
-  double **eleallx = NULL;
+  double **eleallx = nullptr;
   memory->create(eleallx,elenum_all,3,"fixconpv3:eleallx");
 
   int nprocs = comm->nprocs;
   int nlocal = atom->nlocal;
   int *tag = atom->tag;
   int i,j,k;
-  //int *ele2i = new int[elenum];
-  int elenum_list[nprocs];
+  elenum_list = new int[nprocs];
   MPI_Allgather(&elenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
-  int displs[nprocs];
+  displs = new int[nprocs];
   displs[0] = 0;
   int displssum = 0;
   for (i = 1; i < nprocs; ++i) {
@@ -623,12 +650,14 @@ void FixConpV3::a_cal()
     displs[i] = displssum;
   }
   j = 0;
+  memory->create(i2ele,nlocal,"fixconpv3:i2ele");
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
-      // ele2i[j] = i;
+      i2ele[i] = j;
       ele2tag[j] = tag[i];
       j++;
     }
+    else i2ele[i] = -1;
   }
 
   //gather tag,x and q
@@ -655,10 +684,6 @@ void FixConpV3::a_cal()
     displs2[i] = displs[i]*3;
   }
   MPI_Allgatherv(elexyzlist,elenum*3,MPI_DOUBLE,elexyzlist_all,elenum_list2,displs2,MPI_DOUBLE,world);
-  int iall;
-  for (iall = 0; iall < elenum_all*elenum_all; ++iall) {
-    aaa_all[iall] = 0.0;
-  }
   j = 0;
   for (i = 0; i < elenum_all; i++) {
     if (i == 0 && me == 0) fprintf(outa," ");
@@ -671,37 +696,41 @@ void FixConpV3::a_cal()
     eleallx[i][2] = elexyzlist_all[j];
     j++;
   }
-  int *ele2eleall = new int[elenum];
-  for (iall = 0; iall < elenum; iall++) {
-    ele2eleall[iall] = tag2eleall[ele2tag[iall]];
+  memory->create(ele2eleall,elenum,"fixconpv3:ele2eleall");
+  for (i = 0; i < elenum; i++) {
+    ele2eleall[i] = displs[me] + i;
   }
   memory->create(csk,kcount,elenum_all,"fixconpv3:csk");
   memory->create(snk,kcount,elenum_all,"fixconpv3:snk");
   sincos_a(eleallx);
   delete [] elexyzlist;
   delete [] elexyzlist_all;
-  int elealli,elei,idx1d,tagi;
+  int elealli,idx1d,tagi;
   double zi;
   double CON_4PIoverV = MY_4PI/volume;
   double CON_s2overPIS = sqrt(2.0)/MY_PIS;
   double CON_2overPIS = 2.0/MY_PIS;
-  for (elei = 0; elei < elenum; ++elei) {
-    elealli = ele2eleall[elei];
+  double *aaa = new double[elenum*elenum_all];
+  for (i = 0; i < elenum*elenum_all; ++i) {
+    aaa[i] = 0.0;
+  }
+  for (i = 0; i < elenum; ++i) {
+    elealli = ele2eleall[i];
     for (j = 0; j < elenum_all; ++j) {
-      idx1d = elealli*elenum_all+j;
+      idx1d = i*elenum_all+j;
       for (k = 0; k < kcount; ++k) {
-        aaa_all[idx1d] += 2.0*ug[k]*(csk[k][elealli]*csk[k][j]+snk[k][elealli]*snk[k][j]);
+        aaa[idx1d] += 2.0*ug[k]*(csk[k][elealli]*csk[k][j]+snk[k][elealli]*snk[k][j]);
       }
-      if (ff_flag == NORMAL) aaa_all[idx1d] += CON_4PIoverV*eleallx[elealli][2]*eleallx[j][2];
+      if (ff_flag == NORMAL) aaa[idx1d] += CON_4PIoverV*eleallx[elealli][2]*eleallx[j][2];
     }
-    idx1d = elealli*elenum_all+elealli;
-    aaa_all[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction
+    idx1d = i*elenum_all+elealli;
+    aaa[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction
   }
   memory->destroy(eleallx);
   memory->destroy(csk);
   memory->destroy(snk);
 
-  coul_cal(2,aaa_all);
+  coul_cal(2,aaa);
   
   int elenum_list3[nprocs];
   int displs3[nprocs];
@@ -709,7 +738,7 @@ void FixConpV3::a_cal()
     elenum_list3[i] = elenum_list[i]*elenum_all;
     displs3[i] = displs[i]*elenum_all;
   }
-  MPI_Allreduce(MPI_IN_PLACE,aaa_all,elenum_all*elenum_all,MPI_DOUBLE,MPI_SUM,world);
+  MPI_Allgatherv(aaa,elenum*elenum_all,MPI_DOUBLE,aaa_all,elenum_list3,displs3,MPI_DOUBLE,world);
   for (i = 0; i < elenum_all; ++i) {
     for (j = 0; j < elenum_all; ++j) {
       idx1d = i*elenum_all+j;
@@ -730,8 +759,6 @@ void FixConpV3::a_cal()
   }
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
-  // delete [] ele2i;
-  delete [] ele2eleall;
 }
 /*--------------------------------------------------------------*/
 
@@ -1140,18 +1167,25 @@ void FixConpV3::get_setq()
       elesetq[iall] = eleallq[iall];
     }
   } else if (minimizer == 1) { // inv solver used
+    double elesetq_loc[elenum];
+    int one = 1;
     idx1d = 0;
-    for (iall = 0; iall < elenum_all; ++iall) {
-      elesetq[iall] = 0;
-    }
     for (iloc = 0; iloc < elenum; ++iloc) {
-      iall = tag2eleall[ele2tag[iloc]];
+      iall = ele2eleall[iloc];
       idx1d = iall*elenum_all;
-      for (jall = 0; jall < elenum_all; ++jall) {
-        elesetq[iall] += aaa_all[idx1d+jall]*bbb_all[jall];
-      }
+      elesetq_loc[iloc] = ddot_(&elenum_all,&aaa_all[idx1d],&one,bbb_all,&one);
+      printf("%d\t%d\t%d\t%g\n",iloc,iall,idx1d,elesetq_loc[iloc]);
     }
-    MPI_Allreduce(MPI_IN_PLACE,elesetq,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+    b_comm(elesetq_loc,elesetq);
+    //for (iloc = 0; iloc < elenum; ++iloc) {
+    //  iall = tag2eleall[ele2tag[iloc]];
+    //  idx1d = iall*elenum_all;
+    //  for (jall = 0; jall < elenum_all; ++jall) {
+    //    elesetq[iall] += aaa_all[idx1d+jall]*bbb_all[jall];
+    //  }
+    //}
+    //MPI_Allreduce(MPI_IN_PLACE,elesetq,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+
   }
   totsetq = 0;
   for (i = 0; i < elenum_all; ++i) {
@@ -1159,7 +1193,7 @@ void FixConpV3::get_setq()
       totsetq += elesetq[i];
     }
   }
-  //printf("%g\n",totsetq);
+  printf("%g\n",totsetq);
   //MPI_Allreduce(&netcharge_left_local,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
 }
 
@@ -1176,6 +1210,7 @@ void FixConpV3::update_charge()
   double netcharge_left_local = 0;
   double netcharge_left = 0;
   double *q = atom->q;    
+  int one = 1;
   if (minimizer == 0) {
     for (i = 0; i < nall; ++i) {
       if (electrode_check(i)) {
@@ -1336,20 +1371,20 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
               } else {
                 dudq -= erfc/r;
                 if (i < nlocal && eci) {
-                  elealli = tag2eleall[tag[i]];
-                  if (coulcalflag == 1) m[elealli] -= q[j]*dudq;
+                  elei = i2ele[i];
+                  if (coulcalflag == 1) m[elei] -= q[j]*dudq;
                   else if (coulcalflag == 2 && checksum == 2) {
                     eleallj = tag2eleall[tag[j]];
-                    idx1d = elealli*elenum_all + eleallj;
+                    idx1d = elei*elenum_all + eleallj;
                     m[idx1d] += dudq;
                   }
                 }
                 if (j < nlocal && ecj) {
-                  eleallj = tag2eleall[tag[j]];
-                  if (coulcalflag == 1) m[eleallj] -= q[i]*dudq;
+                  elej = i2ele[j];
+                  if (coulcalflag == 1) m[elej] -= q[i]*dudq;
                   else if (coulcalflag == 2 && checksum == 2) {
                     elealli = tag2eleall[tag[i]];
-                    idx1d = eleallj*elenum_all + elealli;
+                    idx1d = elej*elenum_all + elealli;
                     m[idx1d] += dudq;
                   }
                 }

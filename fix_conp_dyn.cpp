@@ -76,6 +76,7 @@ void FixConpDyn::dyn_setup()
   dyn_interval = 1;
   dyn_fails = 0;
   dyn_status = NO_QOLD;
+  dyn1flag = true;
   //if (me == 0) printf("%d\t%d\t%d\t%d\n",dyn_status,dyn_interval,dyn_step,dyn_fails);
 }
 

@@ -39,11 +39,13 @@ class FixConpV3 : public Fix {
   void setup(int);
   void pre_force(int);
   void pre_force_respa(int,int,int);
+  void pre_neighbor();
   void force_cal(int);
   void a_cal();
   void a_read();
   void b_setq_cal();
   virtual void b_cal();
+  void update_bk(bool, double *);
   void equation_solve();
   virtual void update_charge();
   int electrode_check(int);
@@ -52,7 +54,7 @@ class FixConpV3 : public Fix {
   void cg();
   void inv();
   void get_setq();
-  void b_comm(int, int *, double *, double *);
+  void b_comm(double *, double *);
   void coul_cal(int, double *);
   virtual double compute_scalar();
   virtual void dyn_setup() {}
@@ -68,7 +70,10 @@ class FixConpV3 : public Fix {
   double *aaa_all,*bbb_all;
   int *tag2eleall,*eleall2tag,*ele2tag;
   int *elecheck_eleall;
+  int *elenum_list,*displs,*i2ele;
+  int *ele2i,*elebuf2eleall,*ele2eleall;
   double totsetq,addv;
+  bool dyn1flag;
 
   int me,runstage,gotsetq;
   int ilevel_respa;
