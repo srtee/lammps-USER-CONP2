@@ -73,7 +73,7 @@ class FixConpV3 : public Fix {
   int *elenum_list,*displs,*i2ele;
   int *ele2i,*elebuf2eleall,*ele2eleall;
   double totsetq,addv;
-  bool dyn1flag;
+  double *bbb,*bbuf;
 
   int me,runstage,gotsetq;
   int ilevel_respa;

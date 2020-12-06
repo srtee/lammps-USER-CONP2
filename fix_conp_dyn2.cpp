@@ -135,7 +135,8 @@ void FixConpDyn2::b_cal()
 /* ---------------------------------------------------------------------- */
 
 void FixConpDyn2::update_bp() {
-  double bbb[elenum];
+  int iloc;
+  for (iloc = 0; iloc < elenum; ++iloc) bbb[iloc] = 0;
   coul_cal(1,bbb);
   b_comm(bbb,bp);
 }

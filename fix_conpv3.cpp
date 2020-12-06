@@ -136,6 +136,7 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   tag2eleall = eleall2tag = ele2tag = nullptr;
   elecheck_eleall = nullptr;
   i2ele = ele2eleall = elebuf2eleall = nullptr;
+  bbb = bbuf = nullptr;
   Btime = cgtime = Ctime = Ktime = 0;
   runstage = 0; //after operation
                 //0:init; 1: a_cal; 2: first sin/cos cal; 3: inv only, aaa inverse
@@ -154,6 +155,12 @@ FixConpV3::~FixConpV3()
   fclose(outf);
   memory->destroy3d_offset(cs,-kmax_created);
   memory->destroy3d_offset(sn,-kmax_created);
+  memory->destroy(bbb);
+  memory->destroy(i2ele);
+  memory->destroy(ele2i);
+  memory->destroy(ele2eleall);
+  delete [] bbuf;
+  delete [] elebuf2eleall;
   delete [] aaa_all;
   delete [] bbb_all;
   delete [] tag2eleall;
@@ -172,8 +179,6 @@ FixConpV3::~FixConpV3()
   delete [] elesetq;
   delete [] elecheck_eleall;
   delete [] ele2eleall;
-  delete [] ele2i;
-  delete [] i2ele;
   delete [] displs;
   delete [] elenum_list;
 }
@@ -226,13 +231,13 @@ void FixConpV3::setup(int vflag)
   // assign coulpair to either the existing pair style if it matches 'coul'
   // or, if hybrid, the pair style matching 'coul'
   // and if neither are true then something has gone horribly wrong!
-  coulpair = NULL;
+  coulpair = nullptr;
   coulpair = (Pair *) force->pair_match("coul",0);
-  if (coulpair == NULL) {
+  if (coulpair == nullptr) {
     // return 1st hybrid substyle matching coul (inexactly)
     coulpair = (Pair *) force->pair_match("coul",0,1);
     }
-  if (coulpair == NULL) error->all(FLERR,"Must use conp with coul pair style");
+  if (coulpair == nullptr) error->all(FLERR,"Must use conp with coul pair style");
   //PairHybrid *pairhybrid = dynamic_cast<PairHybrid*>(force->pair);
   //Pair *coulpair = pairhybrid->styles[0];
 
@@ -347,18 +352,17 @@ void FixConpV3::setup(int vflag)
       a_read();
     }
     runstage = 1;
-    
-    //int gotsetq = 0;
-    //double totsetq = 0;
+
+    gotsetq = 0; 
     elebuf2eleall = new int[elenum_all];
+    bbuf = new double[elenum_all];
+    memory->create(bbb,elenum,"fixconpv3:bbb");
     pre_neighbor();
     b_setq_cal();
     equation_solve();
-    // double addv = 0;
     elesetq = new double[elenum_all]; 
     get_setq();
     gotsetq = 1;
-    dyn1flag = false;
     dyn_setup(); // additional setup for dynamic versions
   }
     
@@ -418,7 +422,7 @@ int FixConpV3::electrode_check(int atomid)
 
 void FixConpV3::b_setq_cal()
 {
-  int i,iall,eci;
+  int i,iall,iloc,eci;
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
   double evscale = force->qe2f/force->qqr2e;
@@ -426,22 +430,22 @@ void FixConpV3::b_setq_cal()
   double zprd = domain->zprd;
   double zprd_half = domain->zprd_half;
   double zhalf = zprd_half + domain->boxlo[2];
-  for (iall = 0; iall < elenum_all; ++iall) {
-    i = atom->map(eleall2tag[iall]);
-    if (i > -1 && i < nlocal) {
-      eci = electrode_check(i);
-      if (ff_flag == FFIELD) {
-        if (eci == 1 && x[i][2] < zhalf) {
-          bbb_all[iall] = -(x[i][2]/zprd + 1)*evscale;
-        }
-        else bbb_all[iall] = -x[i][2]*evscale/zprd;
+  for (iloc = 0; iloc < elenum; ++iloc) {
+    iall = ele2eleall[iloc];
+    i = ele2i[iloc];
+    eci = electrode_check(i);
+    if (ff_flag == FFIELD) {
+      if (eci == 1 && x[i][2] < zhalf) {
+        bbb[iloc] = -(x[i][2]/zprd + 1)*evscale;
       }
-      else bbb_all[iall] = -0.5*evscale*eci;
-      elecheck_eleall[iall] = eci;
+      else bbb[iloc] = -x[i][2]*evscale/zprd;
     }
+    else bbb[iloc] = -0.5*evscale*eci;
+    elecheck_eleall[iall] = eci;
   }
   MPI_Allreduce(MPI_IN_PLACE,elecheck_eleall,elenum_all,MPI_INT,MPI_SUM,world);
-  MPI_Allreduce(MPI_IN_PLACE,bbb_all,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+  // this really could be a b_comm but I haven't written the method for an int array
+  b_comm(bbb,bbb_all);
   if (runstage == 1) runstage = 2;
 }
 
@@ -466,6 +470,7 @@ void FixConpV3::pre_neighbor()
   elenum = j;
   memory->grow(ele2i,elenum,"fixconpv3:ele2i");
   memory->grow(ele2eleall,elenum,"fixconpv3:ele2eleall");
+  memory->grow(bbb,elenum,"fixconpv3:bbb");
   j = 0;
   for (i = 0; i < nlocal; ++i) {
     if (electrode_check(i)) {
@@ -487,8 +492,7 @@ void FixConpV3::pre_neighbor()
 
 void FixConpV3::b_comm(double* bsend, double* brecv)
 {
-  double bbuf[elenum_all];
-  MPI_Allgatherv(bsend,elenum,MPI_DOUBLE,&bbuf,elenum_list,displs,MPI_DOUBLE,world);
+  MPI_Allgatherv(bsend,elenum,MPI_DOUBLE,bbuf,elenum_list,displs,MPI_DOUBLE,world);
   int iall;
   for (iall = 0; iall < elenum_all; ++iall) {
     brecv[elebuf2eleall[iall]] = bbuf[iall];
@@ -524,16 +528,12 @@ void FixConpV3::update_bk(bool coulyes, double* bbb_all)
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
   int kx,ky,kz;
-  double cypz,sypz,exprl,expim,kspacetmp;
-  double bbb[elenum];
-  for (elei = 0; elei < elenum; ++elei) {
-    bbb[elei] = 0;
-  }
+  double cypz,sypz,exprl,expim;
+  for (elei = 0; elei < elenum; ++elei) bbb[elei] = 0.0;
   for (k = 0; k < kcount; k++) {
     kx = kxvecs[k];
     ky = kyvecs[k];
     kz = kzvecs[k];
-    j = 0;
     for (elei = 0; elei < elenum; ++elei) {
       i = ele2i[elei];
       cypz = cs[ky][1][i]*cs[kz][2][i] - sn[ky][1][i]*sn[kz][2][i];
@@ -541,7 +541,7 @@ void FixConpV3::update_bk(bool coulyes, double* bbb_all)
       exprl = cs[kx][0][i]*cypz - sn[kx][0][i]*sypz;
       expim = sn[kx][0][i]*cypz + cs[kx][0][i]*sypz;
       bbb[elei] -= 2.0*ug[k]*(exprl*sfacrl_all[k]+expim*sfacim_all[k]);
-    }
+    } // ddot tested -- slower!
   }
 
   //slabcorrection in current timestep -- skip if ff / noslab
@@ -1109,7 +1109,7 @@ void FixConpV3::inv()
       ainve[i] = 0;
       for (j = 0; j < elenum_all; j++) {
         ainve[i] += aaa_all[idx1d];
-	idx1d++;
+      	idx1d++;
       }
       totinve += ainve[i];
     }
@@ -1160,41 +1160,29 @@ void FixConpV3::get_setq()
   int nlocal = atom->nlocal;
   int nall = nlocal+atom->nghost;
   double netcharge_left_local = 0;
-  //double netcharge = 0;
 
   if (minimizer == 0) { // cg solver used
     for (iall = 0; iall < elenum_all; ++iall) {
       elesetq[iall] = eleallq[iall];
     }
   } else if (minimizer == 1) { // inv solver used
-    double elesetq_loc[elenum];
     int one = 1;
     idx1d = 0;
     for (iloc = 0; iloc < elenum; ++iloc) {
       iall = ele2eleall[iloc];
       idx1d = iall*elenum_all;
-      elesetq_loc[iloc] = ddot_(&elenum_all,&aaa_all[idx1d],&one,bbb_all,&one);
-      printf("%d\t%d\t%d\t%g\n",iloc,iall,idx1d,elesetq_loc[iloc]);
+      bbb[iloc] = ddot_(&elenum_all,&aaa_all[idx1d],&one,bbb_all,&one);
     }
-    b_comm(elesetq_loc,elesetq);
-    //for (iloc = 0; iloc < elenum; ++iloc) {
-    //  iall = tag2eleall[ele2tag[iloc]];
-    //  idx1d = iall*elenum_all;
-    //  for (jall = 0; jall < elenum_all; ++jall) {
-    //    elesetq[iall] += aaa_all[idx1d+jall]*bbb_all[jall];
-    //  }
-    //}
-    //MPI_Allreduce(MPI_IN_PLACE,elesetq,elenum_all,MPI_DOUBLE,MPI_SUM,world);
-
+    b_comm(bbb,elesetq);
   }
   totsetq = 0;
-  for (i = 0; i < elenum_all; ++i) {
-    if (elecheck_eleall[i] == 1) {
-      totsetq += elesetq[i];
+  for (iloc = 0; iloc < elenum; ++iloc) {
+    iall = ele2eleall[iloc];
+    if (elecheck_eleall[iall] == 1) {
+      totsetq += elesetq[iall];
     }
   }
-  printf("%g\n",totsetq);
-  //MPI_Allreduce(&netcharge_left_local,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
+  MPI_Allreduce(MPI_IN_PLACE,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1207,56 +1195,33 @@ void FixConpV3::update_charge()
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
   int nall = nlocal+atom->nghost;
-  double netcharge_left_local = 0;
   double netcharge_left = 0;
   double *q = atom->q;    
-  int one = 1;
-  if (minimizer == 0) {
-    for (i = 0; i < nall; ++i) {
-      if (electrode_check(i)) {
-        tagi = tag[i];
-        elealli = tag2eleall[tagi];
-        q[i] = eleallq[elealli];
-      }
-    }
-  } else if (minimizer == 1) {
+  if (minimizer == 1) {
     idx1d = 0;
-    for (iall = 0; iall < elenum_all; ++iall) {
-      eleallq[iall] = 0;
-    }
+    int one = 1;
     for (iloc = 0; iloc < elenum; ++iloc) {
-      iall = tag2eleall[ele2tag[iloc]];
+      iall = ele2eleall[iloc];
       idx1d = iall*elenum_all;
-      for (jall = 0; jall < elenum_all; ++jall) {
-        eleallq[iall] += aaa_all[idx1d+jall]*bbb_all[jall];
-      }
+      bbb[iloc] = ddot_(&elenum_all,&aaa_all[idx1d],&one,bbb_all,&one);
     }
-    MPI_Allreduce(MPI_IN_PLACE,eleallq,elenum_all,MPI_DOUBLE,MPI_SUM,world);
-    for (iall = 0; iall < elenum_all; ++iall) {
-      i = atom->map(eleall2tag[iall]);
-      if (i != -1) q[i] = eleallq[iall];
-    }
-  }
-  netcharge_left = 0;
-  for (i = 0; i < elenum_all; ++i) {
-    if (elecheck_eleall[i] == 1) {
-      netcharge_left += eleallq[i];
-    }
-  }
-
-  //  calculate additional charge needed
-  //  this fragment is the only difference from fix_conq
-
-  //  now qL and qR are left and right *voltages*
-  //  evscale was included in the precalculation of eleallq
-
+    b_comm(bbb,eleallq);
+  } // if minimizer == 0 then we already have eleallq ready;
+  
   if (qlstyle == EQUAL) qL = input->variable->compute_equal(qlvar);
   if (qrstyle == EQUAL) qR = input->variable->compute_equal(qrvar);
   addv = qR - qL;
+  //  now qL and qR are left and right *voltages*
+  //  evscale was included in the precalculation of eleallq
+
+  //  update charges including additional charge needed
+  //  this fragment is the only difference from fix_conq
   for (iall = 0; iall < elenum_all; ++iall) {
+    if (elecheck_eleall[iall] == 1) netcharge_left += eleallq[iall];
     i = atom->map(eleall2tag[iall]);
-    if (i != -1) q[i] += addv*elesetq[iall];
-  }
+    if (i != -1) q[i] = eleallq[iall] + addv*elesetq[iall];
+  } // we need to loop like this to correctly charge ghost atoms
+
   //  hack: we will use addv to store total electrode charge
   addv *= totsetq;
   addv += netcharge_left;
