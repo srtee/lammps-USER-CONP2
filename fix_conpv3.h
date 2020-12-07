@@ -58,8 +58,10 @@ class FixConpV3 : public Fix {
   void coul_cal(int, double *);
   virtual double compute_scalar();
   virtual void dyn_setup() {}
+  void init_list(int, class NeighList*);
 
  protected:
+  class NeighList *list;
   int ff_flag; 
   int minimizer;
   double qL,qR;

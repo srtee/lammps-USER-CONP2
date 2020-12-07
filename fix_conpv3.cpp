@@ -39,6 +39,8 @@
 #include "mpi.h"
 #include "math_const.h"
 #include "neigh_list.h"
+#include "neigh_request.h"
+#include "neighbor.h"
 #include "domain.h"
 #include "utils.h"
 #include "iostream"
@@ -220,6 +222,18 @@ void FixConpV3::init()
     if (!input->variable->equalstyle(qrvar))
       error->all(FLERR,"Variable 2 for fix conp is invalid style");
   }
+
+  // request neighbor list -- half, newton off
+  int irequest = neighbor->request(this,instance_me);
+  neighbor->requests[irequest]->pair = 0;
+  neighbor->requests[irequest]->fix  = 1;
+  neighbor->requests[irequest]->newton = 2;
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixConpV3::init_list(int /* id */, NeighList *ptr) {
+  list = ptr;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -502,7 +516,7 @@ void FixConpV3::b_comm(double* bsend, double* brecv)
 /* ----------------------------------------------------------------------*/
 
 void FixConpV3::b_cal() {
-  bool do_bp = true;
+  bool do_bp=true;
   update_bk(do_bp,bbb_all);
 }
 
@@ -1260,15 +1274,15 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
   double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
   double forcecoul,ecoul,prefactor,fpair;
 
-  int inum = coulpair->list->inum;
+  int inum = list->inum;
   int nlocal = atom->nlocal;
   int newton_pair = force->newton_pair;
   int *atomtype = atom->type;
   int *tag = atom->tag;
-  int *ilist = coulpair->list->ilist;
+  int *ilist = list->ilist;
   int *jlist;
-  int *numneigh = coulpair->list->numneigh;
-  int **firstneigh = coulpair->list->firstneigh;
+  int *numneigh = list->numneigh;
+  int **firstneigh = list->firstneigh;
   
   double qqrd2e = force->qqrd2e;
   double **cutsq = coulpair->cutsq;
