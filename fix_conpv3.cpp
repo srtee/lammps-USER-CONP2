@@ -193,6 +193,7 @@ int FixConpV3::setmask()
   mask |= PRE_FORCE;
   mask |= PRE_NEIGHBOR;
   mask |= PRE_FORCE_RESPA;
+  mask |= POST_FORCE;
   return mask;
 }
 
@@ -412,6 +413,9 @@ void FixConpV3::pre_force(int vflag)
     equation_solve();
     update_charge();
   }
+}
+
+void FixConpV3::post_force(int vflag) {
   force_cal(vflag);
 }
 

@@ -40,6 +40,7 @@ class FixConpV3 : public Fix {
   void pre_force(int);
   void pre_force_respa(int,int,int);
   void pre_neighbor();
+  void post_force(int);
   void force_cal(int);
   void a_cal();
   void a_read();

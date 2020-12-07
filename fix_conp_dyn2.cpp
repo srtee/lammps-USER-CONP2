@@ -96,11 +96,18 @@ void FixConpDyn2::b_cal()
     update_bk(do_bp,bk); 
     if (bk_fails <= 10) {
       double bk_err = update_dynv(bk,bkvec,&bk_status,bk_interval);
-      if (bk_err > 0.0 && bk_err <= bk_lerr) ++bk_interval;
+      if (bk_err > 0.0 && bk_err <= bk_lerr) {
+        ++bk_interval;
+        if (me == 0) fprintf(outf,"Step %d, bk_err was %g: now checking every %d steps\n",update->ntimestep,bk_err,bk_interval);
+      }
       else if (bk_err >= bk_uerr && bk_interval > 1) {
         bk_interval = bk_interval % 2 + bk_interval / 2;
+        if (me == 0) fprintf(outf,"Step %d, bk_err was %g: now checking every %d steps\n",update->ntimestep,bk_err,bk_interval);
       }
-      else if (bk_err >= bk_lerr && bk_interval == 1) ++bk_fails;
+      else if (bk_err >= bk_lerr && bk_interval == 1) {
+        ++bk_fails;
+        if (me == 0) fprintf(outf,"Step %d, bk_err was %g: have failed to change check interval %d times\n",update->ntimestep,bk_err,bk_fails);
+      }
       bk_step = 0; 
     }
   }
@@ -114,11 +121,18 @@ void FixConpDyn2::b_cal()
     update_bp(); 
     if (bp_fails <= 10) {
       double bp_err = update_dynv(bp,bpvec,&bp_status,bp_interval);
-      if (bp_err > 0.0 && bp_err <= bp_lerr) ++bp_interval;
+      if (bp_err > 0.0 && bp_err <= bp_lerr) {
+        ++bp_interval;
+        if (me == 0) fprintf(outf,"Step %d, bp_err was %g: now checking every %d steps\n",update->ntimestep,bp_err,bp_interval);
+      }
       else if (bp_err >= bp_uerr && bp_interval > 1) {
         bp_interval = bp_interval % 2 + bp_interval / 2;
+        if (me == 0) fprintf(outf,"Step %d, bp_err was %g: now checking every %d steps\n",update->ntimestep,bp_err,bp_interval);
       }
-      else if (bp_err >= bp_lerr && bp_interval == 1) ++bp_fails;
+      else if (bp_err >= bp_lerr && bp_interval == 1) {
+        ++bp_fails;
+        if (me == 0) fprintf(outf,"Step %d, bp_err was %g: have failed to change check interval %d times\n",update->ntimestep,bp_err,bp_fails);
+      }
       bp_step = 0; 
     }
   }
