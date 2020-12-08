@@ -72,6 +72,7 @@ extern "C" {
 FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),coulpair(NULL),qlstr(NULL),qrstr(NULL)
 {
+  MPI_Comm_rank(world,&me);
   if (narg < 11) error->all(FLERR,"Illegal fix conp command");
   qlstyle = qrstyle = CONSTANT;
   ilevel_respa = 0;
@@ -128,8 +129,11 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
       else if (strcmp(arg[iarg],"inv") == 0) a_matrix_f = 2;
       ++iarg;
       if (iarg >= narg) error->all(FLERR,"No A matrix filename given");
-      a_matrix_fp = fopen(arg[iarg],"r");
-      if (a_matrix_fp == nullptr) error->all(FLERR,"Cannot open A matrix file");
+      if (me == 0) {
+        a_matrix_fp = fopen(arg[iarg],"r");
+        printf("Opened file %s for reading A matrix\n",arg[iarg]);
+        if (a_matrix_fp == nullptr) error->all(FLERR,"Cannot open A matrix file");
+      }
       outa = nullptr;
     }
   }
@@ -204,6 +208,30 @@ int FixConpV3::setmask()
 void FixConpV3::init()
 {
   MPI_Comm_rank(world,&me);
+  //Pair *coulpair;
+
+  // assign coulpair to either the existing pair style if it matches 'coul'
+  // or, if hybrid, the pair style matching 'coul'
+  // and if neither are true then something has gone horribly wrong!
+  coulpair = nullptr;
+  coulpair = (Pair *) force->pair_match("coul",0);
+  if (coulpair == nullptr) {
+    // return 1st hybrid substyle matching coul (inexactly)
+    coulpair = (Pair *) force->pair_match("coul",0,1);
+    }
+  if (coulpair == nullptr) error->all(FLERR,"Must use conp with coul pair style");
+  //PairHybrid *pairhybrid = dynamic_cast<PairHybrid*>(force->pair);
+  //Pair *coulpair = pairhybrid->styles[0];
+  
+  Pair *intelpair;
+  bool intelflag = false;
+  intelpair = nullptr;
+  intelpair = (Pair *) force->pair_match("intel",0,1);
+  if (intelpair != nullptr && me == 0) {
+    intelflag = true;
+    printf("Fix conp detected Intel pair");
+  }
+
   if (strstr(update->integrate_style,"respa")) {
     ilevel_respa = ((Respa *) update->integrate)->nlevels-1;
     if (respa_level >= 0) ilevel_respa = MIN(respa_level,ilevel_respa);
@@ -231,6 +259,12 @@ void FixConpV3::init()
   neighbor->requests[irequest]->pair = 0;
   neighbor->requests[irequest]->fix  = 1;
   neighbor->requests[irequest]->newton = 2;
+  if (intelflag) {
+    neighbor->requests[irequest]->full = 1;
+    neighbor->requests[irequest]->half = 0;
+    neighbor->requests[irequest]->intel = 1;
+    neighbor->requests[irequest]->newton = 1;
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -243,23 +277,6 @@ void FixConpV3::init_list(int /* id */, NeighList *ptr) {
 
 void FixConpV3::setup(int vflag)
 {
-  //Pair *coulpair;
-
-  // assign coulpair to either the existing pair style if it matches 'coul'
-  // or, if hybrid, the pair style matching 'coul'
-  // and if neither are true then something has gone horribly wrong!
-  coulpair = nullptr;
-  coulpair = (Pair *) force->pair_match("coul",0);
-  if (coulpair == nullptr) {
-    // return 1st hybrid substyle matching coul (inexactly)
-    coulpair = (Pair *) force->pair_match("coul",0,1);
-    }
-  if (coulpair == nullptr) error->all(FLERR,"Must use conp with coul pair style");
-  //PairHybrid *pairhybrid = dynamic_cast<PairHybrid*>(force->pair);
-  //Pair *coulpair = pairhybrid->styles[0];
-
-
-
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;
   double accuracy = force->kspace->accuracy;
@@ -350,11 +367,20 @@ void FixConpV3::setup(int vflag)
       if (electrode_check(i)) ++elenum;
     }
     MPI_Allreduce(&elenum,&elenum_all,1,MPI_INT,MPI_SUM,world);
+    int nprocs = comm->nprocs;
+    elenum_list = new int[nprocs];
+    MPI_Allgather(&elenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
+    displs = new int[nprocs];
+    displs[0] = 0;
+    int displssum = 0;
+    for (i = 1; i < nprocs; ++i) {
+      displssum += elenum_list[i-1];
+      displs[i] = displssum;
+    }
+
     eleall2tag = new int[elenum_all];
     elecheck_eleall = new int[elenum_all];
     // elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i)
-    int nprocs = comm->nprocs;
-    elenum_list = new int[nprocs];
     for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
     aaa_all = new double[elenum_all*elenum_all];
     bbb_all = new double[elenum_all];
@@ -584,8 +610,19 @@ void FixConpV3::update_bk(bool coulyes, double* bbb_all)
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
   
+  b_comm(bbb,bbb_all);
+  if (me == 0) {
+    //for (elei = 0; elei < elenum_all; ++elei) {
+      fprintf(outf,"Electrode atom tag %d has bvector %g (bk)\n",eleall2tag[0],bbb_all[0]);
+    //}
+  }
   if (coulyes == true) coul_cal(1,bbb);
   b_comm(bbb,bbb_all);
+  if (me == 0) {
+    //for (elei = 0; elei < elenum_all; ++elei) {
+      fprintf(outf,"Electrode atom tag %d has bvector %g (bk+bp)\n",eleall2tag[0],bbb_all[0]);
+    //}
+  }
 }
 
 /*----------------------------------------------------------------------- */
@@ -620,12 +657,9 @@ void FixConpV3::a_read()
     int maxchar = 21*elenum_all+1;
     char line[maxchar];
     char *word;
-    int lineno = 0
     while(fgets(line,maxchar,a_matrix_fp) != NULL) {
-      ++lineno;
       word = strtok(line," \t");
       while(word != NULL) {
-        //printf("%s\n",word);
         if (i < elenum_all) {
           eleall2tag[i] = atoi(word);
         } else {
@@ -638,17 +672,14 @@ void FixConpV3::a_read()
         word = strtok(NULL," ");
         i++;
       }
-      printf("Reading line %d\n",lineno);
     }
     fclose(a_matrix_fp);
     if (idx1d != elenum_all*elenum_all-1) {
       error->all(FLERR,"Too few entries in A matrix file");
     }
   }
-  if (me == 0) printf("Broadcasting A matrix\n");
   MPI_Bcast(eleall2tag,elenum_all,MPI_INT,0,world);
   MPI_Bcast(aaa_all,elenum_all*elenum_all,MPI_DOUBLE,0,world);
-  printf("Proc %d has received A matrix",me);
 
   int tagi;
   for (i = 0; i < elenum_all; i++) {
@@ -674,15 +705,6 @@ void FixConpV3::a_cal()
   int nlocal = atom->nlocal;
   int *tag = atom->tag;
   int i,j,k;
-  elenum_list = new int[nprocs];
-  MPI_Allgather(&elenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
-  displs = new int[nprocs];
-  displs[0] = 0;
-  int displssum = 0;
-  for (i = 1; i < nprocs; ++i) {
-    displssum += elenum_list[i-1];
-    displs[i] = displssum;
-  }
   j = 0;
   memory->create(i2ele,nlocal,"fixconpv3:i2ele");
   for (i = 0; i < nlocal; i++) {
@@ -1220,7 +1242,7 @@ void FixConpV3::get_setq()
   MPI_Allreduce(MPI_IN_PLACE,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
   if (me == 0) {
     for (iall = 0; iall < elenum_all; ++iall){
-      fprintf(outf,"Electrode atom tag %d has getsetq %g\n",eleall2tag[iall],elesetq[iall]);
+    //  fprintf(outf,"Electrode atom tag %d has getsetq %g\n",eleall2tag[iall],elesetq[iall]);
     }
   }
 }
@@ -1247,10 +1269,11 @@ void FixConpV3::update_charge()
     }
     b_comm(bbb,eleallq);
   } // if minimizer == 0 then we already have eleallq ready;
-  
+
+  if (me == 0) fprintf(outf,"Electrode atom tag %d has eleallq %g\n",eleall2tag[0],eleallq[0]);
+
   if (me == 0) {
     for (iall = 0; iall < elenum_all; ++iall){
-      fprintf(outf,"Electrode atom tag %d has bvector %g\n",eleall2tag[iall],eleallq[iall]);
     }
   }
 
@@ -1266,7 +1289,7 @@ void FixConpV3::update_charge()
     if (elecheck_eleall[iall] == 1) netcharge_left += eleallq[iall];
     i = atom->map(eleall2tag[iall]);
     if (i != -1) {
-      if (me == 0) fprintf(outf,"Proc 0: Electrode atom tag %d will have charge reset from %g to %g under DV=%g V\n",tag[i],q[i],eleallq[iall]+addv*elesetq[iall],addv);
+    //  if (me == 0) fprintf(outf,"Proc 0: Electrode atom tag %d will have charge reset from %g to %g under DV=%g V\n",tag[i],q[i],eleallq[iall]+addv*elesetq[iall],addv);
       q[i] = eleallq[iall] + addv*elesetq[iall];
     }
   } // we need to loop like this to correctly charge ghost atoms
@@ -1294,8 +1317,7 @@ void FixConpV3::force_cal(int vflag)
     double qscale = force->qqrd2e*scale;
     force->kspace->energy += qscale*eta*eleqsqsum/(sqrt(2)*MY_PIS);
   }
-  coul_cal(0,nullptr);
-
+  // coul_cal(0,nullptr);
 }
 /* ---------------------------------------------------------------------- */
 void FixConpV3::coul_cal(int coulcalflag, double* m)

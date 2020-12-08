@@ -1,4 +1,4 @@
-processors * * 2
+#processors * * 2
     newton     off
     units      real
     atom_style full
@@ -24,7 +24,8 @@ group eleright molecule 642
 
 velocity ele set 0.0 0.0 0.0
 fix freeze ele setforce 0.0 0.0 0.0
-set type 5 charge 0
+set group eleleft charge 0.0
+set group eleright charge 0.0
 
 variable q   atom  q
 variable qz  atom q*z
@@ -33,15 +34,18 @@ compute qright eleright reduce sum v_q
 compute dipole sol reduce sum v_qz
 compute tempsl sol temp
 
-fix constpot all conp 1 1.979 641 642 -0.0 0.0 inv iter org amatrix_v3
+fix constpot all conp 1 1.979 641 642 -0.0 0.0 inv iter org amatrix
 fix bmishake bmi shake 0.0001 10 0 t 1 2 3 b 1 2 a 1
 
 timestep 2.0
 fix NVT sol nvt temp 400. 400. 100
 
 thermo_style custom step temp c_tempsl epair etotal c_dipole c_qleft c_qright f_constpot
-thermo 10
+thermo 1
 
-variable nsteps equal 250
+dump 1 ele custom 1 ele id q
+dump_modify 1 sort id 
+
+variable nsteps equal 50
 
 run ${nsteps} upto
