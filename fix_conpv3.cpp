@@ -353,6 +353,14 @@ void FixConpV3::setup(int vflag)
     // elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i)
     int nprocs = comm->nprocs;
     elenum_list = new int[nprocs];
+    MPI_Allgather(&elenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
+    displs = new int[nprocs];
+    displs[0] = 0;
+    int displssum = 0;
+    for (i = 1; i < nprocs; ++i) {
+      displssum += elenum_list[i-1];
+      displs[i] = displssum;
+    }
     for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
     aaa_all = new double[elenum_all*elenum_all];
     bbb_all = new double[elenum_all];
@@ -644,6 +652,9 @@ void FixConpV3::a_read()
 /*----------------------------------------------------------------------- */
 void FixConpV3::a_cal()
 {
+  int nprocs = comm->nprocs;
+  int nlocal = atom->nlocal;
+  int *tag = atom->tag;
   double t1,t2;
   t1 = MPI_Wtime();
   Ktime1 = MPI_Wtime();
@@ -654,19 +665,7 @@ void FixConpV3::a_cal()
   double **eleallx = nullptr;
   memory->create(eleallx,elenum_all,3,"fixconpv3:eleallx");
 
-  int nprocs = comm->nprocs;
-  int nlocal = atom->nlocal;
-  int *tag = atom->tag;
   int i,j,k;
-  elenum_list = new int[nprocs];
-  MPI_Allgather(&elenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
-  displs = new int[nprocs];
-  displs[0] = 0;
-  int displssum = 0;
-  for (i = 1; i < nprocs; ++i) {
-    displssum += elenum_list[i-1];
-    displs[i] = displssum;
-  }
   j = 0;
   memory->create(i2ele,nlocal,"fixconpv3:i2ele");
   for (i = 0; i < nlocal; i++) {
