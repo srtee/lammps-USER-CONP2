@@ -115,20 +115,22 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   int iarg;
   for (iarg = 11; iarg < narg; ++iarg){
     if (strcmp(arg[iarg],"ffield") == 0) {
-      if (ff_flag == NOSLAB) error->all(FLERR,"ffield and noslab cannot both be chosen!");
+      if (ff_flag == NOSLAB) error->all(FLERR,"ffield and noslab cannot both be chosen");
       ff_flag = FFIELD;
     }
     else if (strcmp(arg[iarg],"noslab") == 0) {
-      if (ff_flag == FFIELD) error->all(FLERR,"ffield and noslab cannot both be chosen!");
+      if (ff_flag == FFIELD) error->all(FLERR,"ffield and noslab cannot both be chosen");
       ff_flag = NOSLAB;     
     }
     else if (strcmp(arg[iarg],"org") == 0 || strcmp(arg[iarg],"inv") == 0) {
-      outa = nullptr;
-      a_matrix_fp = fopen(arg[iarg],"r");
-      if (a_matrix_fp == nullptr) error->all(FLERR,"Cannot open A matrix file");
+      if (a_matrix_f != 0) error->all(FLERR,"A matrix file specified more than once");
       if (strcmp(arg[iarg],"org") == 0) a_matrix_f = 1;
       else if (strcmp(arg[iarg],"inv") == 0) a_matrix_f = 2;
-      else error->all(FLERR,"Unknown A matrix type");
+      ++iarg;
+      if (iarg >= narg) error->all(FLERR,"No A matrix filename given");
+      a_matrix_fp = fopen(arg[iarg],"r");
+      if (a_matrix_fp == nullptr) error->all(FLERR,"Cannot open A matrix file");
+      outa = nullptr;
     }
   }
   elenum = elenum_old = 0;
@@ -362,8 +364,10 @@ void FixConpV3::setup(int vflag)
     eleallq = new double[elenum_all];
     if (a_matrix_f == 0) {
       if (me == 0) outa = fopen("amatrix","w");
+      if (me == 0) printf("Now calculating amatrix ... \n");
       a_cal();
     } else {
+      if (me == 0) printf("Now reading in amatrix type %d ... \n",a_matrix_f);
       a_read();
     }
     runstage = 1;
@@ -616,23 +620,35 @@ void FixConpV3::a_read()
     int maxchar = 21*elenum_all+1;
     char line[maxchar];
     char *word;
+    int lineno = 0
     while(fgets(line,maxchar,a_matrix_fp) != NULL) {
+      ++lineno;
       word = strtok(line," \t");
       while(word != NULL) {
+        //printf("%s\n",word);
         if (i < elenum_all) {
           eleall2tag[i] = atoi(word);
         } else {
           idx1d = i-elenum_all;
+          if (idx1d >= elenum_all*elenum_all) {
+            error->all(FLERR,"Too many entries in A matrix file");
+          }
           aaa_all[idx1d] = atof(word);
         }
-        word = strtok(NULL," \t");
+        word = strtok(NULL," ");
         i++;
       }
+      printf("Reading line %d\n",lineno);
     }
     fclose(a_matrix_fp);
+    if (idx1d != elenum_all*elenum_all-1) {
+      error->all(FLERR,"Too few entries in A matrix file");
+    }
   }
+  if (me == 0) printf("Broadcasting A matrix\n");
   MPI_Bcast(eleall2tag,elenum_all,MPI_INT,0,world);
   MPI_Bcast(aaa_all,elenum_all*elenum_all,MPI_DOUBLE,0,world);
+  printf("Proc %d has received A matrix",me);
 
   int tagi;
   for (i = 0; i < elenum_all; i++) {
@@ -714,6 +730,7 @@ void FixConpV3::a_cal()
     eleallx[i][2] = elexyzlist_all[j];
     j++;
   }
+  if (me == 0) fprintf (outa,"\n");
   memory->create(ele2eleall,elenum,"fixconpv3:ele2eleall");
   for (i = 0; i < elenum; i++) {
     ele2eleall[i] = displs[me] + i;
@@ -1149,7 +1166,7 @@ void FixConpV3::inv()
       FILE *outinva = fopen("inv_a_matrix","w");
       for (i = 0; i < elenum_all; i++) {
         if(i == 0) fprintf (outinva," ");
-        fprintf (outinva,"%12d",eleall2tag[i]);
+        fprintf (outinva,"%20d",eleall2tag[i]);
       }
       fprintf (outinva,"\n");
       for (k = 0; k < elenum_all*elenum_all; k++) {
@@ -1201,6 +1218,11 @@ void FixConpV3::get_setq()
     }
   }
   MPI_Allreduce(MPI_IN_PLACE,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
+  if (me == 0) {
+    for (iall = 0; iall < elenum_all; ++iall){
+      fprintf(outf,"Electrode atom tag %d has getsetq %g\n",eleall2tag[iall],elesetq[iall]);
+    }
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1226,6 +1248,12 @@ void FixConpV3::update_charge()
     b_comm(bbb,eleallq);
   } // if minimizer == 0 then we already have eleallq ready;
   
+  if (me == 0) {
+    for (iall = 0; iall < elenum_all; ++iall){
+      fprintf(outf,"Electrode atom tag %d has bvector %g\n",eleall2tag[iall],eleallq[iall]);
+    }
+  }
+
   if (qlstyle == EQUAL) qL = input->variable->compute_equal(qlvar);
   if (qrstyle == EQUAL) qR = input->variable->compute_equal(qrvar);
   addv = qR - qL;
@@ -1237,7 +1265,10 @@ void FixConpV3::update_charge()
   for (iall = 0; iall < elenum_all; ++iall) {
     if (elecheck_eleall[iall] == 1) netcharge_left += eleallq[iall];
     i = atom->map(eleall2tag[iall]);
-    if (i != -1) q[i] = eleallq[iall] + addv*elesetq[iall];
+    if (i != -1) {
+      if (me == 0) fprintf(outf,"Proc 0: Electrode atom tag %d will have charge reset from %g to %g under DV=%g V\n",tag[i],q[i],eleallq[iall]+addv*elesetq[iall],addv);
+      q[i] = eleallq[iall] + addv*elesetq[iall];
+    }
   } // we need to loop like this to correctly charge ghost atoms
 
   //  hack: we will use addv to store total electrode charge
@@ -1299,6 +1330,7 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
 
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
+    //if (coulcalflag == 1) fprintf(outf,"Proc %d: atom tag %d has charge %g\n",me,tag[i],q[i]);
     eci = electrode_check(i);
     qtmp = q[i];
     xtmp = x[i][0];
