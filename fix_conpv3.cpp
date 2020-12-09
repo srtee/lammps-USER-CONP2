@@ -124,11 +124,14 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
     }
     else if (strcmp(arg[iarg],"org") == 0 || strcmp(arg[iarg],"inv") == 0) {
       outa = nullptr;
-      a_matrix_fp = fopen(arg[iarg],"r");
-      if (a_matrix_fp == nullptr) error->all(FLERR,"Cannot open A matrix file");
       if (strcmp(arg[iarg],"org") == 0) a_matrix_f = 1;
       else if (strcmp(arg[iarg],"inv") == 0) a_matrix_f = 2;
       else error->all(FLERR,"Unknown A matrix type");
+      ++iarg;
+      if (me == 0) {
+        a_matrix_fp = fopen(arg[iarg],"r");
+        if (a_matrix_fp == nullptr) error->all(FLERR,"Cannot open A matrix file");
+      }
     }
   }
   elenum = elenum_old = 0;
@@ -631,6 +634,9 @@ void FixConpV3::a_read()
           eleall2tag[i] = atoi(word);
         } else {
           idx1d = i-elenum_all;
+          if (idx1d > elenum_all*elenum_all - 1) {
+            error->all(FLERR,"Too many A-matrix entries!");
+          }
           aaa_all[idx1d] = atof(word);
         }
         word = strtok(NULL," \t");
@@ -638,6 +644,9 @@ void FixConpV3::a_read()
       }
     }
     fclose(a_matrix_fp);
+    if (idx1d < elenum_all*elenum_all - 1) {
+      error->all(FLERR,"Too few A-matrix entries!");
+    }
   }
   MPI_Bcast(eleall2tag,elenum_all,MPI_INT,0,world);
   MPI_Bcast(aaa_all,elenum_all*elenum_all,MPI_DOUBLE,0,world);
@@ -713,6 +722,7 @@ void FixConpV3::a_cal()
     eleallx[i][2] = elexyzlist_all[j];
     j++;
   }
+  fprintf(outa,"\n");
   memory->create(ele2eleall,elenum,"fixconpv3:ele2eleall");
   for (i = 0; i < elenum; i++) {
     ele2eleall[i] = displs[me] + i;
@@ -1148,7 +1158,7 @@ void FixConpV3::inv()
       FILE *outinva = fopen("inv_a_matrix","w");
       for (i = 0; i < elenum_all; i++) {
         if(i == 0) fprintf (outinva," ");
-        fprintf (outinva,"%12d",eleall2tag[i]);
+        fprintf (outinva,"%20d",eleall2tag[i]);
       }
       fprintf (outinva,"\n");
       for (k = 0; k < elenum_all*elenum_all; k++) {

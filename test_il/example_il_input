@@ -43,9 +43,6 @@ fix NVT sol nvt temp 400. 400. 100
 thermo_style custom step temp c_tempsl epair etotal c_dipole c_qleft c_qright f_constpot
 thermo 1
 
-dump 1 ele custom 1 ele id q
-dump_modify 1 sort id 
-
 variable nsteps equal 50
 
 run ${nsteps} upto
