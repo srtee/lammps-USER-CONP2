@@ -1520,7 +1520,6 @@ void FixConp::coul_cal(int coulcalflag, double* m)
 /* ---------------------------------------------------------------------- */
 void FixConp::alist_coul_cal(double* m)
 {
-  if (me == 0) printf("We are in alist_coul_cal\n");
   Ctime1 = MPI_Wtime();
   //coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
