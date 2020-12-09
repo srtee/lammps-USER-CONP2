@@ -76,8 +76,8 @@ class FixConpV3 : public Fix {
   double *aaa_all,*bbb_all;
   int *tag2eleall,*eleall2tag,*ele2tag;
   int *elecheck_eleall;
-  int *elenum_list,*displs,*i2ele;
-  int *ele2i,*elebuf2eleall,*ele2eleall;
+  int *elenum_list,*displs,*eleall2ele;
+  int *elebuf2eleall,*ele2eleall;
   double totsetq,addv;
   double *bbb,*bbuf;
 
@@ -138,8 +138,10 @@ class FixConpV3 : public Fix {
 //
 // Important cross-lists:
 // ele2eleall: length elenum     list holding eleall idx
-// ele2i:      length elenum     list holding i      idx
+// eleall2ele: length elenum_all list holding ele    idx
 // ele2tag:    length elenum     list holding tag    idx
 // eleall2tag: length elenum_all list holding tag    idx
-// i2ele:      length nlocal     list holding ele    idx
 // tag2eleall: length natoms+1   list holding eleall idx
+// for conversions involving i, always use tag!
+// i2ele[i] = eleall2ele[tag2eleall[tag[i]]]
+// ele2i[ele] = atom->map(eleall2tag[ele2eleall[ele]])

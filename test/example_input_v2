@@ -47,5 +47,5 @@ fix 0 ele setforce 0.0 0.0 0.0
 fix e all conp/v2 1 1.979 81 82 -0.5 0.5 inv iter
 fix 1 sol nvt temp 298.0 298.0 100.0
 thermo_style custom step temp c_tempsl c_qleft c_qright f_e 
-thermo              10
+thermo              1
 run ${nsteps}

@@ -5,7 +5,7 @@
     bond_style harmonic
     angle_style harmonic
     pair_style lj/cut/coul/long 16.0
-    kspace_style pppm 1e-7
+    kspace_style pppm 1e-6
     pair_modify mix arithmetic
 boundary p p f 
 
@@ -35,7 +35,7 @@ compute qright eleright reduce sum v_q
 compute dipole sol reduce sum v_qz
 compute tempsl sol temp
 
-fix constpot all conp 1 1.979 641 642 -0.0 0.0 inv iter etypes 1 5 org amatrix_nosmartlist
+fix constpot all conp 1 1.979 641 642 2.0 -2.0 inv iter etypes 1 5 inv inv_a_matrix_preserve
 fix bmishake bmi shake 0.0001 10 0 t 1 2 3 b 1 2 a 1
 
 timestep 2.0

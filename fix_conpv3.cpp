@@ -151,7 +151,7 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
       for (int i = 0; i < eletypenum; ++i) {
         if (eletypes[i] > ntypes) error->all(FLERR,"Invalid atom type in etypes");
       }
-      // smartlist = true;
+      smartlist = true;
     }
     else {
       printf(".<%s>.\n",arg[iarg]);
@@ -164,7 +164,7 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   bbb_all = nullptr;
   tag2eleall = eleall2tag = ele2tag = nullptr;
   elecheck_eleall = nullptr;
-  i2ele = ele2eleall = elebuf2eleall = nullptr;
+  eleall2ele = ele2eleall = elebuf2eleall = nullptr;
   bbb = bbuf = nullptr;
   Btime = cgtime = Ctime = Ktime = 0;
   alist = blist = list = nullptr;
@@ -186,9 +186,6 @@ FixConpV3::~FixConpV3()
   memory->destroy3d_offset(cs,-kmax_created);
   memory->destroy3d_offset(sn,-kmax_created);
   memory->destroy(bbb);
-  memory->destroy(i2ele);
-  memory->destroy(ele2i);
-  memory->destroy(ele2eleall);
   delete [] bbuf;
   delete [] elebuf2eleall;
   delete [] aaa_all;
@@ -209,6 +206,7 @@ FixConpV3::~FixConpV3()
   delete [] elesetq;
   delete [] elecheck_eleall;
   delete [] ele2eleall;
+  delete [] eleall2ele;
   delete [] displs;
   delete [] elenum_list;
 }
@@ -277,7 +275,9 @@ void FixConpV3::init()
   // if not smart list half, newton off
   // else do request_smartlist()
   if (smartlist) request_smartlist();
-  else {
+  // TO-DO: check failure conditions in request_smartlist
+  // and flip smartlist bool to trigger this loop as backup
+  if (!smartlist) {
     int irequest = neighbor->request(this,instance_me);
     neighbor->requests[irequest]->pair = 0;
     neighbor->requests[irequest]->fix  = 1;
@@ -308,7 +308,6 @@ void FixConpV3::request_smartlist() {
     }
   }
   for (ieletype = 0; ieletype < eletypenum; ++ieletype) {
-    if (me == 0) printf("Unset A skip for type %d (%d of %d)\n",eletypes[ieletype],ieletype,eletypenum);
     iskip_a[eletypes[ieletype]] = 0;
     ijskip_a[eletypes[ieletype]][eletypes[ieletype]] = 0;
   } // now, iskip_a[itype] == 0 (1) if eletype (soltype)
@@ -317,11 +316,9 @@ void FixConpV3::request_smartlist() {
     for (jtype = 0; jtype <= ntypes; ++jtype) {
       bool ele_and_sol = (!!(iskip_a[itype]) ^ !!(iskip_a[jtype]));
       ijskip_b[itype][jtype] = (ele_and_sol) ? 0 : 1;
-    if (me == 0) printf("Set B skip to %d for itype %d and jtype %d\n",ijskip_b[itype][jtype],itype,jtype);
     }
   }
   arequest = neighbor->request(this,instance_me);
-  if (me == 0) printf("Requested alist, ID = %d\n",arequest);
   NeighRequest *aRq = neighbor->requests[arequest];
   aRq->pair = 0;
   aRq->fix  = 1;
@@ -334,7 +331,6 @@ void FixConpV3::request_smartlist() {
   aRq->ijskip = ijskip_a;
 
   brequest = neighbor->request(this,instance_me);
-  if (me == 0) printf("Requested blist, ID = %d\n",brequest);
   NeighRequest *bRq = neighbor->requests[brequest];
   bRq->pair = 0;
   bRq->fix  = 1;
@@ -351,11 +347,9 @@ void FixConpV3::request_smartlist() {
 void FixConpV3::init_list(int /* id */, NeighList *ptr) {
   if (smartlist) {
     if (ptr->index == arequest) {
-      if (me == 0) printf("Got alist, ID = %d\n",arequest);
       alist = ptr;
     }
     else if (ptr->index == brequest) {
-      if (me == 0) printf("Got blist, ID = %d\n",brequest);
       blist = ptr;
     }
     else {
@@ -453,6 +447,11 @@ void FixConpV3::setup(int vflag)
   sfacrl_all = new double[kmax3d];
   sfacim_all = new double[kmax3d];
   tag2eleall = new int[natoms+1];
+  // To-do: encapsulate runstage == 0 into a discrete member function?
+  // Especially because we should check that electrode atoms obey the
+  // smartlist listings, and if not, get the list pointer from coulpair,
+  // and if _that_ fails, or if coulpair has newton on, we should bail
+  // not too late to process that here because we haven't done a_cal yet
   if (runstage == 0) {
     int i;
     int nlocal = atom->nlocal;
@@ -472,21 +471,23 @@ void FixConpV3::setup(int vflag)
     }
 
     eleall2tag = new int[elenum_all];
+    eleall2ele = new int[elenum_all+1];
     elecheck_eleall = new int[elenum_all];
     // elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i)
     for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
+    for (i = 0; i <= elenum_all; i++) eleall2ele[i] = -1;
     aaa_all = new double[elenum_all*elenum_all];
     bbb_all = new double[elenum_all];
     ele2tag = new int[elenum];
-    memory->create(ele2i,elenum,"fixconpv3:ele2i");
-    for (i = 0; i < natoms+1; i++) tag2eleall[i] = -1;
+    for (i = 0; i < natoms+1; i++) tag2eleall[i] = elenum_all;
     eleallq = new double[elenum_all];
     if (a_matrix_f == 0) {
       if (me == 0) outa = fopen("amatrix","w");
-      if (me == 0) printf("Now calculating amatrix ... \n");
+      if (me == 0) printf("Fix conp is now calculating A matrix ... ");
       a_cal();
+      if (me == 0) printf(" ... done!\n");
     } else {
-      if (me == 0) printf("Now reading in amatrix type %d ... \n",a_matrix_f);
+      if (me == 0) printf("Fix conp is now reading in A matrix type %d ... \n",a_matrix_f);
       a_read();
     }
     runstage = 1;
@@ -566,7 +567,7 @@ void FixConpV3::b_setq_cal()
   double zhalf = zprd_half + domain->boxlo[2];
   for (iloc = 0; iloc < elenum; ++iloc) {
     iall = ele2eleall[iloc];
-    i = ele2i[iloc];
+    i = atom->map(ele2tag[iloc]);
     eci = electrode_check(i);
     if (ff_flag == FFIELD) {
       if (eci == 1 && x[i][2] < zhalf) {
@@ -591,25 +592,24 @@ void FixConpV3::pre_neighbor()
   int* tag = atom->tag;
   int nlocal = atom->nlocal;
   int nprocs = comm->nprocs;
-  memory->grow(i2ele,nlocal,"fixconpv3:i2ele");
   int i,elealli,tagi;
   int j = 0;
+  for (i = 0; i < elenum_all; ++i) eleall2ele[i] = -1;
   for (i = 0; i < nlocal; ++i) {
     if (electrode_check(i)) {
-      i2ele[i] = j;
       j++;
     }
-    else i2ele[i] = -1; 
   }
   elenum = j;
-  memory->grow(ele2i,elenum,"fixconpv3:ele2i");
+  memory->grow(ele2tag,elenum,"fixconpv3:ele2tag");
   memory->grow(ele2eleall,elenum,"fixconpv3:ele2eleall");
   memory->grow(bbb,elenum,"fixconpv3:bbb");
   j = 0;
   for (i = 0; i < nlocal; ++i) {
     if (electrode_check(i)) {
-      ele2i[j] = i;
+      ele2tag[j] = tag[i];
       ele2eleall[j] = tag2eleall[tag[i]];
+      eleall2ele[ele2eleall[j]] = j;
       ++j;
     }
   }
@@ -668,7 +668,7 @@ void FixConpV3::update_bk(bool coulyes, double* bbb_all)
     ky = kyvecs[k];
     kz = kzvecs[k];
     for (elei = 0; elei < elenum; ++elei) {
-      i = ele2i[elei];
+      i = atom->map(ele2tag[elei]);
       cypz = cs[ky][1][i]*cs[kz][2][i] - sn[ky][1][i]*sn[kz][2][i];
       sypz = sn[ky][1][i]*cs[kz][2][i] + cs[ky][1][i]*sn[kz][2][i];
       exprl = cs[kx][0][i]*cypz - sn[kx][0][i]*sypz;
@@ -688,7 +688,7 @@ void FixConpV3::update_bk(bool coulyes, double* bbb_all)
     }
     MPI_Allreduce(&slabcorrtmp,&slabcorrtmp_all,1,MPI_DOUBLE,MPI_SUM,world);
     for (elei = 0; elei < elenum; ++elei) {
-      i = ele2i[elei];
+      i = atom->map(ele2tag[elei]);
       bbb[elei] -= x[i][2]*slabcorrtmp_all;
     }
   }
@@ -781,35 +781,30 @@ void FixConpV3::a_cal()
   int nprocs = comm->nprocs;
   int nlocal = atom->nlocal;
   int *tag = atom->tag;
-  int i,j,k;
+  int i,j,k,iele;
   j = 0;
-  memory->create(i2ele,nlocal,"fixconpv3:i2ele");
   for (i = 0; i < nlocal; i++) {
     if (electrode_check(i)) {
-      i2ele[i] = j;
       ele2tag[j] = tag[i];
-      j++;
-    }
-    else i2ele[i] = -1;
-  }
-
-  //gather tag,x and q
-  double **x = atom->x;
-  
-  double *elexyzlist = new double[3*elenum];
-  double *elexyzlist_all = new double[3*elenum_all];
-  j = 0;
-  for (i = 0; i < nlocal; i++) {
-    if (electrode_check(i)) {
-      elexyzlist[j] = x[i][0];
-      j++;
-      elexyzlist[j] = x[i][1];
-      j++;
-      elexyzlist[j] = x[i][2];
       j++;
     }
   }
   MPI_Allgatherv(ele2tag,elenum,MPI_INT,eleall2tag,elenum_list,displs,MPI_INT,world);
+
+  //gather tag,x and q
+  double **x = atom->x;
+  double *elexyzlist = new double[3*elenum];
+  double *elexyzlist_all = new double[3*elenum_all];
+  j = 0;
+  for (iele = 0; iele < elenum; iele++) {
+    i = atom->map(ele2tag[iele]);
+    elexyzlist[j] = x[i][0];
+    j++;
+    elexyzlist[j] = x[i][1];
+    j++;
+    elexyzlist[j] = x[i][2];
+    j++;
+  }
   int displs2[nprocs];
   int elenum_list2[nprocs];
   for (i = 0; i < nprocs; i++) {
@@ -817,6 +812,7 @@ void FixConpV3::a_cal()
     displs2[i] = displs[i]*3;
   }
   MPI_Allgatherv(elexyzlist,elenum*3,MPI_DOUBLE,elexyzlist_all,elenum_list2,displs2,MPI_DOUBLE,world);
+  memory->create(ele2eleall,elenum,"fixconpv3:ele2eleall");
   j = 0;
   for (i = 0; i < elenum_all; i++) {
     if (i == 0 && me == 0) fprintf(outa," ");
@@ -830,9 +826,9 @@ void FixConpV3::a_cal()
     j++;
   }
   if (me == 0) fprintf (outa,"\n");
-  memory->create(ele2eleall,elenum,"fixconpv3:ele2eleall");
-  for (i = 0; i < elenum; i++) {
-    ele2eleall[i] = displs[me] + i;
+  for (iele = 0; iele < elenum; iele++) {
+    ele2eleall[iele] = tag2eleall[ele2tag[iele]];
+    eleall2ele[ele2eleall[iele]] = iele;
   }
   memory->create(csk,kcount,elenum_all,"fixconpv3:csk");
   memory->create(snk,kcount,elenum_all,"fixconpv3:snk");
@@ -1395,6 +1391,17 @@ void FixConpV3::force_cal(int vflag)
   else coul_cal(0,nullptr);
 }
 /* ---------------------------------------------------------------------- */
+/*
+Notes: the alist_coul_cal, blist_coul_cal, and blist_coul_cal_post_force
+loops have been optimized by using request_smartlist to only return the
+correct neighbor pairs. But coul_cal must also be maintained because if
+smartlisting fails, we need something reliable to fall back upon!
+
+Also, electrode_check(i) is the standard way to check electrode membership
+and all other ways must be checked and double checked and triple checked.
+Many coder-hours and rubber duckies died to give us this information.
+/*
+/* ---------------------------------------------------------------------- */
 void FixConpV3::coul_cal(int coulcalflag, double* m)
 {
   Ctime1 = MPI_Wtime();
@@ -1427,8 +1434,7 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
 
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
-    elei = i2ele[i];
-    eci = (elei >= 0) ? 1 : 0;
+    eci = abs(electrode_check(i));
     qtmp = q[i];
     xtmp = x[i][0];
     ytmp = x[i][1];
@@ -1439,8 +1445,7 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
       j &= NEIGHMASK;
-      elej = i2ele[j];
-      ecj = (elej >= 0) ? 1 : 0;
+      ecj = abs(electrode_check(j));
       checksum = eci + ecj;
       if (checksum == 1 || checksum == 2) {
         if (coulcalflag == 0 || checksum == coulcalflag) {
@@ -1450,8 +1455,8 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
           rsq = delx*delx + dely*dely + delz*delz;
           jtype = atomtype[j];
           if (rsq < cutsq[itype][jtype]) {
-            r2inv = 1.0/rsq;
             if (rsq < cut_coulsq) {
+              r2inv = 1.0/rsq;
               dudq =0.0;
               r = sqrt(rsq);
               if (coulcalflag != 0) {
@@ -1484,6 +1489,7 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
               } else {
                 dudq -= erfc/r;
                 if (i < nlocal && eci) {
+                  elei = eleall2ele[tag2eleall[tag[i]]];
                   if (coulcalflag == 1) m[elei] -= q[j]*dudq;
                   else if (coulcalflag == 2 && checksum == 2) {
                     eleallj = tag2eleall[tag[j]];
@@ -1492,6 +1498,7 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
                   }
                 }
                 if (j < nlocal && ecj) {
+                  elej = eleall2ele[tag2eleall[tag[j]]];
                   if (coulcalflag == 1) m[elej] -= q[i]*dudq;
                   else if (coulcalflag == 2 && checksum == 2) {
                     elealli = tag2eleall[tag[i]];
@@ -1530,18 +1537,6 @@ void FixConpV3::alist_coul_cal(double* m)
   int *numneigh = alist->numneigh;
   int **firstneigh = alist->firstneigh;
 
-  if (me == 0) {
-    printf("alist properties:\n");
-    printf("number of members: %d\n",inum);
-    printf("flag newton: %d\n",neighbor->requests[arequest]->newton);
-    printf("flag occasional: %d\n",neighbor->requests[arequest]->occasional);
-    printf("flag skip: %d\n",neighbor->requests[arequest]->skip);
-    if (inum > 0) {
-      printf("first member number %d of type %d\n",alist->ilist[0],tag[alist->ilist[0]]);
-      if (numneigh[0] > 0) printf("and its first neighbor is number %d of type %d\n",alist->firstneigh[0][0],tag[alist->firstneigh[0][0]]);
-    }
-  }
-  
   double qqrd2e = force->qqrd2e;
   double **cutsq = coulpair->cutsq;
   int itmp;
@@ -1578,13 +1573,13 @@ void FixConpV3::alist_coul_cal(double* m)
       erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
       dudq -= erfc/r;
       if (i < nlocal) {
-        elei = i2ele[i];
+        elei = eleall2ele[tag2eleall[tag[i]]];
         eleallj = tag2eleall[tag[j]];
         idx1d = elei*elenum_all + eleallj;
         m[idx1d] += dudq;
       }
       if (j < nlocal) {
-        elej = i2ele[j];
+        elej = eleall2ele[tag2eleall[tag[j]]];
         elealli = tag2eleall[tag[i]];
         idx1d = elej*elenum_all + elealli;
         m[idx1d] += dudq;
@@ -1614,17 +1609,6 @@ void FixConpV3::blist_coul_cal(double* m)
   int *jlist;
   int *numneigh = blist->numneigh;
   int **firstneigh = blist->firstneigh;
-  //if (me == 0) {
-    //printf("blist properties:\n");
-    //printf("number of members: %d\n",inum);
-    //printf("flag newton: %d\n",neighbor->requests[brequest]->newton);
-    //printf("flag occasional: %d\n",neighbor->requests[brequest]->occasional);
-    //printf("flag skip: %d\n",neighbor->requests[brequest]->skip);
-    //if (inum > 0) {
-    //  printf("first member number %d of type %d\n",tag[blist->ilist[0]],atomtype[blist->ilist[0]]);
-    //  if (numneigh[0] > 0) printf("and its first neighbor is number %d of type %d\n",tag[blist->firstneigh[0][0]],atomtype[blist->firstneigh[0][0]]);
-    //}
-  //} 
   double qqrd2e = force->qqrd2e;
   double **cutsq = coulpair->cutsq;
   int itmp;
@@ -1633,11 +1617,11 @@ void FixConpV3::blist_coul_cal(double* m)
   double **x = atom->x;
   double **f = atom->f;
   double *q = atom->q;
+  bool eleilocal,elejlocal;
 
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
-    elei = i2ele[i];
-    eci = (elei >= 0) ? 1 : 0;
+    eleilocal = (i < nlocal && electrode_check(i));
     xtmp = x[i][0];
     ytmp = x[i][1];
     ztmp = x[i][2];
@@ -1647,31 +1631,38 @@ void FixConpV3::blist_coul_cal(double* m)
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
       j &= NEIGHMASK;
-      elej = i2ele[j];
-      ecj = (elej >= 0) ? 1 : 0;
-      delx = xtmp - x[j][0];
-      dely = ytmp - x[j][1];
-      delz = ztmp - x[j][2];
-      rsq = delx*delx + dely*dely + delz*delz;
-      jtype = atomtype[j];
-      if (rsq < cutsq[itype][jtype]) {
-        r2inv = 1.0/rsq;
-        if (rsq < cut_coulsq) {
-          dudq =0.0;
-          r = sqrt(rsq);
-          grij = g_ewald * r;
-          expm2 = exp(-grij*grij);
-          t = 1.0 / (1.0 + EWALD_P*grij);
-          erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-          dudq = erfc/r;
+      elejlocal = (j < nlocal && electrode_check(j));
+      if (eleilocal || elejlocal) {
+        delx = xtmp - x[j][0];
+        dely = ytmp - x[j][1];
+        delz = ztmp - x[j][2];
+        rsq = delx*delx + dely*dely + delz*delz;
+        jtype = atomtype[j];
+        if (rsq < cutsq[itype][jtype]) {
+          if (rsq < cut_coulsq) {
+            r2inv = 1.0/rsq;
+            dudq = 0.0;
+            r = sqrt(rsq);
+            grij = g_ewald * r;
+            expm2 = exp(-grij*grij);
+            t = 1.0 / (1.0 + EWALD_P*grij);
+            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+            dudq = erfc/r;
+            etarij = eta*r;
+            expm2 = exp(-etarij*etarij);
+            t = 1.0 / (1.0+EWALD_P*etarij);
+            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+            dudq -= erfc/r;
+            if (eleilocal) {
+              elei = eleall2ele[tag2eleall[tag[i]]];
+              m[elei] -= q[j]*dudq;
+            }
+            if (elejlocal) {
+              elej = eleall2ele[tag2eleall[tag[j]]];
+              m[elej] -= q[i]*dudq;
+            }
+          }
         }
-        etarij = eta*r;
-        expm2 = exp(-etarij*etarij);
-        t = 1.0 / (1.0+EWALD_P*etarij);
-        erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-        dudq -= erfc/r;
-        if (i < nlocal && eci) m[elei] -= q[j]*dudq;
-        if (j < nlocal && ecj) m[elej] -= q[i]*dudq;
       }
     }
   }
@@ -1725,8 +1716,8 @@ void FixConpV3::blist_coul_cal_post_force()
       rsq = delx*delx + dely*dely + delz*delz;
       jtype = atomtype[j];
       if (rsq < cutsq[itype][jtype]) {
-        r2inv = 1.0/rsq;
         if (rsq < cut_coulsq) {
+          r2inv = 1.0/rsq;
           r = sqrt(rsq);
           etarij = eta*r;
           expm2 = exp(-etarij*etarij);
