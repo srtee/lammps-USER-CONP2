@@ -62,7 +62,7 @@ class FixConpV3 : public Fix {
   void init_list(int, class NeighList*);
 
  protected:
-  class NeighList *list;
+  class NeighList *list,*alist,*blist;
   int ff_flag; 
   int minimizer;
   double qL,qR;

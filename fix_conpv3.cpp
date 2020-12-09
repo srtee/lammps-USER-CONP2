@@ -344,13 +344,33 @@ void FixConpV3::setup(int vflag)
   sfacrl_all = new double[kmax3d];
   sfacim_all = new double[kmax3d];
   tag2eleall = new int[natoms+1];
+  alist = nullptr;
+  blist = nullptr;
   if (runstage == 0) {
-    int i;
+    int i,j;
     int nlocal = atom->nlocal;
+    int ntypes = atom->ntypes;
+    int *atomtype = atom->type;
+
+    int *iskip_a = new int[ntypes+1];
+    int *iskip_b = new int[ntypes+1];
+    int **ijskip_a,**ijskip_b;
+    memory->create(ijskip_a,ntypes+1,ntypes+1,"fixconpv3:ijskip_a");
+    memory->create(ijskip_b,ntypes+1,ntypes+1,"fixconpv3:ijskip_b");
+
+    for (i = 0; )
+
     for (i = 0; i < nlocal; i++) {
-      if (electrode_check(i)) ++elenum;
+      if (electrode_check(i)) {
+        ++elenum;
+      }
+
     }
+
     MPI_Allreduce(&elenum,&elenum_all,1,MPI_INT,MPI_SUM,world);
+
+
+
     eleall2tag = new int[elenum_all];
     elecheck_eleall = new int[elenum_all];
     // elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i)
