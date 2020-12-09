@@ -72,6 +72,7 @@ extern "C" {
 FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),coulpair(NULL),qlstr(NULL),qrstr(NULL)
 {
+  MPI_Comm_rank(world,&me);
   if (narg < 11) error->all(FLERR,"Illegal fix conp command");
   qlstyle = qrstyle = CONSTANT;
   ilevel_respa = 0;
@@ -81,10 +82,10 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   // eta = force->numeric(FLERR,arg[4]);
   // molidL = force->inumeric(FLERR,arg[5]);
   // molidR = force->inumeric(FLERR,arg[6]);
-  everynum = utils::numeric(FLERR,arg[3],false,lmp);
+  everynum = utils::inumeric(FLERR,arg[3],false,lmp);
   eta = utils::numeric(FLERR,arg[4],false,lmp);
-  molidL = utils::numeric(FLERR,arg[5],false,lmp);
-  molidR = utils::numeric(FLERR,arg[6],false,lmp);
+  molidL = utils::inumeric(FLERR,arg[5],false,lmp);
+  molidR = utils::inumeric(FLERR,arg[6],false,lmp);
   if (strstr(arg[7],"v_") == arg[7]) {
     int n = strlen(&arg[7][2]) + 1;
     qlstr = new char[n];
@@ -115,23 +116,25 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   int iarg;
   for (iarg = 11; iarg < narg; ++iarg){
     if (strcmp(arg[iarg],"ffield") == 0) {
-      if (ff_flag == NOSLAB) error->all(FLERR,"ffield and noslab cannot both be chosen!");
+      if (ff_flag == NOSLAB) error->all(FLERR,"ffield and noslab cannot both be chosen");
       ff_flag = FFIELD;
     }
     else if (strcmp(arg[iarg],"noslab") == 0) {
-      if (ff_flag == FFIELD) error->all(FLERR,"ffield and noslab cannot both be chosen!");
+      if (ff_flag == FFIELD) error->all(FLERR,"ffield and noslab cannot both be chosen");
       ff_flag = NOSLAB;     
     }
     else if (strcmp(arg[iarg],"org") == 0 || strcmp(arg[iarg],"inv") == 0) {
-      outa = nullptr;
+      if (a_matrix_f != 0) error->all(FLERR,"A matrix file specified more than once");
       if (strcmp(arg[iarg],"org") == 0) a_matrix_f = 1;
       else if (strcmp(arg[iarg],"inv") == 0) a_matrix_f = 2;
-      else error->all(FLERR,"Unknown A matrix type");
       ++iarg;
+      if (iarg >= narg) error->all(FLERR,"No A matrix filename given");
       if (me == 0) {
         a_matrix_fp = fopen(arg[iarg],"r");
+        printf("Opened file %s for reading A matrix\n",arg[iarg]);
         if (a_matrix_fp == nullptr) error->all(FLERR,"Cannot open A matrix file");
       }
+      outa = nullptr;
     }
   }
   elenum = elenum_old = 0;
@@ -193,9 +196,8 @@ FixConpV3::~FixConpV3()
 int FixConpV3::setmask()
 {
   int mask = 0;
-  mask |= PRE_FORCE;
+  mask |= POST_INTEGRATE;
   mask |= PRE_NEIGHBOR;
-  mask |= PRE_FORCE_RESPA;
   mask |= POST_FORCE;
   return mask;
 }
@@ -205,6 +207,21 @@ int FixConpV3::setmask()
 void FixConpV3::init()
 {
   MPI_Comm_rank(world,&me);
+  //Pair *coulpair;
+
+  // assign coulpair to either the existing pair style if it matches 'coul'
+  // or, if hybrid, the pair style matching 'coul'
+  // and if neither are true then something has gone horribly wrong!
+  coulpair = nullptr;
+  coulpair = (Pair *) force->pair_match("coul",0);
+  if (coulpair == nullptr) {
+    // return 1st hybrid substyle matching coul (inexactly)
+    coulpair = (Pair *) force->pair_match("coul",0,1);
+    }
+  if (coulpair == nullptr) error->all(FLERR,"Must use conp with coul pair style");
+  //PairHybrid *pairhybrid = dynamic_cast<PairHybrid*>(force->pair);
+  //Pair *coulpair = pairhybrid->styles[0];
+  
   if (strstr(update->integrate_style,"respa")) {
     ilevel_respa = ((Respa *) update->integrate)->nlevels-1;
     if (respa_level >= 0) ilevel_respa = MIN(respa_level,ilevel_respa);
@@ -226,12 +243,20 @@ void FixConpV3::init()
     if (!input->variable->equalstyle(qrvar))
       error->all(FLERR,"Variable 2 for fix conp is invalid style");
   }
+  Pair *intelpair;
+  bool intelflag = false;
+  intelpair = nullptr;
+  intelpair = (Pair *) force->pair_match("intel",0,1);
+  if (intelpair != nullptr && me == 0) {
+    intelflag = true;
+  }
 
   // request neighbor list -- half, newton off
   int irequest = neighbor->request(this,instance_me);
   neighbor->requests[irequest]->pair = 0;
   neighbor->requests[irequest]->fix  = 1;
   neighbor->requests[irequest]->newton = 2;
+  if (intelflag) neighbor->requests[irequest]->intel = 1;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -244,23 +269,6 @@ void FixConpV3::init_list(int /* id */, NeighList *ptr) {
 
 void FixConpV3::setup(int vflag)
 {
-  //Pair *coulpair;
-
-  // assign coulpair to either the existing pair style if it matches 'coul'
-  // or, if hybrid, the pair style matching 'coul'
-  // and if neither are true then something has gone horribly wrong!
-  coulpair = nullptr;
-  coulpair = (Pair *) force->pair_match("coul",0);
-  if (coulpair == nullptr) {
-    // return 1st hybrid substyle matching coul (inexactly)
-    coulpair = (Pair *) force->pair_match("coul",0,1);
-    }
-  if (coulpair == nullptr) error->all(FLERR,"Must use conp with coul pair style");
-  //PairHybrid *pairhybrid = dynamic_cast<PairHybrid*>(force->pair);
-  //Pair *coulpair = pairhybrid->styles[0];
-
-
-
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;
   double accuracy = force->kspace->accuracy;
@@ -351,9 +359,6 @@ void FixConpV3::setup(int vflag)
       if (electrode_check(i)) ++elenum;
     }
     MPI_Allreduce(&elenum,&elenum_all,1,MPI_INT,MPI_SUM,world);
-    eleall2tag = new int[elenum_all];
-    elecheck_eleall = new int[elenum_all];
-    // elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i)
     int nprocs = comm->nprocs;
     elenum_list = new int[nprocs];
     MPI_Allgather(&elenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
@@ -364,6 +369,10 @@ void FixConpV3::setup(int vflag)
       displssum += elenum_list[i-1];
       displs[i] = displssum;
     }
+
+    eleall2tag = new int[elenum_all];
+    elecheck_eleall = new int[elenum_all];
+    // elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i)
     for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
     aaa_all = new double[elenum_all*elenum_all];
     bbb_all = new double[elenum_all];
@@ -373,8 +382,10 @@ void FixConpV3::setup(int vflag)
     eleallq = new double[elenum_all];
     if (a_matrix_f == 0) {
       if (me == 0) outa = fopen("amatrix","w");
+      if (me == 0) printf("Now calculating amatrix ... \n");
       a_cal();
     } else {
+      if (me == 0) printf("Now reading in amatrix type %d ... \n",a_matrix_f);
       a_read();
     }
     runstage = 1;
@@ -390,13 +401,13 @@ void FixConpV3::setup(int vflag)
     get_setq();
     gotsetq = 1;
     dyn_setup(); // additional setup for dynamic versions
+    post_integrate();
   }
-    
 }
 
 /* ---------------------------------------------------------------------- */
 
-void FixConpV3::pre_force(int vflag)
+void FixConpV3::post_integrate()
 {
   if(update->ntimestep % everynum == 0) {
     if (strstr(update->integrate_style,"verlet")) { //not respa
@@ -428,13 +439,6 @@ void FixConpV3::pre_force(int vflag)
 
 void FixConpV3::post_force(int vflag) {
   force_cal(vflag);
-}
-
-/* ---------------------------------------------------------------------- */
-
-void FixConpV3::pre_force_respa(int vflag, int ilevel, int /*iloop*/)
-{
-  if (ilevel == ilevel_respa) pre_force(vflag);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -539,7 +543,6 @@ void FixConpV3::b_cal() {
 
 void FixConpV3::update_bk(bool coulyes, double* bbb_all)
 {
-  //fprintf(outf,"i   id    Bvec\n");
   Ktime1 = MPI_Wtime();
   int i,j,k,elei;
   int nmax = atom->nmax;
@@ -634,18 +637,18 @@ void FixConpV3::a_read()
           eleall2tag[i] = atoi(word);
         } else {
           idx1d = i-elenum_all;
-          if (idx1d > elenum_all*elenum_all - 1) {
-            error->all(FLERR,"Too many A-matrix entries!");
+          if (idx1d >= elenum_all*elenum_all) {
+            error->all(FLERR,"Too many entries in A matrix file");
           }
           aaa_all[idx1d] = atof(word);
         }
-        word = strtok(NULL," \t");
+        word = strtok(NULL," ");
         i++;
       }
     }
     fclose(a_matrix_fp);
-    if (idx1d < elenum_all*elenum_all - 1) {
-      error->all(FLERR,"Too few A-matrix entries!");
+    if (idx1d != elenum_all*elenum_all-1) {
+      error->all(FLERR,"Too few entries in A matrix file");
     }
   }
   MPI_Bcast(eleall2tag,elenum_all,MPI_INT,0,world);
@@ -661,9 +664,6 @@ void FixConpV3::a_read()
 /*----------------------------------------------------------------------- */
 void FixConpV3::a_cal()
 {
-  int nprocs = comm->nprocs;
-  int nlocal = atom->nlocal;
-  int *tag = atom->tag;
   double t1,t2;
   t1 = MPI_Wtime();
   Ktime1 = MPI_Wtime();
@@ -674,6 +674,9 @@ void FixConpV3::a_cal()
   double **eleallx = nullptr;
   memory->create(eleallx,elenum_all,3,"fixconpv3:eleallx");
 
+  int nprocs = comm->nprocs;
+  int nlocal = atom->nlocal;
+  int *tag = atom->tag;
   int i,j,k;
   j = 0;
   memory->create(i2ele,nlocal,"fixconpv3:i2ele");
@@ -722,7 +725,7 @@ void FixConpV3::a_cal()
     eleallx[i][2] = elexyzlist_all[j];
     j++;
   }
-  fprintf(outa,"\n");
+  if (me == 0) fprintf (outa,"\n");
   memory->create(ele2eleall,elenum,"fixconpv3:ele2eleall");
   for (i = 0; i < elenum; i++) {
     ele2eleall[i] = displs[me] + i;
@@ -1210,6 +1213,10 @@ void FixConpV3::get_setq()
     }
   }
   MPI_Allreduce(MPI_IN_PLACE,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
+  if (me == 0) {
+    for (iall = 0; iall < elenum_all; ++iall){
+    }
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1234,7 +1241,12 @@ void FixConpV3::update_charge()
     }
     b_comm(bbb,eleallq);
   } // if minimizer == 0 then we already have eleallq ready;
-  
+
+  if (me == 0) {
+    for (iall = 0; iall < elenum_all; ++iall){
+    }
+  }
+
   if (qlstyle == EQUAL) qL = input->variable->compute_equal(qlvar);
   if (qrstyle == EQUAL) qR = input->variable->compute_equal(qrvar);
   addv = qR - qL;
@@ -1246,7 +1258,9 @@ void FixConpV3::update_charge()
   for (iall = 0; iall < elenum_all; ++iall) {
     if (elecheck_eleall[iall] == 1) netcharge_left += eleallq[iall];
     i = atom->map(eleall2tag[iall]);
-    if (i != -1) q[i] = eleallq[iall] + addv*elesetq[iall];
+    if (i != -1) {
+      q[i] = eleallq[iall] + addv*elesetq[iall];
+    }
   } // we need to loop like this to correctly charge ghost atoms
 
   //  hack: we will use addv to store total electrode charge
@@ -1272,8 +1286,7 @@ void FixConpV3::force_cal(int vflag)
     double qscale = force->qqrd2e*scale;
     force->kspace->energy += qscale*eta*eleqsqsum/(sqrt(2)*MY_PIS);
   }
-  coul_cal(0,nullptr);
-
+  // coul_cal(0,nullptr);
 }
 /* ---------------------------------------------------------------------- */
 void FixConpV3::coul_cal(int coulcalflag, double* m)
