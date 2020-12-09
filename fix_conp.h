@@ -18,22 +18,22 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(conp,FixConpV3)
+FixStyle(conp,FixConp)
 
 #else
 
-#ifndef LMP_FIX_CONPV3_H
-#define LMP_FIX_CONPV3_H
+#ifndef LMP_FIX_CONP_H
+#define LMP_FIX_CONP_H
 
 #include "fix.h"
 #include "pair.h"
 
 namespace LAMMPS_NS {
 
-class FixConpV3 : public Fix {
+class FixConp : public Fix {
  public:
-  FixConpV3(class LAMMPS *, int, char **);
-  ~FixConpV3();
+  FixConp(class LAMMPS *, int, char **);
+  ~FixConp();
   int setmask();
   void init();
   void setup(int);
@@ -56,6 +56,10 @@ class FixConpV3 : public Fix {
   void get_setq();
   void b_comm(double *, double *);
   void coul_cal(int, double *);
+  void alist_coul_cal(double *);
+  void blist_coul_cal(double *);
+  void blist_coul_cal_post_force();
+  void request_smartlist();
   virtual double compute_scalar();
   virtual void dyn_setup() {}
   void init_list(int, class NeighList*);
@@ -72,10 +76,15 @@ class FixConpV3 : public Fix {
   double *aaa_all,*bbb_all;
   int *tag2eleall,*eleall2tag,*ele2tag;
   int *elecheck_eleall;
-  int *elenum_list,*displs,*i2ele;
-  int *ele2i,*elebuf2eleall,*ele2eleall;
+  int *elenum_list,*displs,*eleall2ele;
+  int *elebuf2eleall,*ele2eleall;
   double totsetq,addv;
   double *bbb,*bbuf;
+
+  bool smartlist;
+  int eletypenum,arequest,brequest;
+  int *eletypes;
+  class NeighList *alist,*blist;
 
   int me,runstage,gotsetq;
   int ilevel_respa;
@@ -129,8 +138,10 @@ class FixConpV3 : public Fix {
 //
 // Important cross-lists:
 // ele2eleall: length elenum     list holding eleall idx
-// ele2i:      length elenum     list holding i      idx
+// eleall2ele: length elenum_all list holding ele    idx
 // ele2tag:    length elenum     list holding tag    idx
 // eleall2tag: length elenum_all list holding tag    idx
-// i2ele:      length nlocal     list holding ele    idx
 // tag2eleall: length natoms+1   list holding eleall idx
+// for conversions involving i, always use tag!
+// i2ele[i] = eleall2ele[tag2eleall[tag[i]]]
+// ele2i[ele] = atom->map(eleall2tag[ele2eleall[ele]])

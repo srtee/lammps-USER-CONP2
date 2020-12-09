@@ -27,13 +27,13 @@ FixStyle(conp/dyn2,FixConpDyn2)
 
 #include "fix.h"
 #include "pair.h"
-#include "fix_conpv3.h"
+#include "fix_conp.h"
 
 namespace LAMMPS_NS {
 
-class FixConpDyn2 : public FixConpV3 {
+class FixConpDyn2 : public FixConp {
  public:
-  FixConpDyn2(class LAMMPS *lmp, int narg, char **arg):FixConpV3(lmp,narg,arg) {};
+  FixConpDyn2(class LAMMPS *lmp, int narg, char **arg):FixConp(lmp,narg,arg) {};
   ~FixConpDyn2() {}
   void dyn_setup();
   void b_cal();

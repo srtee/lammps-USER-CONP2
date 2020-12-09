@@ -67,7 +67,7 @@ extern "C" {
 }
 
 /* ---------------------------------------------------------------------- */
-
+// TODO: make sure destructor destroys these arrays!!
 void FixConpDyn2::dyn_setup()
 {
   bk = new double[elenum_all];
@@ -151,7 +151,8 @@ void FixConpDyn2::b_cal()
 void FixConpDyn2::update_bp() {
   int iloc;
   for (iloc = 0; iloc < elenum; ++iloc) bbb[iloc] = 0;
-  coul_cal(1,bbb);
+  if (smartlist) blist_coul_cal(bbb);
+  else coul_cal(1,bbb);
   b_comm(bbb,bp);
 }
 
