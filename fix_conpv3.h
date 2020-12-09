@@ -56,6 +56,10 @@ class FixConpV3 : public Fix {
   void get_setq();
   void b_comm(double *, double *);
   void coul_cal(int, double *);
+  void alist_coul_cal(double *);
+  void blist_coul_cal(double *);
+  void blist_coul_cal_post_force();
+  void request_smartlist();
   virtual double compute_scalar();
   virtual void dyn_setup() {}
   void init_list(int, class NeighList*);
@@ -76,6 +80,11 @@ class FixConpV3 : public Fix {
   int *ele2i,*elebuf2eleall,*ele2eleall;
   double totsetq,addv;
   double *bbb,*bbuf;
+
+  bool smartlist;
+  int eletypenum,arequest,brequest;
+  int *eletypes;
+  class NeighList *alist,*blist;
 
   int me,runstage,gotsetq;
   int ilevel_respa;

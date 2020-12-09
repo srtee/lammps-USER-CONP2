@@ -113,6 +113,7 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   outf = fopen(arg[10],"w");
   ff_flag = NORMAL; // turn on ff / noslab options if needed.
   a_matrix_f = 0;
+  smartlist = false; // get regular neighbor lists
   int iarg;
   for (iarg = 11; iarg < narg; ++iarg){
     if (strcmp(arg[iarg],"ffield") == 0) {
@@ -136,6 +137,14 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
       }
       outa = nullptr;
     }
+    else if (strcmp(arg[iarg],"etypes") == 0) {
+      smartlist = true;
+      ++iarg;
+      eletypenum = utils::inumeric(FLERR,arg[iarg],false,lmp);
+      eletypes = new int[eletypenum+1];
+      ++iarg;
+      for (int i = 0; i < eletypenum; ++i) eletypes[i] = utils::inumeric(FLERR,arg[iarg++],false,lmp);
+    }
   }
   elenum = elenum_old = 0;
   csk = snk = nullptr;
@@ -146,6 +155,7 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
   i2ele = ele2eleall = elebuf2eleall = nullptr;
   bbb = bbuf = nullptr;
   Btime = cgtime = Ctime = Ktime = 0;
+  alist = blist = list = nullptr;
   runstage = 0; //after operation
                 //0:init; 1: a_cal; 2: first sin/cos cal; 3: inv only, aaa inverse
   totsetq = 0;
@@ -251,18 +261,95 @@ void FixConpV3::init()
     intelflag = true;
   }
 
-  // request neighbor list -- half, newton off
-  int irequest = neighbor->request(this,instance_me);
-  neighbor->requests[irequest]->pair = 0;
-  neighbor->requests[irequest]->fix  = 1;
-  neighbor->requests[irequest]->newton = 2;
-  if (intelflag) neighbor->requests[irequest]->intel = 1;
+  // request neighbor list 
+  // if not smart list half, newton off
+  // else do request_smartlist()
+  if (smartlist) request_smartlist();
+  else {
+    int irequest = neighbor->request(this,instance_me);
+    neighbor->requests[irequest]->pair = 0;
+    neighbor->requests[irequest]->fix  = 1;
+    neighbor->requests[irequest]->newton = 2;
+    if (intelflag) neighbor->requests[irequest]->intel = 1;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixConpV3::request_smartlist() {
+  if (me == 0) printf("Requesting smart lists\n");
+  int itype,jtype,ieletype;
+  int ntypes = atom->ntypes;
+  int *iskip_a = new int[ntypes+1];
+  int *iskip_b = new int[ntypes+1];
+  int **ijskip_a;
+  memory->create(ijskip_a,ntypes+1,ntypes+1,"fixconpv3:ijskip_a");
+  int **ijskip_b;
+  memory->create(ijskip_b,ntypes+1,ntypes+1,"fixconpv3:ijskip_b");
+  // at this point eletypes has eletypenum types
+  for (itype = 0; itype <= ntypes; ++itype) { // yes, itype is 1-based numbering
+  // starting from 0 because being a bit anal
+    iskip_a[itype] = 1; // alist skips all except eletype by default
+    iskip_b[itype] = 0;
+    for (jtype = 0; jtype <= ntypes; ++jtype) {
+      ijskip_a[itype][jtype] = 1;
+    }
+  }
+  for (ieletype = 0; ieletype < eletypenum; ++ieletype) {
+    iskip_a[eletypes[ieletype]] = 0;
+    ijskip_a[eletypes[ieletype]][eletypes[ieletype]] = 0;
+  } // now, iskip_a[itype] == 0 (1) if eletype (soltype)
+  // set ijskip_b[itype][jtype] == 0 if (i is eletype XOR j is eletype)
+  for (itype = 0; itype <= ntypes; ++itype) {
+    for (jtype = 0; jtype <= ntypes; ++jtype) {
+      bool ele_and_sol = (!!(iskip_a[itype]) ^ !!(iskip_a[jtype]));
+      ijskip_b[itype][jtype] = (ele_and_sol) ? 0 : 1;
+    }
+  }
+  arequest = neighbor->request(this,instance_me);
+  if (me == 0) printf("Requested alist, ID = %d\n",arequest);
+  NeighRequest *aRq = neighbor->requests[arequest];
+  aRq->pair = 0;
+  aRq->fix  = 1;
+  aRq->half = 1;
+  aRq->full = 0;
+  aRq->newton = 2;
+  aRq->occasional = 1;
+  aRq->skip = 1;
+  aRq->iskip = iskip_a;
+  aRq->ijskip = ijskip_a;
+
+  brequest = neighbor->request(this,instance_me);
+  if (me == 0) printf("Requested blist, ID = %d\n",brequest);
+  NeighRequest *bRq = neighbor->requests[brequest];
+  bRq->pair = 0;
+  bRq->fix  = 1;
+  bRq->half = 1;
+  bRq->full = 0;
+  bRq->newton = 2;
+  bRq->skip = 1;
+  bRq->iskip = iskip_b;
+  bRq->ijskip = ijskip_b;
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixConpV3::init_list(int /* id */, NeighList *ptr) {
-  list = ptr;
+  if (smartlist) {
+    if (ptr->index == arequest) {
+      if (me == 0) printf("Got alist, ID = %d\n",arequest);
+      alist = ptr;
+    }
+    else if (ptr->index == brequest) {
+      if (me == 0) printf("Got blist, ID = %d\n",brequest);
+      blist = ptr;
+    }
+    else {
+      if (me == 0) printf("Init_list returned ID %d\n",ptr->index);
+      error->all(FLERR,"Smart request init_list is being weird!");
+    }
+  }
+  else list = ptr;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -594,7 +681,10 @@ void FixConpV3::update_bk(bool coulyes, double* bbb_all)
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
   
-  if (coulyes == true) coul_cal(1,bbb);
+  if (coulyes) {
+    if (smartlist) blist_coul_cal(bbb);
+    else coul_cal(1,bbb);
+  }
   b_comm(bbb,bbb_all);
 }
 
@@ -760,7 +850,8 @@ void FixConpV3::a_cal()
   memory->destroy(csk);
   memory->destroy(snk);
 
-  coul_cal(2,aaa);
+  if (smartlist) alist_coul_cal(aaa);
+  else coul_cal(2,aaa);
   
   int elenum_list3[nprocs];
   int displs3[nprocs];
@@ -1286,7 +1377,8 @@ void FixConpV3::force_cal(int vflag)
     double qscale = force->qqrd2e*scale;
     force->kspace->energy += qscale*eta*eleqsqsum/(sqrt(2)*MY_PIS);
   }
-  // coul_cal(0,nullptr);
+  if (smartlist) blist_coul_cal_post_force();
+  else coul_cal(0,nullptr);
 }
 /* ---------------------------------------------------------------------- */
 void FixConpV3::coul_cal(int coulcalflag, double* m)
@@ -1321,7 +1413,8 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
 
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
-    eci = electrode_check(i);
+    elei = i2ele[i];
+    eci = (elei >= 0) ? 1 : 0;
     qtmp = q[i];
     xtmp = x[i][0];
     ytmp = x[i][1];
@@ -1332,8 +1425,9 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
       j &= NEIGHMASK;
-      ecj = electrode_check(j);
-      checksum = abs(eci)+abs(ecj);
+      elej = i2ele[j];
+      ecj = (elej >= 0) ? 1 : 0;
+      checksum = eci + ecj;
       if (checksum == 1 || checksum == 2) {
         if (coulcalflag == 0 || checksum == coulcalflag) {
           delx = xtmp - x[j][0];
@@ -1376,7 +1470,6 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
               } else {
                 dudq -= erfc/r;
                 if (i < nlocal && eci) {
-                  elei = i2ele[i];
                   if (coulcalflag == 1) m[elei] -= q[j]*dudq;
                   else if (coulcalflag == 2 && checksum == 2) {
                     eleallj = tag2eleall[tag[j]];
@@ -1385,7 +1478,6 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
                   }
                 }
                 if (j < nlocal && ecj) {
-                  elej = i2ele[j];
                   if (coulcalflag == 1) m[elej] -= q[i]*dudq;
                   else if (coulcalflag == 2 && checksum == 2) {
                     elealli = tag2eleall[tag[i]];
@@ -1405,11 +1497,232 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
 }
 
 /* ---------------------------------------------------------------------- */
+void FixConpV3::alist_coul_cal(double* m)
+{
+  Ctime1 = MPI_Wtime();
+  //coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
+  int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
+  int elei,elej,elealli,eleallj;
+  double xtmp,ytmp,ztmp,delx,dely,delz;
+  double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
+  double forcecoul,ecoul,prefactor,fpair;
+
+  int inum = alist->inum;
+  int nlocal = atom->nlocal;
+  int *tag = atom->tag;
+  int *ilist = alist->ilist;
+  int *jlist;
+  int *numneigh = alist->numneigh;
+  int **firstneigh = alist->firstneigh;
+  
+  double qqrd2e = force->qqrd2e;
+  double **cutsq = coulpair->cutsq;
+  int itmp;
+  double *p_cut_coul = (double *) coulpair->extract("cut_coul",itmp);
+  double cut_coulsq = (*p_cut_coul)*(*p_cut_coul);
+  double **x = atom->x;
+  double **f = atom->f;
+  double *q = atom->q;
+
+  for (ii = 0; ii < inum; ii++) {
+    i = ilist[ii];
+    xtmp = x[i][0];
+    ytmp = x[i][1];
+    ztmp = x[i][2];
+    jlist = firstneigh[i];
+    jnum = numneigh[i];
+    for (jj = 0; jj < jnum; jj++) {
+      j = jlist[jj];
+      j &= NEIGHMASK;
+      delx = xtmp - x[j][0];
+      dely = ytmp - x[j][1];
+      delz = ztmp - x[j][2];
+      rsq = delx*delx + dely*dely + delz*delz;
+      r2inv = 1.0/rsq;
+      r = sqrt(rsq);
+      grij = g_ewald * r;
+      expm2 = exp(-grij*grij);
+      t = 1.0 / (1.0 + EWALD_P*grij);
+      erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+      dudq = erfc/r;
+      etarij = eta*r/sqrt(2);
+      expm2 = exp(-etarij*etarij);
+      t = 1.0 / (1.0+EWALD_P*etarij);
+      erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+      dudq -= erfc/r;
+      if (i < nlocal) {
+        elei = i2ele[i];
+        eleallj = tag2eleall[tag[j]];
+        idx1d = elei*elenum_all + eleallj;
+        m[idx1d] += dudq;
+      }
+      if (j < nlocal) {
+        elej = i2ele[j];
+        elealli = tag2eleall[tag[i]];
+        idx1d = elej*elenum_all + elealli;
+        m[idx1d] += dudq;
+      }
+    }
+  }
+  Ctime2 = MPI_Wtime();
+  Ctime += Ctime2-Ctime1;
+}
+/* ---------------------------------------------------------------------- */
+void FixConpV3::blist_coul_cal(double* m)
+{
+  Ctime1 = MPI_Wtime();
+  int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
+  int eci,ecj;
+  int checksum,elei,elej,elealli,eleallj;
+  double qtmp,xtmp,ytmp,ztmp,delx,dely,delz;
+  double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
+  double forcecoul,ecoul,prefactor,fpair;
+
+  int inum = blist->inum;
+  int nlocal = atom->nlocal;
+  int newton_pair = force->newton_pair;
+  int *atomtype = atom->type;
+  int *tag = atom->tag;
+  int *ilist = blist->ilist;
+  int *jlist;
+  int *numneigh = blist->numneigh;
+  int **firstneigh = blist->firstneigh;
+  
+  double qqrd2e = force->qqrd2e;
+  double **cutsq = coulpair->cutsq;
+  int itmp;
+  double *p_cut_coul = (double *) coulpair->extract("cut_coul",itmp);
+  double cut_coulsq = (*p_cut_coul)*(*p_cut_coul);
+  double **x = atom->x;
+  double **f = atom->f;
+  double *q = atom->q;
+
+  for (ii = 0; ii < inum; ii++) {
+    i = ilist[ii];
+    elei = i2ele[i];
+    eci = (elei >= 0) ? 1 : 0;
+    xtmp = x[i][0];
+    ytmp = x[i][1];
+    ztmp = x[i][2];
+    itype = atomtype[i];
+    jlist = firstneigh[i];
+    jnum = numneigh[i];
+    for (jj = 0; jj < jnum; jj++) {
+      j = jlist[jj];
+      j &= NEIGHMASK;
+      elej = i2ele[j];
+      ecj = (elej >= 0) ? 1 : 0;
+      delx = xtmp - x[j][0];
+      dely = ytmp - x[j][1];
+      delz = ztmp - x[j][2];
+      rsq = delx*delx + dely*dely + delz*delz;
+      jtype = atomtype[j];
+      if (rsq < cutsq[itype][jtype]) {
+        r2inv = 1.0/rsq;
+        if (rsq < cut_coulsq) {
+          dudq =0.0;
+          r = sqrt(rsq);
+          grij = g_ewald * r;
+          expm2 = exp(-grij*grij);
+          t = 1.0 / (1.0 + EWALD_P*grij);
+          erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+          dudq = erfc/r;
+        }
+        etarij = eta*r;
+        expm2 = exp(-etarij*etarij);
+        t = 1.0 / (1.0+EWALD_P*etarij);
+        erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+        dudq -= erfc/r;
+        if (i < nlocal && eci) m[elei] -= q[j]*dudq;
+        if (j < nlocal && ecj) m[elej] -= q[i]*dudq;
+      }
+    }
+  }
+  Ctime2 = MPI_Wtime();
+  Ctime += Ctime2-Ctime1;
+}
+
+/* ---------------------------------------------------------------------- */
+void FixConpV3::blist_coul_cal_post_force()
+{
+  Ctime1 = MPI_Wtime();
+  int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
+  double qtmp,xtmp,ytmp,ztmp,delx,dely,delz;
+  double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
+  double forcecoul,ecoul,prefactor,fpair;
+
+  int inum = blist->inum;
+  int nlocal = atom->nlocal;
+  int newton_pair = force->newton_pair;
+  int *atomtype = atom->type;
+  int *tag = atom->tag;
+  int *ilist = blist->ilist;
+  int *jlist;
+  int *numneigh = blist->numneigh;
+  int **firstneigh = blist->firstneigh;
+  
+  double qqrd2e = force->qqrd2e;
+  double **cutsq = coulpair->cutsq;
+  int itmp;
+  double *p_cut_coul = (double *) coulpair->extract("cut_coul",itmp);
+  double cut_coulsq = (*p_cut_coul)*(*p_cut_coul);
+  double **x = atom->x;
+  double **f = atom->f;
+  double *q = atom->q;
+
+  for (ii = 0; ii < inum; ii++) {
+    i = ilist[ii];
+    qtmp = q[i];
+    xtmp = x[i][0];
+    ytmp = x[i][1];
+    ztmp = x[i][2];
+    itype = atomtype[i];
+    jlist = firstneigh[i];
+    jnum = numneigh[i];
+    for (jj = 0; jj < jnum; jj++) {
+      j = jlist[jj];
+      j &= NEIGHMASK;
+      delx = xtmp - x[j][0];
+      dely = ytmp - x[j][1];
+      delz = ztmp - x[j][2];
+      rsq = delx*delx + dely*dely + delz*delz;
+      jtype = atomtype[j];
+      if (rsq < cutsq[itype][jtype]) {
+        r2inv = 1.0/rsq;
+        if (rsq < cut_coulsq) {
+          r = sqrt(rsq);
+          etarij = eta*r;
+          expm2 = exp(-etarij*etarij);
+          t = 1.0 / (1.0+EWALD_P*etarij);
+          erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+          prefactor = qqrd2e*qtmp*q[j]/r;
+          forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
+          fpair = forcecoul*r2inv;
+          f[i][0] += delx*forcecoul;
+          f[i][1] += dely*forcecoul;
+          f[i][2] += delz*forcecoul;
+          if (newton_pair || j < nlocal) {
+            f[j][0] -= delx*forcecoul;
+            f[j][1] -= dely*forcecoul;
+            f[j][2] -= delz*forcecoul;
+          }
+          ecoul = -prefactor*erfc;
+          force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
+        }
+      }
+    }
+  }
+  Ctime2 = MPI_Wtime();
+  Ctime += Ctime2-Ctime1;
+}
+
+
+/* ---------------------------------------------------------------------- */
+
 double FixConpV3::compute_scalar()
 {
   return addv;
 }
-
 
 /* ---------------------------------------------------------------------- */
 double FixConpV3::rms(int km, double prd, bigint natoms, double q2)

@@ -36,7 +36,7 @@ class FixConpDyn : public FixConpV3 {
   FixConpDyn(class LAMMPS *lmp, int narg, char **arg):FixConpV3(lmp,narg,arg) {};
   ~FixConpDyn() {}
   void dyn_setup();
-  void pre_force(int);
+  void post_integrate();
   int update_diffvecs_from_q();
   void update_q_from_diffvecs();
 

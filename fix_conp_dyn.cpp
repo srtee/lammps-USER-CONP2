@@ -81,7 +81,7 @@ void FixConpDyn::dyn_setup()
 
 /* ---------------------------------------------------------------------- */
 
-void FixConpDyn::pre_force(int vflag)
+void FixConpDyn::post_integrate()
 {
   if(update->ntimestep % everynum == 0) {
     if (strstr(update->integrate_style,"verlet")) { //not respa
@@ -133,7 +133,6 @@ void FixConpDyn::pre_force(int vflag)
     if (dyn_fails <= 10) ++dyn_step;
     // if (me == 0) printf("%d\t%d\t%d\t%d\n",dyn_status,dyn_interval,dyn_step,dyn_fails);
   }
-  force_cal(vflag);
 }
 
 /* ---------------------------------------------------------------------- */
