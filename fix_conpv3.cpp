@@ -138,12 +138,24 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
       outa = nullptr;
     }
     else if (strcmp(arg[iarg],"etypes") == 0) {
-      smartlist = true;
       ++iarg;
+      if (iarg >= narg-1) error->all(FLERR,"Insufficient input entries for etypes");
       eletypenum = utils::inumeric(FLERR,arg[iarg],false,lmp);
       eletypes = new int[eletypenum+1];
-      ++iarg;
-      for (int i = 0; i < eletypenum; ++i) eletypes[i] = utils::inumeric(FLERR,arg[iarg++],false,lmp);
+      for (int i = 0; i < eletypenum; ++i) {
+        ++iarg;
+        eletypes[i] = utils::inumeric(FLERR,arg[iarg],false,lmp);
+      }
+      eletypes[eletypenum] = -1;
+      int ntypes = atom->ntypes;
+      for (int i = 0; i < eletypenum; ++i) {
+        if (eletypes[i] > ntypes) error->all(FLERR,"Invalid atom type in etypes");
+      }
+      // smartlist = true;
+    }
+    else {
+      printf(".<%s>.\n",arg[iarg]);
+      error->all(FLERR,"Invalid fix conp input command");
     }
   }
   elenum = elenum_old = 0;
@@ -296,7 +308,7 @@ void FixConpV3::request_smartlist() {
     }
   }
   for (ieletype = 0; ieletype < eletypenum; ++ieletype) {
-    if (me == 0) printf("Unset A skip for type %d (%d of %d)",eletypes[ieletype],ieletype,eletypenum);
+    if (me == 0) printf("Unset A skip for type %d (%d of %d)\n",eletypes[ieletype],ieletype,eletypenum);
     iskip_a[eletypes[ieletype]] = 0;
     ijskip_a[eletypes[ieletype]][eletypes[ieletype]] = 0;
   } // now, iskip_a[itype] == 0 (1) if eletype (soltype)
@@ -305,7 +317,7 @@ void FixConpV3::request_smartlist() {
     for (jtype = 0; jtype <= ntypes; ++jtype) {
       bool ele_and_sol = (!!(iskip_a[itype]) ^ !!(iskip_a[jtype]));
       ijskip_b[itype][jtype] = (ele_and_sol) ? 0 : 1;
-    if (me == 0) printf("Unset A skip for type %d (%d of %d)",eletypes[ieletype],ieletype,eletypenum);
+    if (me == 0) printf("Set B skip to %d for itype %d and jtype %d\n",ijskip_b[itype][jtype],itype,jtype);
     }
   }
   arequest = neighbor->request(this,instance_me);
@@ -316,7 +328,7 @@ void FixConpV3::request_smartlist() {
   aRq->half = 1;
   aRq->full = 0;
   aRq->newton = 2;
-  aRq->occasional = 1;
+  aRq->occasional = 0;
   aRq->skip = 1;
   aRq->iskip = iskip_a;
   aRq->ijskip = ijskip_a;
@@ -1501,6 +1513,7 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
 /* ---------------------------------------------------------------------- */
 void FixConpV3::alist_coul_cal(double* m)
 {
+  if (me == 0) printf("We are in alist_coul_cal\n");
   Ctime1 = MPI_Wtime();
   //coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
@@ -1508,7 +1521,7 @@ void FixConpV3::alist_coul_cal(double* m)
   double xtmp,ytmp,ztmp,delx,dely,delz;
   double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
   double forcecoul,ecoul,prefactor,fpair;
-
+  
   int inum = alist->inum;
   int nlocal = atom->nlocal;
   int *tag = atom->tag;
@@ -1516,6 +1529,18 @@ void FixConpV3::alist_coul_cal(double* m)
   int *jlist;
   int *numneigh = alist->numneigh;
   int **firstneigh = alist->firstneigh;
+
+  if (me == 0) {
+    printf("alist properties:\n");
+    printf("number of members: %d\n",inum);
+    printf("flag newton: %d\n",neighbor->requests[arequest]->newton);
+    printf("flag occasional: %d\n",neighbor->requests[arequest]->occasional);
+    printf("flag skip: %d\n",neighbor->requests[arequest]->skip);
+    if (inum > 0) {
+      printf("first member number %d of type %d\n",alist->ilist[0],tag[alist->ilist[0]]);
+      if (numneigh[0] > 0) printf("and its first neighbor is number %d of type %d\n",alist->firstneigh[0][0],tag[alist->firstneigh[0][0]]);
+    }
+  }
   
   double qqrd2e = force->qqrd2e;
   double **cutsq = coulpair->cutsq;
@@ -1589,7 +1614,17 @@ void FixConpV3::blist_coul_cal(double* m)
   int *jlist;
   int *numneigh = blist->numneigh;
   int **firstneigh = blist->firstneigh;
-  
+  //if (me == 0) {
+    //printf("blist properties:\n");
+    //printf("number of members: %d\n",inum);
+    //printf("flag newton: %d\n",neighbor->requests[brequest]->newton);
+    //printf("flag occasional: %d\n",neighbor->requests[brequest]->occasional);
+    //printf("flag skip: %d\n",neighbor->requests[brequest]->skip);
+    //if (inum > 0) {
+    //  printf("first member number %d of type %d\n",tag[blist->ilist[0]],atomtype[blist->ilist[0]]);
+    //  if (numneigh[0] > 0) printf("and its first neighbor is number %d of type %d\n",tag[blist->firstneigh[0][0]],atomtype[blist->firstneigh[0][0]]);
+    //}
+  //} 
   double qqrd2e = force->qqrd2e;
   double **cutsq = coulpair->cutsq;
   int itmp;

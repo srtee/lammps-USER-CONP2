@@ -21,7 +21,7 @@ group pf6 type 4
 group eleleft molecule 641
 group eleright molecule 642
 #atom_modify first sol
-neigh_modify every 1 delay 0 check no
+#neigh_modify every 1 delay 0 check no
 
 velocity ele set 0.0 0.0 0.0
 fix freeze ele setforce 0.0 0.0 0.0
@@ -35,7 +35,7 @@ compute qright eleright reduce sum v_q
 compute dipole sol reduce sum v_qz
 compute tempsl sol temp
 
-fix constpot all conp 1 1.979 641 642 -0.0 0.0 inv iter etypes 1 5
+fix constpot all conp 1 1.979 641 642 -0.0 0.0 inv iter etypes 1 5 org amatrix_nosmartlist
 fix bmishake bmi shake 0.0001 10 0 t 1 2 3 b 1 2 a 1
 
 timestep 2.0
