@@ -296,7 +296,7 @@ void FixConpV3::request_smartlist() {
     }
   }
   for (ieletype = 0; ieletype < eletypenum; ++ieletype) {
-    if (me == 0) printf("Unset A skip for type %d (%d of %d)\n",eletypes[ieletype],ieletype,eletypenum);
+    if (me == 0) printf("Unset A skip for type %d (%d of %d)",eletypes[ieletype],ieletype,eletypenum);
     iskip_a[eletypes[ieletype]] = 0;
     ijskip_a[eletypes[ieletype]][eletypes[ieletype]] = 0;
   } // now, iskip_a[itype] == 0 (1) if eletype (soltype)
@@ -305,7 +305,7 @@ void FixConpV3::request_smartlist() {
     for (jtype = 0; jtype <= ntypes; ++jtype) {
       bool ele_and_sol = (!!(iskip_a[itype]) ^ !!(iskip_a[jtype]));
       ijskip_b[itype][jtype] = (ele_and_sol) ? 0 : 1;
-      if (me == 0) printf("Set B skip to %d for itype %d and jtype %d\n",ijskip_b[itype][jtype],itype,jtype);
+    if (me == 0) printf("Unset A skip for type %d (%d of %d)",eletypes[ieletype],ieletype,eletypenum);
     }
   }
   arequest = neighbor->request(this,instance_me);
