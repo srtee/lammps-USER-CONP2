@@ -67,7 +67,7 @@ extern "C" {
 }
 
 /* ---------------------------------------------------------------------- */
-
+// TODO: make sure destructor destroys these arrays!!
 void FixConpDyn2::dyn_setup()
 {
   bk = new double[elenum_all];

@@ -30,7 +30,7 @@
 #include "memory.h"
 #include "error.h"
 #include "compute.h"
-#include "fix_conpv3.h"
+#include "fix_conp.h"
 #include "pair_hybrid.h"
 
 #include "pair.h"
@@ -69,7 +69,7 @@ extern "C" {
 
 /* ---------------------------------------------------------------------- */
 
-FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
+FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),coulpair(NULL),qlstr(NULL),qrstr(NULL)
 {
   MPI_Comm_rank(world,&me);
@@ -180,7 +180,7 @@ FixConpV3::FixConpV3(LAMMPS *lmp, int narg, char **arg) :
 
 /* ---------------------------------------------------------------------- */
 
-FixConpV3::~FixConpV3()
+FixConp::~FixConp()
 {
   fclose(outf);
   memory->destroy3d_offset(cs,-kmax_created);
@@ -213,7 +213,7 @@ FixConpV3::~FixConpV3()
 
 /* ---------------------------------------------------------------------- */
 
-int FixConpV3::setmask()
+int FixConp::setmask()
 {
   int mask = 0;
   mask |= POST_INTEGRATE;
@@ -224,7 +224,7 @@ int FixConpV3::setmask()
 
 /* ---------------------------------------------------------------------- */
 
-void FixConpV3::init()
+void FixConp::init()
 {
   MPI_Comm_rank(world,&me);
   //Pair *coulpair;
@@ -288,16 +288,16 @@ void FixConpV3::init()
 
 /* ---------------------------------------------------------------------- */
 
-void FixConpV3::request_smartlist() {
+void FixConp::request_smartlist() {
   if (me == 0) printf("Requesting smart lists\n");
   int itype,jtype,ieletype;
   int ntypes = atom->ntypes;
   int *iskip_a = new int[ntypes+1];
   int *iskip_b = new int[ntypes+1];
   int **ijskip_a;
-  memory->create(ijskip_a,ntypes+1,ntypes+1,"fixconpv3:ijskip_a");
+  memory->create(ijskip_a,ntypes+1,ntypes+1,"fixconp:ijskip_a");
   int **ijskip_b;
-  memory->create(ijskip_b,ntypes+1,ntypes+1,"fixconpv3:ijskip_b");
+  memory->create(ijskip_b,ntypes+1,ntypes+1,"fixconp:ijskip_b");
   // at this point eletypes has eletypenum types
   for (itype = 0; itype <= ntypes; ++itype) { // yes, itype is 1-based numbering
   // starting from 0 because being a bit anal
@@ -344,7 +344,7 @@ void FixConpV3::request_smartlist() {
 
 /* ---------------------------------------------------------------------- */
 
-void FixConpV3::init_list(int /* id */, NeighList *ptr) {
+void FixConp::init_list(int /* id */, NeighList *ptr) {
   if (smartlist) {
     if (ptr->index == arequest) {
       alist = ptr;
@@ -362,7 +362,7 @@ void FixConpV3::init_list(int /* id */, NeighList *ptr) {
 
 /* ---------------------------------------------------------------------- */
 
-void FixConpV3::setup(int vflag)
+void FixConp::setup(int vflag)
 {
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;
@@ -440,8 +440,8 @@ void FixConpV3::setup(int vflag)
   //vL *= evscale;
   //vR *= evscale;
   
-  memory->create3d_offset(cs,-kmax,kmax,3,nmax,"fixconpv3:cs");
-  memory->create3d_offset(sn,-kmax,kmax,3,nmax,"fixconpv3:sn");
+  memory->create3d_offset(cs,-kmax,kmax,3,nmax,"fixconp:cs");
+  memory->create3d_offset(sn,-kmax,kmax,3,nmax,"fixconp:sn");
   sfacrl = new double[kmax3d];
   sfacim = new double[kmax3d];
   sfacrl_all = new double[kmax3d];
@@ -495,7 +495,7 @@ void FixConpV3::setup(int vflag)
     gotsetq = 0; 
     elebuf2eleall = new int[elenum_all];
     bbuf = new double[elenum_all];
-    memory->create(bbb,elenum,"fixconpv3:bbb");
+    memory->create(bbb,elenum,"fixconp:bbb");
     pre_neighbor();
     b_setq_cal();
     equation_solve();
@@ -509,7 +509,7 @@ void FixConpV3::setup(int vflag)
 
 /* ---------------------------------------------------------------------- */
 
-void FixConpV3::post_integrate()
+void FixConp::post_integrate()
 {
   if(update->ntimestep % everynum == 0) {
     if (strstr(update->integrate_style,"verlet")) { //not respa
@@ -539,13 +539,13 @@ void FixConpV3::post_integrate()
   }
 }
 
-void FixConpV3::post_force(int vflag) {
+void FixConp::post_force(int vflag) {
   force_cal(vflag);
 }
 
 /* ---------------------------------------------------------------------- */
 
-int FixConpV3::electrode_check(int atomid)
+int FixConp::electrode_check(int atomid)
 {
   int *molid = atom->molecule;
   if (molid[atomid] == molidL) return 1;
@@ -555,7 +555,7 @@ int FixConpV3::electrode_check(int atomid)
 
 /* ----------------------------------------------------------------------*/
 
-void FixConpV3::b_setq_cal()
+void FixConp::b_setq_cal()
 {
   int i,iall,iloc,eci;
   int *tag = atom->tag;
@@ -587,7 +587,7 @@ void FixConpV3::b_setq_cal()
 
 /* ----------------------------------------------------------------------*/
 
-void FixConpV3::pre_neighbor()
+void FixConp::pre_neighbor()
 {
   int* tag = atom->tag;
   int nlocal = atom->nlocal;
@@ -601,9 +601,9 @@ void FixConpV3::pre_neighbor()
     }
   }
   elenum = j;
-  memory->grow(ele2tag,elenum,"fixconpv3:ele2tag");
-  memory->grow(ele2eleall,elenum,"fixconpv3:ele2eleall");
-  memory->grow(bbb,elenum,"fixconpv3:bbb");
+  memory->grow(ele2tag,elenum,"fixconp:ele2tag");
+  memory->grow(ele2eleall,elenum,"fixconp:ele2eleall");
+  memory->grow(bbb,elenum,"fixconp:bbb");
   j = 0;
   for (i = 0; i < nlocal; ++i) {
     if (electrode_check(i)) {
@@ -624,7 +624,7 @@ void FixConpV3::pre_neighbor()
 
 /* ----------------------------------------------------------------------*/
 
-void FixConpV3::b_comm(double* bsend, double* brecv)
+void FixConp::b_comm(double* bsend, double* brecv)
 {
   MPI_Allgatherv(bsend,elenum,MPI_DOUBLE,bbuf,elenum_list,displs,MPI_DOUBLE,world);
   int iall;
@@ -635,14 +635,14 @@ void FixConpV3::b_comm(double* bsend, double* brecv)
 
 /* ----------------------------------------------------------------------*/
 
-void FixConpV3::b_cal() {
+void FixConp::b_cal() {
   bool do_bp=true;
   update_bk(do_bp,bbb_all);
 }
 
 /* ----------------------------------------------------------------------*/
 
-void FixConpV3::update_bk(bool coulyes, double* bbb_all)
+void FixConp::update_bk(bool coulyes, double* bbb_all)
 {
   Ktime1 = MPI_Wtime();
   int i,j,k,elei;
@@ -703,7 +703,7 @@ void FixConpV3::update_bk(bool coulyes, double* bbb_all)
 }
 
 /*----------------------------------------------------------------------- */
-void FixConpV3::equation_solve()
+void FixConp::equation_solve()
 {
 //solve equations
   if (minimizer == 0) {
@@ -726,7 +726,7 @@ void FixConpV3::equation_solve()
 }
 
 /*----------------------------------------------------------------------- */
-void FixConpV3::a_read()
+void FixConp::a_read()
 {
   int i = 0;
   int idx1d;
@@ -766,7 +766,7 @@ void FixConpV3::a_read()
 }
 
 /*----------------------------------------------------------------------- */
-void FixConpV3::a_cal()
+void FixConp::a_cal()
 {
   double t1,t2;
   t1 = MPI_Wtime();
@@ -776,7 +776,7 @@ void FixConpV3::a_cal()
   }
 
   double **eleallx = nullptr;
-  memory->create(eleallx,elenum_all,3,"fixconpv3:eleallx");
+  memory->create(eleallx,elenum_all,3,"fixconp:eleallx");
 
   int nprocs = comm->nprocs;
   int nlocal = atom->nlocal;
@@ -812,7 +812,7 @@ void FixConpV3::a_cal()
     displs2[i] = displs[i]*3;
   }
   MPI_Allgatherv(elexyzlist,elenum*3,MPI_DOUBLE,elexyzlist_all,elenum_list2,displs2,MPI_DOUBLE,world);
-  memory->create(ele2eleall,elenum,"fixconpv3:ele2eleall");
+  memory->create(ele2eleall,elenum,"fixconp:ele2eleall");
   j = 0;
   for (i = 0; i < elenum_all; i++) {
     if (i == 0 && me == 0) fprintf(outa," ");
@@ -830,8 +830,8 @@ void FixConpV3::a_cal()
     ele2eleall[iele] = tag2eleall[ele2tag[iele]];
     eleall2ele[ele2eleall[iele]] = iele;
   }
-  memory->create(csk,kcount,elenum_all,"fixconpv3:csk");
-  memory->create(snk,kcount,elenum_all,"fixconpv3:snk");
+  memory->create(csk,kcount,elenum_all,"fixconp:csk");
+  memory->create(snk,kcount,elenum_all,"fixconp:snk");
   sincos_a(eleallx);
   delete [] elexyzlist;
   delete [] elexyzlist_all;
@@ -893,13 +893,13 @@ void FixConpV3::a_cal()
 }
 /*--------------------------------------------------------------*/
 
-void FixConpV3::sincos_a(double **eleallx)
+void FixConp::sincos_a(double **eleallx)
 {
   int i,m,k,ic;
   int kx,ky,kz;
   double ***csele,***snele;
-  memory->create3d_offset(csele,-kmax,kmax,3,elenum_all,"fixconpv3:csele");
-  memory->create3d_offset(snele,-kmax,kmax,3,elenum_all,"fixconpv3:snele");
+  memory->create3d_offset(csele,-kmax,kmax,3,elenum_all,"fixconp:csele");
+  memory->create3d_offset(snele,-kmax,kmax,3,elenum_all,"fixconp:snele");
   double sqk,cypz,sypz;
   for (ic = 0; ic < 3; ic++) {
     sqk = unitk[ic]*unitk[ic];
@@ -946,7 +946,7 @@ void FixConpV3::sincos_a(double **eleallx)
 } 
 
 /*--------------------------------------------------------------*/
-void FixConpV3::sincos_b()
+void FixConp::sincos_b()
 {
   int i,k,l,m,n,ic;
   double cstr1,sstr1,cstr2,sstr2,cstr3,sstr3,cstr4,sstr4;
@@ -1137,7 +1137,7 @@ void FixConpV3::sincos_b()
 }
 
 /* ---------------------------------------------------------------------- */
-void FixConpV3::cg()
+void FixConp::cg()
 {
   int iter,i,j,idx1d;
   double alpha,beta,ptap,lresnorm,netr,tmp;
@@ -1205,7 +1205,7 @@ void FixConpV3::cg()
   }
 }
 /* ---------------------------------------------------------------------- */
-void FixConpV3::inv()
+void FixConp::inv()
 {
   int i,j,k,idx1d;
   if (runstage == 2 && a_matrix_f < 2) {
@@ -1282,7 +1282,7 @@ void FixConpV3::inv()
 
 /* ---------------------------------------------------------------------- */
 
-void FixConpV3::get_setq()
+void FixConp::get_setq()
 {
   int iall,jall,iloc,i,j,idx1d;
   int elealli,tagi;
@@ -1322,7 +1322,7 @@ void FixConpV3::get_setq()
 
 /* ---------------------------------------------------------------------- */
 
-void FixConpV3::update_charge()
+void FixConp::update_charge()
 {
   int i,j,idx1d,iall,jall,iloc;
   int elealli,tagi;
@@ -1369,7 +1369,7 @@ void FixConpV3::update_charge()
   addv += netcharge_left;
 }
 /* ---------------------------------------------------------------------- */
-void FixConpV3::force_cal(int vflag)
+void FixConp::force_cal(int vflag)
 {
   int i;
   if (force->kspace->energy) {
@@ -1402,7 +1402,7 @@ and all other ways must be checked and double checked and triple checked.
 Many coder-hours and rubber duckies died to give us this information.
 /*
 /* ---------------------------------------------------------------------- */
-void FixConpV3::coul_cal(int coulcalflag, double* m)
+void FixConp::coul_cal(int coulcalflag, double* m)
 {
   Ctime1 = MPI_Wtime();
   //coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
@@ -1518,7 +1518,7 @@ void FixConpV3::coul_cal(int coulcalflag, double* m)
 }
 
 /* ---------------------------------------------------------------------- */
-void FixConpV3::alist_coul_cal(double* m)
+void FixConp::alist_coul_cal(double* m)
 {
   if (me == 0) printf("We are in alist_coul_cal\n");
   Ctime1 = MPI_Wtime();
@@ -1590,7 +1590,7 @@ void FixConpV3::alist_coul_cal(double* m)
   Ctime += Ctime2-Ctime1;
 }
 /* ---------------------------------------------------------------------- */
-void FixConpV3::blist_coul_cal(double* m)
+void FixConp::blist_coul_cal(double* m)
 {
   Ctime1 = MPI_Wtime();
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
@@ -1671,7 +1671,7 @@ void FixConpV3::blist_coul_cal(double* m)
 }
 
 /* ---------------------------------------------------------------------- */
-void FixConpV3::blist_coul_cal_post_force()
+void FixConp::blist_coul_cal_post_force()
 {
   Ctime1 = MPI_Wtime();
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
@@ -1747,13 +1747,13 @@ void FixConpV3::blist_coul_cal_post_force()
 
 /* ---------------------------------------------------------------------- */
 
-double FixConpV3::compute_scalar()
+double FixConp::compute_scalar()
 {
   return addv;
 }
 
 /* ---------------------------------------------------------------------- */
-double FixConpV3::rms(int km, double prd, bigint natoms, double q2)
+double FixConp::rms(int km, double prd, bigint natoms, double q2)
 {
   double value = 2.0*q2*g_ewald/prd *
     sqrt(1.0/(MY_PI*km*natoms)) *
@@ -1762,7 +1762,7 @@ double FixConpV3::rms(int km, double prd, bigint natoms, double q2)
 }
 
 /* ---------------------------------------------------------------------- */
-void FixConpV3::coeffs()
+void FixConp::coeffs()
 {
   int k,l,m;
   double sqk;

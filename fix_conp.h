@@ -18,22 +18,22 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(conp,FixConpV3)
+FixStyle(conp,FixConp)
 
 #else
 
-#ifndef LMP_FIX_CONPV3_H
-#define LMP_FIX_CONPV3_H
+#ifndef LMP_FIX_CONP_H
+#define LMP_FIX_CONP_H
 
 #include "fix.h"
 #include "pair.h"
 
 namespace LAMMPS_NS {
 
-class FixConpV3 : public Fix {
+class FixConp : public Fix {
  public:
-  FixConpV3(class LAMMPS *, int, char **);
-  ~FixConpV3();
+  FixConp(class LAMMPS *, int, char **);
+  ~FixConp();
   int setmask();
   void init();
   void setup(int);
