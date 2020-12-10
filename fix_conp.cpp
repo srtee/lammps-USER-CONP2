@@ -478,7 +478,9 @@ void FixConp::setup(int vflag)
     for (i = 0; i <= elenum_all; i++) eleall2ele[i] = -1;
     aaa_all = new double[elenum_all*elenum_all];
     bbb_all = new double[elenum_all];
-    ele2tag = new int[elenum];
+    memory->create(ele2tag,elenum,"fixconp:ele2tag");
+    memory->create(ele2eleall,elenum,"fixconp:ele2eleall");
+    memory->create(bbb,elenum,"fixconp:bbb");
     for (i = 0; i < natoms+1; i++) tag2eleall[i] = elenum_all;
     eleallq = new double[elenum_all];
     if (a_matrix_f == 0) {
@@ -589,6 +591,7 @@ void FixConp::b_setq_cal()
 
 void FixConp::pre_neighbor()
 {
+  int elenum_old = elenum;
   int* tag = atom->tag;
   int nlocal = atom->nlocal;
   int nprocs = comm->nprocs;
@@ -601,9 +604,11 @@ void FixConp::pre_neighbor()
     }
   }
   elenum = j;
-  memory->grow(ele2tag,elenum,"fixconp:ele2tag");
-  memory->grow(ele2eleall,elenum,"fixconp:ele2eleall");
-  memory->grow(bbb,elenum,"fixconp:bbb");
+  if (elenum > elenum_old) {
+    memory->grow(ele2tag,elenum,"fixconp:ele2tag");
+    memory->grow(ele2eleall,elenum,"fixconp:ele2eleall");
+    memory->grow(bbb,elenum,"fixconp:bbb");
+  }
   j = 0;
   for (i = 0; i < nlocal; ++i) {
     if (electrode_check(i)) {
