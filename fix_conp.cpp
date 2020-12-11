@@ -267,7 +267,7 @@ void FixConp::init()
   bool intelflag = false;
   intelpair = nullptr;
   intelpair = (Pair *) force->pair_match("intel",0,1);
-  if (intelpair != nullptr && me == 0) {
+  if (intelpair != nullptr) {
     intelflag = true;
   }
 
