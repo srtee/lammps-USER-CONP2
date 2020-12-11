@@ -1,0 +1,46 @@
+PPPM version of conp
+
+1. Intro
+I would like to build a PPPM engine for conp because
+(1) it would be much faster for general purposes
+(2) it would enable movable electrode atoms (see section Mobility)
+
+The design patterns involved are as follows:
+conp/pppm
+(1) The plugin gets a pointer to a PPPM_CONP class, which is either
+a "mini-solver" initialized by the plugin itself,
+or the main solver of specialized design
+(3) PPPM_CONP inherits from PPPM with the concept of two additional
+lists of particles to compute:
+(a) a *stash* list:
+(i) charge is meshed and FFTed only once per timestep;
+(ii) energies are needed by CONP;
+(b) a *scratch* list:
+(i) charge may be computed multiple times per timestep;
+(ii) energies are needed by CONP.
+
+(4) PPPM_CONP exposes these methods to CONP:
+set_stash_list;
+set_scratch_list;
+do_stash_fft;
+do_stash_and_scratch_fft;
+do_scratch_fft;
+get_scratch_pot;
+If PPPM_CONP is main LAMMPS solver, it also needs these methods:
+add_stash_fft_to_main;
+add_scratch_fft_to_main;
+
+The motivation is that when PPPM_CONP is the main LAMMPS solver,
+it can do the electrolyte FFT for CONP but then reuse it before
+calculating everyone's forces and energies (since FFTs add linearly).
+The workflow on a CONP step would then be 
+[
+    do_stash_fft;
+    add_stash_fft_to_main;
+    { after CONP has updated charges}
+    do_scratch_fft;
+    add_scratch_fft_to_main;
+]
+< now main_fft holds all charges and is ready to go >
+
+and on a nonCONP step the brackets would just be replaced with regular code.
