@@ -186,13 +186,14 @@ FixConp::~FixConp()
   memory->destroy3d_offset(cs,-kmax_created);
   memory->destroy3d_offset(sn,-kmax_created);
   memory->destroy(bbb);
+  memory->destroy(ele2tag);
+  memory->destroy(ele2eleall);
   delete [] bbuf;
   delete [] elebuf2eleall;
   delete [] aaa_all;
   delete [] bbb_all;
   delete [] tag2eleall;
   delete [] eleall2tag;
-  delete [] ele2tag;
   delete [] kxvecs;
   delete [] kyvecs;
   delete [] kzvecs;
@@ -205,7 +206,6 @@ FixConp::~FixConp()
   delete [] qrstr;
   delete [] elesetq;
   delete [] elecheck_eleall;
-  delete [] ele2eleall;
   delete [] eleall2ele;
   delete [] displs;
   delete [] elenum_list;
@@ -216,8 +216,8 @@ FixConp::~FixConp()
 int FixConp::setmask()
 {
   int mask = 0;
-  mask |= POST_INTEGRATE;
   mask |= PRE_NEIGHBOR;
+  mask |= PRE_FORCE;
   mask |= POST_FORCE;
   return mask;
 }
@@ -505,13 +505,13 @@ void FixConp::setup(int vflag)
     get_setq();
     gotsetq = 1;
     dyn_setup(); // additional setup for dynamic versions
-    post_integrate();
+    pre_force(0);
   }
 }
 
 /* ---------------------------------------------------------------------- */
 
-void FixConp::post_integrate()
+void FixConp::pre_force(int /* vflag */);
 {
   if(update->ntimestep % everynum == 0) {
     if (strstr(update->integrate_style,"verlet")) { //not respa
