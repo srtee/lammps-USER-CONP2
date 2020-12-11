@@ -37,7 +37,7 @@ class FixConp : public Fix {
   int setmask();
   void init();
   void setup(int);
-  void post_integrate();
+  void pre_force(int);
   void pre_neighbor();
   void post_force(int);
   void force_cal(int);
