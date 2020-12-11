@@ -89,8 +89,8 @@ void FixConpDyn2::b_cal()
 {
   //printf("%d\t%d\t%d\t%d\n",bk_step,bk_interval,bk_fails,bk_status);
   //printf("%d\t%d\t%d\t%d\n",bp_step,bp_interval,bp_fails,bp_status);
-  double bk_uerr = 4e-3;
-  double bk_lerr = 1e-3;
+  double bk_uerr = 4e-4;
+  double bk_lerr = 1e-4;
   if (bk_step % bk_interval == 0 || bk_fails > 10) {
     bool do_bp = false;
     update_bk(do_bp,bk); 
@@ -115,8 +115,8 @@ void FixConpDyn2::b_cal()
   if (bk_fails <= 10) ++bk_step;
   // after this bk[elenum_all] holds kspace
 
-  double bp_uerr = 4e-3;
-  double bp_lerr = 1e-3;
+  double bp_uerr = 4e-4;
+  double bp_lerr = 1e-4;
   if (bp_step % bp_interval == 0 || bp_fails > 10) {
     update_bp(); 
     if (bp_fails <= 10) {
