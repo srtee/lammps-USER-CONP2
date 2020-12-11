@@ -511,7 +511,7 @@ void FixConp::setup(int vflag)
 
 /* ---------------------------------------------------------------------- */
 
-void FixConp::pre_force(int /* vflag */);
+void FixConp::pre_force(int /* vflag */)
 {
   if(update->ntimestep % everynum == 0) {
     if (strstr(update->integrate_style,"verlet")) { //not respa
