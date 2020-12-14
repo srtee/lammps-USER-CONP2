@@ -81,8 +81,8 @@ void FixConpDyn2::dyn_setup()
   for (iall = 0; iall < 3*elenum_all; ++iall) {
     bkvec[iall] = bpvec[iall] = 0.0;
   }
-  bp_cap = 5;
-  bk_cap = 25;
+  bp_cap = 8;
+  bk_cap = 40;
   bp_reportevery = 5000;
   bk_reportevery = 1000;
   bp_report = bk_report = 0;
@@ -118,18 +118,19 @@ void FixConpDyn2::b_cal()
       bk_runerr += (bk_err - bk_runerr)/static_cast<double>(bk_report);
       int bk_interval_new = bk_interval;
       bool bk_report_output = true;
-      if (bk_err > 0.0 && bk_err <= bk_lerr) {
-        if (bk_interval >= bk_cap && bk_report < bk_reportevery) {
-          bk_interval_new = bk_cap;
-          bk_report_output = false;
+      if (bk_err >= bk_uerr) {
+        if (bk_interval > 1) {
+          bk_interval_new = bk_interval % 2 + bk_interval / 2;
         }
-        else bk_interval_new = (bk_interval < bk_cap) ? bk_interval+1 : bk_interval;
+        else if (bk_interval == 1) ++bk_fails;
       }
-      else if (bk_err >= bk_uerr && bk_interval > 1) {
-        bk_interval_new = bk_interval % 2 + bk_interval / 2;
+      else if (bk_err >= bk_lerr && bk_err < bk_uerr) {
+        if (bk_interval == 1) ++bk_fails;
+        else if (bk_report < bk_reportevery) bk_report_output = false;
       }
-      else if (bk_err >= bk_lerr && bk_interval == 1) {
-        ++bk_fails;
+      else if (bk_err >= 0 && bk_err < bk_lerr) {
+        if (bk_interval < bk_cap) bk_interval_new = bk_interval + 1;
+        else if (bk_report < bk_reportevery) bk_report_output = false;
       }
       if (bk_report_output) {
         if (me == 0) {
@@ -159,18 +160,19 @@ void FixConpDyn2::b_cal()
       bp_runerr += (bp_err - bp_runerr)/static_cast<double>(bp_report);
       int bp_interval_new = bp_interval;
       bool bp_report_output = true;
-      if (bp_err > 0.0 && bp_err <= bp_lerr) {
-        if (bp_interval >= bp_cap && bp_report < bp_reportevery) {
-          bp_interval_new = bp_cap;
-          bp_report_output = false;
+      if (bp_err >= bp_uerr) {
+        if (bp_interval > 1) {
+          bp_interval_new = bp_interval % 2 + bp_interval / 2;
         }
-        else bp_interval_new = (bp_interval < bp_cap) ? bp_interval+1 : bp_interval;
+        else if (bp_interval == 1) ++bp_fails;
       }
-      else if (bp_err >= bp_uerr && bp_interval > 1) {
-        bp_interval_new = bp_interval % 2 + bp_interval / 2;
+      else if (bp_err >= bp_lerr && bp_err < bp_uerr) {
+        if (bp_interval == 1) ++bp_fails;
+        else if (bp_report < bp_reportevery) bp_report_output = false;
       }
-      else if (bp_err >= bp_lerr && bp_interval == 1) {
-        ++bp_fails;
+      else if (bp_err >= 0 && bp_err < bp_lerr) {
+        if (bp_interval < bp_cap) bp_interval_new = bp_interval + 1;
+        else if (bp_report < bp_reportevery) bp_report_output = false;
       }
       if (bp_report_output) {
         if (me == 0) {
