@@ -20,15 +20,15 @@ lists of particles to compute:
 (ii) energies are needed by CONP.
 
 (4) PPPM_CONP exposes these methods to CONP:
-set_stash_list;
-set_scratch_list;
-do_stash_fft;
-do_stash_and_scratch_fft;
-do_scratch_fft;
-get_scratch_pot;
+set_stash_list;           (local per proc; redo each neighboring)
+set_scratch_list;         (local per proc; redo each neighboring)
+do_stash_fft;             (needs MPI comms)
+do_stash_and_scratch_fft; (needs MPI comms)
+do_scratch_fft;           (needs MPI comms)
+get_scratch_pot;          (local per proc; redo each step)
 If PPPM_CONP is main LAMMPS solver, it also needs these methods:
-add_stash_fft_to_main;
-add_scratch_fft_to_main;
+add_stash_fft_to_main;    (local per proc; redo each step)
+add_scratch_fft_to_main;  (local per proc; redo each step)
 
 The motivation is that when PPPM_CONP is the main LAMMPS solver,
 it can do the electrolyte FFT for CONP but then reuse it before
