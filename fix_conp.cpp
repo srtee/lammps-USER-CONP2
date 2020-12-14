@@ -325,7 +325,7 @@ void FixConp::request_smartlist() {
   aRq->half = 1;
   aRq->full = 0;
   aRq->newton = 2;
-  aRq->occasional = 0;
+  aRq->occasional = 1;
   aRq->skip = 1;
   aRq->iskip = iskip_a;
   aRq->ijskip = ijskip_a;
