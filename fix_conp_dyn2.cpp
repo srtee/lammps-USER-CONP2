@@ -67,7 +67,7 @@ extern "C" {
 }
 
 /* ---------------------------------------------------------------------- */
-// TODO: make sure destructor destroys these arrays!!
+
 void FixConpDyn2::dyn_setup()
 {
   bk = new double[elenum_all];
@@ -81,6 +81,24 @@ void FixConpDyn2::dyn_setup()
   for (iall = 0; iall < 3*elenum_all; ++iall) {
     bkvec[iall] = bpvec[iall] = 0.0;
   }
+  bp_cap = 5;
+  bk_cap = 25;
+  bp_reportevery = 5000;
+  bk_reportevery = 1000;
+  bp_report = bk_report = 0;
+  bp_runerr = bk_runerr = 0;
+  bp_maxfails = bk_maxfails = 10;
+  if (me == 0) fprintf(outf, "Step\tbk/bp\ti (old)\ti (new)\terr\trun_err\n");
+}
+
+/* ---------------------------------------------------------------------- */
+
+FixConpDyn2::~FixConpDyn2()
+{
+  delete [] bk;
+  delete [] bkvec;
+  delete [] bp;
+  delete [] bpvec;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -91,53 +109,85 @@ void FixConpDyn2::b_cal()
   //printf("%d\t%d\t%d\t%d\n",bp_step,bp_interval,bp_fails,bp_status);
   double bk_uerr = 4e-4;
   double bk_lerr = 1e-4;
-  if (bk_step % bk_interval == 0 || bk_fails > 10) {
+  if (bk_step >= bk_interval || bk_fails > bk_maxfails) {
     bool do_bp = false;
     update_bk(do_bp,bk); 
-    if (bk_fails <= 10) {
+    if (bk_fails <= bk_maxfails) {
       double bk_err = update_dynv(bk,bkvec,&bk_status,bk_interval);
+      ++bk_report;
+      bk_runerr += (bk_err - bk_runerr)/static_cast<double>(bk_report);
+      int bk_interval_new = bk_interval;
+      bool bk_report_output = true;
       if (bk_err > 0.0 && bk_err <= bk_lerr) {
-        ++bk_interval;
-        if (me == 0) fprintf(outf,"Step %d, bk_err was %g: now checking every %d steps\n",update->ntimestep,bk_err,bk_interval);
+        if (bk_interval >= bk_cap && bk_report < bk_reportevery) {
+          bk_interval_new = bk_cap;
+          bk_report_output = false;
+        }
+        else bk_interval_new = (bk_interval < bk_cap) ? bk_interval+1 : bk_interval;
       }
       else if (bk_err >= bk_uerr && bk_interval > 1) {
-        bk_interval = bk_interval % 2 + bk_interval / 2;
-        if (me == 0) fprintf(outf,"Step %d, bk_err was %g: now checking every %d steps\n",update->ntimestep,bk_err,bk_interval);
+        bk_interval_new = bk_interval % 2 + bk_interval / 2;
       }
       else if (bk_err >= bk_lerr && bk_interval == 1) {
         ++bk_fails;
-        if (me == 0) fprintf(outf,"Step %d, bk_err was %g: have failed to change check interval %d times\n",update->ntimestep,bk_err,bk_fails);
       }
+      if (bk_report_output) {
+        if (me == 0) {
+          fprintf(outf,"%d\tbk\t%d\t%d\t%g\t%g\n",update->ntimestep,bk_interval,bk_interval_new,bk_err,bk_runerr);
+        }        
+        bk_report = 0;
+        bk_runerr = 0.0;
+      }
+      bk_interval = bk_interval_new;
       bk_step = 0; 
+    }
+    if (me == 0 && bk_fails == bk_maxfails) {
+      fprintf(outf,"Dynamic updating for bk has failed %d times -- aborting dynamic updating",bk_fails);
     }
   }
   else update_from_dynv(bk,bkvec);
-  if (bk_fails <= 10) ++bk_step;
+  if (bk_fails <= bk_maxfails) ++bk_step;
   // after this bk[elenum_all] holds kspace
 
   double bp_uerr = 4e-4;
   double bp_lerr = 1e-4;
-  if (bp_step % bp_interval == 0 || bp_fails > 10) {
+  if (bp_step % bp_interval == 0 || bp_fails > bp_maxfails) {
     update_bp(); 
-    if (bp_fails <= 10) {
+    if (bp_fails <= bp_maxfails) {
       double bp_err = update_dynv(bp,bpvec,&bp_status,bp_interval);
+      ++bp_report;
+      bp_runerr += (bp_err - bp_runerr)/static_cast<double>(bp_report);
+      int bp_interval_new = bp_interval;
+      bool bp_report_output = true;
       if (bp_err > 0.0 && bp_err <= bp_lerr) {
-        ++bp_interval;
-        if (me == 0) fprintf(outf,"Step %d, bp_err was %g: now checking every %d steps\n",update->ntimestep,bp_err,bp_interval);
+        if (bp_interval >= bp_cap && bp_report < bp_reportevery) {
+          bp_interval_new = bp_cap;
+          bp_report_output = false;
+        }
+        else bp_interval_new = (bp_interval < bp_cap) ? bp_interval+1 : bp_interval;
       }
       else if (bp_err >= bp_uerr && bp_interval > 1) {
-        bp_interval = bp_interval % 2 + bp_interval / 2;
-        if (me == 0) fprintf(outf,"Step %d, bp_err was %g: now checking every %d steps\n",update->ntimestep,bp_err,bp_interval);
+        bp_interval_new = bp_interval % 2 + bp_interval / 2;
       }
       else if (bp_err >= bp_lerr && bp_interval == 1) {
         ++bp_fails;
-        if (me == 0) fprintf(outf,"Step %d, bp_err was %g: have failed to change check interval %d times\n",update->ntimestep,bp_err,bp_fails);
       }
+      if (bp_report_output) {
+        if (me == 0) {
+          fprintf(outf,"%d\tbp\t%d\t%d\t%g\t%g\n",update->ntimestep,bp_interval,bp_interval_new,bp_err,bp_runerr);
+        }
+        bp_report = 0;
+        bp_runerr = 0.0;
+      }
+      bp_interval = bp_interval_new;
       bp_step = 0; 
+    }
+    if (me == 0 && bp_fails == bp_maxfails) {
+      fprintf(outf,"Dynamic updating for bp has failed %d times -- aborting dynamic updating",bp_fails);
     }
   }
   else update_from_dynv(bp,bpvec);
-  if (bp_fails <= 10) ++bp_step;
+  if (bp_fails <= bp_maxfails) ++bp_step;
   // after this bp[elenum_all] holds rspace
 
   int iall;
