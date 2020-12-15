@@ -325,7 +325,6 @@ void FixConp::request_smartlist() {
     aRq->skip = 1;
     aRq->iskip = iskip_a;
     aRq->ijskip = ijskip_a;
-    if (intelflag) aRq->intel = 1;
   }
 
   brequest = neighbor->request(this,instance_me);
@@ -338,7 +337,6 @@ void FixConp::request_smartlist() {
   bRq->skip = 1;
   bRq->iskip = iskip_b;
   bRq->ijskip = ijskip_b;
-  if (intelflag) bRq->intel = 1;
 }
 
 /* ---------------------------------------------------------------------- */
