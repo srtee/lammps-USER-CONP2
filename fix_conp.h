@@ -34,6 +34,7 @@ class FixConp : public Fix {
  public:
   FixConp(class LAMMPS *, int, char **);
   ~FixConp();
+  bool intelflag;
   int setmask();
   void init();
   void setup(int);

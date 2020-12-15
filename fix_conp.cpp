@@ -263,13 +263,9 @@ void FixConp::init()
     if (!input->variable->equalstyle(qrvar))
       error->all(FLERR,"Variable 2 for fix conp is invalid style");
   }
-  Pair *intelpair;
-  bool intelflag = false;
-  intelpair = nullptr;
-  intelpair = (Pair *) force->pair_match("intel",0,1);
-  if (intelpair != nullptr) {
-    intelflag = true;
-  }
+
+  int ifix = modify->find_fix("package_intel");
+  if (ifix >= 0) intelflag = true;
 
   // request neighbor list 
   // if not smart list half, newton off
@@ -289,7 +285,6 @@ void FixConp::init()
 /* ---------------------------------------------------------------------- */
 
 void FixConp::request_smartlist() {
-  if (me == 0) printf("Requesting smart lists\n");
   int itype,jtype,ieletype;
   int ntypes = atom->ntypes;
   int *iskip_a = new int[ntypes+1];
@@ -318,17 +313,20 @@ void FixConp::request_smartlist() {
       ijskip_b[itype][jtype] = (ele_and_sol) ? 0 : 1;
     }
   }
-  arequest = neighbor->request(this,instance_me);
-  NeighRequest *aRq = neighbor->requests[arequest];
-  aRq->pair = 0;
-  aRq->fix  = 1;
-  aRq->half = 1;
-  aRq->full = 0;
-  aRq->newton = 2;
-  aRq->occasional = 1;
-  aRq->skip = 1;
-  aRq->iskip = iskip_a;
-  aRq->ijskip = ijskip_a;
+  if (a_matrix_f == 0) {
+    arequest = neighbor->request(this,instance_me);
+    NeighRequest *aRq = neighbor->requests[arequest];
+    aRq->pair = 0;
+    aRq->fix  = 1;
+    aRq->half = 1;
+    aRq->full = 0;
+    aRq->newton = 2;
+    aRq->occasional = (intelflag) ? 0 : 1;
+    aRq->skip = 1;
+    aRq->iskip = iskip_a;
+    aRq->ijskip = ijskip_a;
+    if (intelflag) aRq->intel = 1;
+  }
 
   brequest = neighbor->request(this,instance_me);
   NeighRequest *bRq = neighbor->requests[brequest];
@@ -340,6 +338,7 @@ void FixConp::request_smartlist() {
   bRq->skip = 1;
   bRq->iskip = iskip_b;
   bRq->ijskip = ijskip_b;
+  if (intelflag) bRq->intel = 1;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1526,15 +1525,17 @@ void FixConp::coul_cal(int coulcalflag, double* m)
 void FixConp::alist_coul_cal(double* m)
 {
   Ctime1 = MPI_Wtime();
+  if (alist->occasional) neighbor->build_one(alist,1);
   //coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
   int elei,elej,elealli,eleallj;
   double xtmp,ytmp,ztmp,delx,dely,delz;
   double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
   double forcecoul,ecoul,prefactor,fpair;
-  
+  bool ecib,ecjb;
   int inum = alist->inum;
   int nlocal = atom->nlocal;
+  int *atomtype = atom->type;
   int *tag = atom->tag;
   int *ilist = alist->ilist;
   int *jlist;
@@ -1549,9 +1550,10 @@ void FixConp::alist_coul_cal(double* m)
   double **x = atom->x;
   double **f = atom->f;
   double *q = atom->q;
-
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
+    itype = atomtype[i];
+    ecib = !!(electrode_check(i));
     xtmp = x[i][0];
     ytmp = x[i][1];
     ztmp = x[i][2];
@@ -1560,33 +1562,41 @@ void FixConp::alist_coul_cal(double* m)
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
       j &= NEIGHMASK;
-      delx = xtmp - x[j][0];
-      dely = ytmp - x[j][1];
-      delz = ztmp - x[j][2];
-      rsq = delx*delx + dely*dely + delz*delz;
-      r2inv = 1.0/rsq;
-      r = sqrt(rsq);
-      grij = g_ewald * r;
-      expm2 = exp(-grij*grij);
-      t = 1.0 / (1.0 + EWALD_P*grij);
-      erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-      dudq = erfc/r;
-      etarij = eta*r/sqrt(2);
-      expm2 = exp(-etarij*etarij);
-      t = 1.0 / (1.0+EWALD_P*etarij);
-      erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-      dudq -= erfc/r;
-      if (i < nlocal) {
-        elei = eleall2ele[tag2eleall[tag[i]]];
-        eleallj = tag2eleall[tag[j]];
-        idx1d = elei*elenum_all + eleallj;
-        m[idx1d] += dudq;
-      }
-      if (j < nlocal) {
-        elej = eleall2ele[tag2eleall[tag[j]]];
-        elealli = tag2eleall[tag[i]];
-        idx1d = elej*elenum_all + elealli;
-        m[idx1d] += dudq;
+      ecjb = !!(electrode_check(j));
+      if (ecib && ecjb) {
+        delx = xtmp - x[j][0];
+        dely = ytmp - x[j][1];
+        delz = ztmp - x[j][2];
+        rsq = delx*delx + dely*dely + delz*delz;
+        jtype = atomtype[j];
+        if (rsq < cutsq[itype][jtype]) {
+          if (rsq < cut_coulsq) {
+            r2inv = 1.0/rsq;
+            r = sqrt(rsq);
+            grij = g_ewald * r;
+            expm2 = exp(-grij*grij);
+            t = 1.0 / (1.0 + EWALD_P*grij);
+            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+            dudq = erfc/r;
+            etarij = eta*r/sqrt(2);
+            expm2 = exp(-etarij*etarij);
+            t = 1.0 / (1.0+EWALD_P*etarij);
+            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+            dudq -= erfc/r;
+            if (i < nlocal) {
+              elei = eleall2ele[tag2eleall[tag[i]]];
+              eleallj = tag2eleall[tag[j]];
+              idx1d = elei*elenum_all + eleallj;
+             m[idx1d] += dudq;
+            }
+            if (j < nlocal) {
+              elej = eleall2ele[tag2eleall[tag[j]]];
+              elealli = tag2eleall[tag[i]];
+              idx1d = elej*elenum_all + elealli;
+              m[idx1d] += dudq;
+            }
+          }
+        }
       }
     }
   }
