@@ -216,7 +216,7 @@ FixConp::~FixConp()
 int FixConp::setmask()
 {
   int mask = 0;
-  mask |= PRE_NEIGHBOR;
+  mask |= POST_NEIGHBOR;
   mask |= PRE_FORCE;
   mask |= POST_FORCE;
   return mask;
@@ -264,6 +264,7 @@ void FixConp::init()
       error->all(FLERR,"Variable 2 for fix conp is invalid style");
   }
 
+  intelflag = false;
   int ifix = modify->find_fix("package_intel");
   if (ifix >= 0) intelflag = true;
 
@@ -321,10 +322,11 @@ void FixConp::request_smartlist() {
     aRq->half = 1;
     aRq->full = 0;
     aRq->newton = 2;
-    aRq->occasional = (intelflag) ? 0 : 1;
+    aRq->occasional = 1;
     aRq->skip = 1;
     aRq->iskip = iskip_a;
     aRq->ijskip = ijskip_a;
+    if (intelflag) aRq->intel = 1;
   }
 
   brequest = neighbor->request(this,instance_me);
@@ -337,6 +339,7 @@ void FixConp::request_smartlist() {
   bRq->skip = 1;
   bRq->iskip = iskip_b;
   bRq->ijskip = ijskip_b;
+  if (intelflag) bRq->intel = 1;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -495,7 +498,7 @@ void FixConp::setup(int vflag)
     elebuf2eleall = new int[elenum_all];
     bbuf = new double[elenum_all];
     memory->create(bbb,elenum,"fixconp:bbb");
-    pre_neighbor();
+    post_neighbor();
     b_setq_cal();
     equation_solve();
     elesetq = new double[elenum_all]; 
@@ -586,7 +589,7 @@ void FixConp::b_setq_cal()
 
 /* ----------------------------------------------------------------------*/
 
-void FixConp::pre_neighbor()
+void FixConp::post_neighbor()
 {
   int elenum_old = elenum;
   int* tag = atom->tag;
@@ -1407,7 +1410,8 @@ Many coder-hours and rubber duckies died to give us this information.
 void FixConp::coul_cal(int coulcalflag, double* m)
 {
   Ctime1 = MPI_Wtime();
-  //coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
+  // coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
+  // NeighList *list = coulpair->list;
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
   int eci,ecj;
   int checksum,elei,elej,elealli,eleallj;
@@ -1478,10 +1482,12 @@ void FixConp::coul_cal(int coulcalflag, double* m)
                 prefactor = qqrd2e*qtmp*q[j]/r;
                 forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
                 fpair = forcecoul*r2inv;
-                f[i][0] += delx*forcecoul;
-                f[i][1] += dely*forcecoul;
-                f[i][2] += delz*forcecoul;
-                if (newton_pair || j < nlocal) {
+                if (!(electrode_check(i))) {
+                  f[i][0] += delx*forcecoul;
+                  f[i][1] += dely*forcecoul;
+                  f[i][2] += delz*forcecoul;
+                }
+                if (!(electrode_check(j)) && (newton_pair || j < nlocal)) {
                   f[j][0] -= delx*forcecoul;
                   f[j][1] -= dely*forcecoul;
                   f[j][2] -= delz*forcecoul;
@@ -1523,7 +1529,10 @@ void FixConp::coul_cal(int coulcalflag, double* m)
 void FixConp::alist_coul_cal(double* m)
 {
   Ctime1 = MPI_Wtime();
-  if (alist->occasional) neighbor->build_one(alist,1);
+  if (alist->occasional) {
+    neighbor->build(0);
+    neighbor->build_one(alist,1);
+  }
   //coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
   int elei,elej,elealli,eleallj;
@@ -1633,7 +1642,7 @@ void FixConp::blist_coul_cal(double* m)
 
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
-    eleilocal = (i < nlocal && electrode_check(i));
+    eleilocal = (!!electrode_check(i) && i < nlocal);
     xtmp = x[i][0];
     ytmp = x[i][1];
     ztmp = x[i][2];
@@ -1643,8 +1652,8 @@ void FixConp::blist_coul_cal(double* m)
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
       j &= NEIGHMASK;
-      elejlocal = (j < nlocal && electrode_check(j));
-      if (eleilocal || elejlocal) {
+      elejlocal = (!!electrode_check(j) && j < nlocal);
+      if (eleilocal ^ elejlocal) {
         delx = xtmp - x[j][0];
         dely = ytmp - x[j][1];
         delz = ztmp - x[j][2];
@@ -1709,9 +1718,11 @@ void FixConp::blist_coul_cal_post_force()
   double **x = atom->x;
   double **f = atom->f;
   double *q = atom->q;
+  bool eleilocal,elejlocal;
 
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
+    eleilocal = !!(electrode_check(i));
     qtmp = q[i];
     xtmp = x[i][0];
     ytmp = x[i][1];
@@ -1722,32 +1733,39 @@ void FixConp::blist_coul_cal_post_force()
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
       j &= NEIGHMASK;
-      delx = xtmp - x[j][0];
-      dely = ytmp - x[j][1];
-      delz = ztmp - x[j][2];
-      rsq = delx*delx + dely*dely + delz*delz;
-      jtype = atomtype[j];
-      if (rsq < cutsq[itype][jtype]) {
-        if (rsq < cut_coulsq) {
-          r2inv = 1.0/rsq;
-          r = sqrt(rsq);
-          etarij = eta*r;
-          expm2 = exp(-etarij*etarij);
-          t = 1.0 / (1.0+EWALD_P*etarij);
-          erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-          prefactor = qqrd2e*qtmp*q[j]/r;
-          forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
-          fpair = forcecoul*r2inv;
-          f[i][0] += delx*forcecoul;
-          f[i][1] += dely*forcecoul;
-          f[i][2] += delz*forcecoul;
-          if (newton_pair || j < nlocal) {
-            f[j][0] -= delx*forcecoul;
-            f[j][1] -= dely*forcecoul;
-            f[j][2] -= delz*forcecoul;
+      elejlocal = !!(electrode_check(j));
+      if (eleilocal ^ elejlocal) {
+        delx = xtmp - x[j][0];
+        dely = ytmp - x[j][1];
+        delz = ztmp - x[j][2];
+        rsq = delx*delx + dely*dely + delz*delz;
+        jtype = atomtype[j];
+        if (rsq < cutsq[itype][jtype]) {
+          if (rsq < cut_coulsq) {
+            r2inv = 1.0/rsq;
+            r = sqrt(rsq);
+            etarij = eta*r;
+            expm2 = exp(-etarij*etarij);
+            t = 1.0 / (1.0+EWALD_P*etarij);
+            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+            prefactor = qqrd2e*qtmp*q[j]/r;
+            forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
+            fpair = forcecoul*r2inv;
+            // following logic is asymmetric
+            // because we always know i < nlocal (but j could be ghost)
+            if (!eleilocal) {
+              f[i][0] += delx*forcecoul;
+              f[i][1] += dely*forcecoul;
+              f[i][2] += delz*forcecoul;
+            }
+            else if (newton_pair || j < nlocal) {
+              f[j][0] -= delx*forcecoul;
+              f[j][1] -= dely*forcecoul;
+              f[j][2] -= delz*forcecoul;
+            }
+            ecoul = -prefactor*erfc;
+            force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
           }
-          ecoul = -prefactor*erfc;
-          force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
         }
       }
     }

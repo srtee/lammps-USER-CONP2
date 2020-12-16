@@ -39,7 +39,7 @@ class FixConp : public Fix {
   void init();
   void setup(int);
   void pre_force(int);
-  void pre_neighbor();
+  void post_neighbor();
   void post_force(int);
   void force_cal(int);
   void a_cal();
