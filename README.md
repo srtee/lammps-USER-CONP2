@@ -79,7 +79,7 @@ Note that conp/ff currently requires "fix efield" to be separately added to the 
 ```
 fix CONP conp/ff ... v_vleft v_vright ...
 ...
-fix EFIELD efield all 0.0 0.0 (v_vright-v_vleft)/lz
+fix EFIELD efield all 0.0 0.0 -(v_vright-v_vleft)/lz
 ```
 
 With units real or metal, fix efield already takes units of V/*length*, so no further conversion is needed.
