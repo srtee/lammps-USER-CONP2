@@ -34,7 +34,7 @@ namespace LAMMPS_NS {
 class FixConpDyn2 : public FixConp {
  public:
   FixConpDyn2(class LAMMPS *lmp, int narg, char **arg):FixConp(lmp,narg,arg) {};
-  ~FixConpDyn2() {}
+  ~FixConpDyn2();
   void dyn_setup();
   void b_cal();
   void update_bp();
@@ -45,6 +45,10 @@ class FixConpDyn2 : public FixConp {
   double *bp,*bpvec;
   int bk_step, bk_interval, bk_status, bk_fails;
   int bp_step, bp_interval, bp_status, bp_fails;
+  int bk_cap, bk_report, bk_reportevery;
+  int bp_cap, bp_report, bp_reportevery;
+  int bk_maxfails, bp_maxfails;
+  double bk_runerr, bp_runerr;
 };
 
 }

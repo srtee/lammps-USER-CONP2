@@ -34,11 +34,12 @@ class FixConp : public Fix {
  public:
   FixConp(class LAMMPS *, int, char **);
   ~FixConp();
+  bool intelflag;
   int setmask();
   void init();
   void setup(int);
-  void post_integrate();
-  void pre_neighbor();
+  void pre_force(int);
+  void post_neighbor();
   void post_force(int);
   void force_cal(int);
   void a_cal();
