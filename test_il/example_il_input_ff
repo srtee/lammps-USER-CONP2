@@ -7,11 +7,11 @@ processors * * 2
     pair_style lj/cut/coul/long 16.0
     kspace_style pppm 1e-7
     pair_modify mix arithmetic
-boundary p p f
+boundary p p p
 
 read_data example_il_datafile
 reset_timestep 0
-kspace_modify slab 3.0
+#kspace_modify slab 3.0
 
 # group defs
 group sol type 1:4
@@ -33,8 +33,8 @@ compute qright eleright reduce sum v_q
 compute dipole sol reduce sum v_qz
 compute tempsl sol temp
 
-fix constpot all conp 1 1.979 641 642 -1.0 1.0 inv iter inv inv_a_matrix_normal
-#fix efield all efield 0 0 $(2/lz)
+fix constpot all conp 1 1.979 641 642 -1.0 1.0 inv iter ffield inv inv_a_matrix_ffield
+fix efield all efield 0 0 $(2/lz)
 fix bmishake bmi shake 0.0001 10 0 t 1 2 3 b 1 2 a 1
 
 timestep 2.0
