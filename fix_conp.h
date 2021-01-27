@@ -50,7 +50,7 @@ class FixConp : public Fix {
   void equation_solve();
   virtual void update_charge();
   int electrode_check(int);
-  void sincos_a(double **);
+  void sincos_a(int, double *);
   void sincos_b();
   void cg();
   void inv();

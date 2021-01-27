@@ -199,6 +199,8 @@ FixConp::~FixConp()
   memory->destroy(elebuf2eleall);
   memory->destroy(bbuf);
   memory->destroy(elesetq);
+  memory->destroy(csk);
+  memory->destroy(snk);
   delete [] tag2eleall;
   delete [] kxvecs;
   delete [] kyvecs;
@@ -695,18 +697,14 @@ void FixConp::update_bk(bool coulyes, double* bbb_all)
   int nlocal = atom->nlocal;
   int kx,ky,kz;
   double cypz,sypz,exprl,expim;
-  for (elei = 0; elei < elenum; ++elei) bbb[elei] = 0.0;
-  for (k = 0; k < kcount; k++) {
-    kx = kxvecs[k];
-    ky = kyvecs[k];
-    kz = kzvecs[k];
-    for (elei = 0; elei < elenum; ++elei) {
-      i = atom->map(ele2tag[elei]);
-      cypz = cs[ky][1][i]*cs[kz][2][i] - sn[ky][1][i]*sn[kz][2][i];
-      sypz = sn[ky][1][i]*cs[kz][2][i] + cs[ky][1][i]*sn[kz][2][i];
-      exprl = cs[kx][0][i]*cypz - sn[kx][0][i]*sypz;
-      expim = sn[kx][0][i]*cypz + cs[kx][0][i]*sypz;
-      bbb[elei] -= 2.0*ug[k]*(exprl*sfacrl_all[k]+expim*sfacim_all[k]);
+  int one = 1;
+  for (elei = 0; elei < elenum; ++elei) {
+    i = ele2eleall[elei];
+    //bbb[elei] = -ddot_(&kcount,csk[i],&one,sfacrl_all,&one);
+    //bbb[elei] -= ddot_(&kcount,snk[i],&one,sfacim_all,&one);
+    bbb[elei] = 0;
+    for (k = 0; k < kcount; k++) {
+      bbb[elei] -= (csk[i][k]*sfacrl_all[k]+snk[i][k]*sfacim_all[k]);
     } // ddot tested -- slower!
   }
 
@@ -823,45 +821,44 @@ void FixConp::a_cal()
     fprintf(outf,"A matrix calculating ...\n");
   }
 
-  double **eleallx = nullptr;
-  memory->create(eleallx,elenum_all,3,"fixconp:eleallx");
+  //double **eleallx = nullptr;
+  //memory->create(eleallx,elenum_all,3,"fixconp:eleallx");
 
   //gather tag,x and q
   double **x = atom->x;
-  double *elexyzlist = new double[3*elenum];
-  double *elexyzlist_all = new double[3*elenum_all];
-  j = 0;
-  for (iele = 0; iele < elenum; iele++) {
-    i = atom->map(ele2tag[iele]);
-    elexyzlist[j] = x[i][0];
-    j++;
-    elexyzlist[j] = x[i][1];
-    j++;
-    elexyzlist[j] = x[i][2];
-    j++;
-  }
-  int displs2[nprocs];
-  int elenum_list2[nprocs];
-  for (i = 0; i < nprocs; i++) {
-    elenum_list2[i] = elenum_list[i]*3;
-    displs2[i] = displs[i]*3;
-  }
-  MPI_Allgatherv(elexyzlist,elenum*3,MPI_DOUBLE,elexyzlist_all,elenum_list2,displs2,MPI_DOUBLE,world);
-  j = 0;
-  for (i = 0; i < elenum_all; i++) {
-    eleallx[i][0] = elexyzlist_all[j];
-    j++;
-    eleallx[i][1] = elexyzlist_all[j];
-    j++;
-    eleallx[i][2] = elexyzlist_all[j];
-    j++;
-  }
-  if (me == 0) fprintf (outa,"\n");
-  memory->create(csk,kcount,elenum_all,"fixconp:csk");
-  memory->create(snk,kcount,elenum_all,"fixconp:snk");
-  sincos_a(eleallx);
-  delete [] elexyzlist;
-  delete [] elexyzlist_all;
+  //double *elexyzlist = new double[3*elenum];
+  //double *elexyzlist_all = new double[3*elenum_all];
+  //j = 0;
+  //for (iele = 0; iele < elenum; iele++) {
+  //  i = atom->map(ele2tag[iele]);
+  //  elexyzlist[j] = x[i][0];
+  //  j++;
+  //  elexyzlist[j] = x[i][1];
+  //  j++;
+  //  elexyzlist[j] = x[i][2];
+  //  j++;
+  //}
+  //int displs2[nprocs];
+  //int elenum_list2[nprocs];
+  //for (i = 0; i < nprocs; i++) {
+  //  elenum_list2[i] = elenum_list[i]*3;
+  //  displs2[i] = displs[i]*3;
+  //}
+  //MPI_Allgatherv(elexyzlist,elenum*3,MPI_DOUBLE,elexyzlist_all,elenum_list2,displs2,MPI_DOUBLE,world);
+  //j = 0;
+  //for (i = 0; i < elenum_all; i++) {
+  //  eleallx[i][0] = elexyzlist_all[j];
+  //  j++;
+  //  eleallx[i][1] = elexyzlist_all[j];
+  //  j++;
+  //  eleallx[i][2] = elexyzlist_all[j];
+  //  j++;
+  //}
+  double *eleallz = new double[elenum_all];
+  sincos_a(ff_flag,eleallz);
+  // sincos_a loads coordinates into eleallz if asked to
+  //delete [] elexyzlist;
+  //delete [] elexyzlist_all;
   int elealli,idx1d,tagi;
   double zi;
   double CON_4PIoverV = MY_4PI/volume;
@@ -871,22 +868,28 @@ void FixConp::a_cal()
   for (i = 0; i < elenum*elenum_all; ++i) {
     aaa[i] = 0.0;
   }
+  // double *elez = new double[elenum];
+  // if (ff_flag == NORMAL) {
+  //  for (iele = 0; iele < elenum; ++i) {
+  //    elez[iele] = x[atom->map(ele2tag[iele])][2];
+  //  }
+  //  b_comm(elez,eleallz);
+  // }
   for (i = 0; i < elenum; ++i) {
     elealli = ele2eleall[i];
     idx1d=i*elenum_all;
-    for (j = 0; j < elenum_all; ++j) {
+    for (j = 0; j <= elealli; ++j) {
       for (k = 0; k < kcount; ++k) {
-        aaa[idx1d] += 2.0*ug[k]*(csk[k][elealli]*csk[k][j]+snk[k][elealli]*snk[k][j]);
+        aaa[idx1d] += 0.5*(csk[elealli][k]*csk[j][k]+snk[elealli][k]*snk[j][k])/ug[k];
       }
-      if (ff_flag == NORMAL) aaa[idx1d] += CON_4PIoverV*eleallx[elealli][2]*eleallx[j][2];
+      if (ff_flag == NORMAL) aaa[idx1d] += CON_4PIoverV*eleallz[elealli]*eleallz[j];
       idx1d++;
     }
     idx1d = i*elenum_all+elealli;
     aaa[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction
   }
-  memory->destroy(eleallx);
-  memory->destroy(csk);
-  memory->destroy(snk);
+  //memory->destroy(eleallx);
+  delete [] eleallz;
 
   if (smartlist) alist_coul_cal(aaa);
   else coul_cal(2,aaa);
@@ -898,6 +901,13 @@ void FixConp::a_cal()
     displs3[i] = displs[i]*elenum_all;
   }
   MPI_Allgatherv(aaa,elenum*elenum_all,MPI_DOUBLE,aaa_all,elenum_list3,displs3,MPI_DOUBLE,world);
+
+  for (i = 0; i < elenum_all-1; ++i) {
+    for (j = i+1; j < elenum_all; ++j) {
+      aaa_all[i*elenum_all+j] = aaa_all[j*elenum_all+i];
+    }
+  }
+
   if (me == 0) {
     fprintf(outa," ");
     for (i = 0; i < elenum_all; ++i) fprintf(outa,"%20d",eleall2tag[i]);
@@ -927,28 +937,42 @@ void FixConp::a_cal()
 }
 /*--------------------------------------------------------------*/
 
-void FixConp::sincos_a(double **eleallx)
+void FixConp::sincos_a(int ff_flag,double *eleallz)
 {
-  int i,m,k,ic;
+  memory->create(csk,elenum_all,kcount,"fixconp:csk");
+  memory->create(snk,elenum_all,kcount,"fixconp:snk");
+  int i,j,m,k,ic,iele;
   int kx,ky,kz;
   double ***csele,***snele;
   memory->create3d_offset(csele,-kmax,kmax,3,elenum_all,"fixconp:csele");
   memory->create3d_offset(snele,-kmax,kmax,3,elenum_all,"fixconp:snele");
   double sqk,cypz,sypz;
+  double *elex = new double[elenum];
+  double *elex_all = new double[elenum_all];
+  int nlocal = atom->nlocal;
+  double **x = atom->x;
   for (ic = 0; ic < 3; ic++) {
     sqk = unitk[ic]*unitk[ic];
     if (sqk <= gsqmx) {
+      for (iele = 0; iele < elenum; ++iele) {
+          elex[iele] = x[atom->map(ele2tag[iele])][ic];
+      }
+      b_comm(elex,elex_all);
+      if (ff_flag == NORMAL && ic == 2) {
+        for (i = 0; i < elenum_all; ++i) eleallz[i] = elex_all[i];
+      }
       for (i = 0; i < elenum_all; i++) {
         csele[0][ic][i] = 1.0;
         snele[0][ic][i] = 0.0;
-        csele[1][ic][i] = cos(unitk[ic]*eleallx[i][ic]);
-        snele[1][ic][i] = sin(unitk[ic]*eleallx[i][ic]);
+        csele[1][ic][i] = cos(unitk[ic]*elex_all[i]);
+        snele[1][ic][i] = sin(unitk[ic]*elex_all[i]);
         csele[-1][ic][i] = csele[1][ic][i];
         snele[-1][ic][i] = -snele[1][ic][i];
       }
     }
   }
-
+  delete [] elex;
+  delete [] elex_all;
   for (m = 2; m <= kmax; m++) {
     for (ic = 0; ic < 3; ic++) {
       sqk = m*unitk[ic] * m*unitk[ic];
@@ -971,8 +995,10 @@ void FixConp::sincos_a(double **eleallx)
     for (i = 0; i < elenum_all; ++i) {
       cypz = csele[ky][1][i]*csele[kz][2][i] - snele[ky][1][i]*snele[kz][2][i];
       sypz = snele[ky][1][i]*csele[kz][2][i] + csele[ky][1][i]*snele[kz][2][i];
-      csk[k][i] = csele[kx][0][i]*cypz - snele[kx][0][i]*sypz;
-      snk[k][i] = snele[kx][0][i]*cypz + csele[kx][0][i]*sypz;
+      csk[i][k] = csele[kx][0][i]*cypz - snele[kx][0][i]*sypz;
+      snk[i][k] = snele[kx][0][i]*cypz + csele[kx][0][i]*sypz;
+      csk[i][k] *= 2.0*ug[k];
+      snk[i][k] *= 2.0*ug[k];
     }
   }
   memory->destroy3d_offset(csele,-kmax_created);
@@ -1000,13 +1026,13 @@ void FixConp::sincos_b()
       cstr1 = 0.0;
       sstr1 = 0.0;
       for (i = 0; i < nlocal; i++) {
+        if (electrode_check(i) == 0) {
           cs[0][ic][i] = 1.0;
           sn[0][ic][i] = 0.0;
           cs[1][ic][i] = cos(unitk[ic]*x[i][ic]);
           sn[1][ic][i] = sin(unitk[ic]*x[i][ic]);
           cs[-1][ic][i] = cs[1][ic][i];
           sn[-1][ic][i] = -sn[1][ic][i];
-        if (electrode_check(i) == 0) {
           cstr1 += q[i]*cs[1][ic][i];
           sstr1 += q[i]*sn[1][ic][i];
         }
@@ -1022,13 +1048,13 @@ void FixConp::sincos_b()
         cstr1 = 0.0;
         sstr1 = 0.0;
         for (i = 0; i < nlocal; i++) {
+          if (electrode_check(i) == 0) {
             cs[m][ic][i] = cs[m-1][ic][i]*cs[1][ic][i] -
               sn[m-1][ic][i]*sn[1][ic][i];
             sn[m][ic][i] = sn[m-1][ic][i]*cs[1][ic][i] +
               cs[m-1][ic][i]*sn[1][ic][i];
             cs[-m][ic][i] = cs[m][ic][i];
             sn[-m][ic][i] = -sn[m][ic][i];
-          if (electrode_check(i) == 0) {
             cstr1 += q[i]*cs[m][ic][i];
             sstr1 += q[i]*sn[m][ic][i];
           }
