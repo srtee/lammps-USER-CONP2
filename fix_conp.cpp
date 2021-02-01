@@ -175,6 +175,9 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
                 //0:init; 1: a_cal; 2: first sin/cos cal; 3: inv only, aaa inverse
   totsetq = 0;
   gotsetq = 0;  //=1 after getting setq vector
+  cs = sn = nullptr;
+  qj = nullptr;
+  kxy_list = nullptr;
 
   scalar_flag = 1;
   extscalar = 0;
@@ -186,8 +189,11 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
 FixConp::~FixConp()
 {
   fclose(outf);
-  memory->destroy2d_offset(cs,-kmax_created);
-  memory->destroy2d_offset(sn,-kmax_created);
+  //memory->destroy3d_offset(cs,-kmax_created);
+  //memory->destroy3d_offset(sn,-kmax_created);
+  memory->destroy(cs);
+  memory->destroy(sn);
+  memory->destroy(qj);
   memory->destroy(bbb);
   memory->destroy(ele2tag);
   memory->destroy(ele2eleall);
@@ -215,6 +221,8 @@ FixConp::~FixConp()
   delete [] qrstr;
   delete [] displs;
   delete [] elenum_list;
+  delete [] kcount_dims;
+  delete [] kxy_list;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -427,7 +435,7 @@ void FixConp::setup(int vflag)
   kyvecs = new int[kmax3d];
   kzvecs = new int[kmax3d];
   ug = new double[kmax3d];
-  kcount_dims = new int[3];
+  kcount_dims = new int[7];
 
   double gsqxmx = unitk[0]*unitk[0]*kxmax*kxmax;
   double gsqymx = unitk[1]*unitk[1]*kymax*kymax;
@@ -447,8 +455,6 @@ void FixConp::setup(int vflag)
   //vL *= evscale;
   //vR *= evscale;
   
-  memory->create2d_offset(cs,3,-kmax,kmax,"fixconp:cs");
-  memory->create2d_offset(sn,3,-kmax,kmax,"fixconp:sn");
   sfacrl = new double[kmax3d];
   sfacim = new double[kmax3d];
   sfacrl_all = new double[kmax3d];
@@ -464,6 +470,7 @@ void FixConp::setup(int vflag)
     elenum_list = new int[nprocs];
     displs = new int[nprocs];
     elenum = 0;
+    elytenum = 0;
     post_neighbor();
 
     // eleall2tag = new int[elenum_all];
@@ -588,6 +595,7 @@ void FixConp::b_setq_cal()
 void FixConp::post_neighbor()
 {
   bigint natoms = atom->natoms;
+  int elytenum_old = elytenum;
   int elenum_old = elenum;
   int elenum_all_old = elenum_all;
   int* tag = atom->tag;
@@ -598,8 +606,16 @@ void FixConp::post_neighbor()
   elenum_all = 0;
   for (i = 0; i < nlocal; ++i) {
     if (electrode_check(i)) {
-      elenum++;
+      ++elenum;
     }
+    else ++elytenum;
+  }
+  if (elytenum > elytenum_old+10) {
+    if (cs != nullptr) memory->destroy(cs);
+    memory->create(cs,kcount_flat,elytenum+10,"fixconp:cs");
+    if (sn != nullptr) memory->destroy(sn);
+    memory->create(sn,kcount_flat,elytenum+10,"fixconp:sn");
+    memory->grow(qj,elytenum+10,"fixconp:qj");
   }
   if (elenum > elenum_old) {
     memory->grow(ele2tag,elenum,"fixconp:ele2tag");
@@ -683,13 +699,13 @@ void FixConp::update_bk(bool coulyes, double* bbb_all)
 {
   Ktime1 = MPI_Wtime();
   int i,j,k,elei;
-  //int nmax = atom->nmax;
-  //if (atom->nlocal > nmax) {
-  //  memory->destroy3d_offset(cs,-kmax_created);
-  //  memory->destroy3d_offset(sn,-kmax_created);
-  //  nmax = atom->nmax;
-  //  kmax_created = kmax;
-  //}
+  int nmax = atom->nmax;
+  if (atom->nlocal > nmax) {
+    memory->destroy(cs);
+    memory->destroy(sn);
+    nmax = atom->nmax;
+    kmax_created = kmax;
+  }
   sincos_b();
   MPI_Allreduce(sfacrl,sfacrl_all,kcount,MPI_DOUBLE,MPI_SUM,world);
   MPI_Allreduce(sfacim,sfacim_all,kcount,MPI_DOUBLE,MPI_SUM,world);
@@ -1014,9 +1030,11 @@ void FixConp::sincos_a(int ff_flag,double *eleallz)
 /*--------------------------------------------------------------*/
 void FixConp::sincos_b()
 {
-  int i,k,l,m,n,ic,kinc;
-  double cypz,sypz;
-  int kx,ky,kz;
+  int i,j,k,l,m,n,ic,kf,kc,k1;
+  // kf tracks the first index of cs / sn,
+  // kc tracks the index of kcount
+  int jmax;
+  int kx,ky,kz,kxy;
   // double cstr1,sstr1,cstr2,sstr2,cstr3,sstr3,cstr4,sstr4;
   // double sqk,clpm,slpm;
 
@@ -1024,47 +1042,119 @@ void FixConp::sincos_b()
   double *q = atom->q;
   int nlocal = atom->nlocal;
 
-  n = 0;
+  j = 0;
+  jmax = 0;
+  kf = 0;
+  kc = 0;
 
-  for (k = 0; k < kcount; ++k) {
-    sfacrl[k] = 0;
-    sfacim[k] = 0;
+  for (kc = 0; kc < kcount; ++kc) {
+    sfacrl[kc] = 0;
+    sfacim[kc] = 0;
   }
 
   for (i = 0; i < nlocal; ++i) {
-    if (electrode_check(i) == 0) {
-      // populate kx_n, ky_n, kz_n
-      kinc = 0;
+    if (electrode_check(i) == 0 && q[i] != 0){
+      qj[j] = q[i];
+      kf = 0;
       for (ic = 0; ic < 3; ++ic) {
-        cs[ic][0] = 1.0;
-        sn[ic][0] = 0.0;
-        cs[ic][1] = cos(unitk[ic]*x[i][ic]);
-        sn[ic][1] = sin(unitk[ic]*x[i][ic]);
-        cs[ic][-1] = cs[ic][1];
-        sn[ic][-1] = -sn[ic][1];
-        sfacrl[kinc]   += q[i]*cs[ic][1];
-        sfacim[kinc++] += q[i]*sn[ic][1];
-        for (m = 2; m <= kcount_dims[ic]; ++m) {
-          cs[ic][m] = cs[ic][m-1]*cs[ic][1] - sn[ic][m-1]*sn[ic][1];
-          sn[ic][m] = sn[ic][m-1]*cs[ic][1] + cs[ic][m-1]*sn[ic][1];
-          cs[ic][-m] = cs[ic][m];
-          sn[ic][-m] = -sn[ic][m];
-          sfacrl[kinc]   += q[i]*cs[ic][m];
-          sfacim[kinc++] += q[i]*sn[ic][m];
-        }
+        cs[kf][j] = unitk[ic]*x[i][ic]; // store x values for later optimization
+        kf += kcount_dims[ic]+1;
       }
-
-      //
-      for (k = kinc; k < kcount; ++k) {
-        kx = kxvecs[k];
-        ky = kyvecs[k];
-        kz = kzvecs[k];
-        cypz = cs[1][ky]*cs[2][kz] - sn[1][ky]*sn[2][kz];
-        sypz = sn[1][ky]*cs[2][kz] + cs[1][ky]*sn[2][kz];
-        sfacrl[k] += q[i]*cs[0][kx]*cypz - q[i]*sn[0][kx]*sypz;
-        sfacim[k] += q[i]*sn[0][kx]*cypz + q[i]*cs[0][kx]*sypz;
-      }
+      ++j;
     }
+  }
+  jmax = j;
+  kf = 0;
+  kc = 0;
+  for (ic = 0; ic < 3; ++ic) {
+    ++kf;
+    for (j = 0; j < jmax; ++j) {
+      cs[kf][j] = cos(cs[kf-1][j]);
+      sn[kf][j] = sin(cs[kf-1][j]);
+      sfacrl[kc] += qj[j]*cs[kf][j];
+      sfacim[kc] += qj[j]*sn[kf][j];
+    }
+    k1 = kf;
+    ++kf;
+    ++kc;
+    for (m = 2; m <= kcount_dims[ic]; ++m) {
+      for (j = 0; j < jmax; ++j) {
+        cs[kf][j] = cs[kf-1][j]*cs[k1][j] - sn[kf-1][j]*sn[k1][j];
+        sn[kf][j] = sn[kf-1][j]*cs[k1][j] + cs[kf-1][j]*sn[k1][j];
+        sfacrl[kc] += qj[j]*cs[kf][j];
+        sfacim[kc] += qj[j]*sn[kf][j];
+      }
+      ++kf;
+      ++kc;
+    }
+  }
+  
+  // (k, l, 0); (k, -l, 0)
+
+  for (m = 0; m < kcount_dims[3]; ++m) {
+    kx = kxvecs[kc];
+    ky = kyvecs[kc]+kcount_dims[0]+1;
+    for (j = 0; j < jmax; ++j) {
+      cs[kf][j] = cs[kx][j]*cs[ky][j] - sn[kx][j]*sn[ky][j];
+      sn[kf][j] = cs[kx][j]*sn[ky][j] + sn[kx][j]*cs[ky][j];
+      sfacrl[kc] += qj[j]*cs[kf][j];
+      sfacim[kc] += qj[j]*sn[kf][j];
+      cs[kf+1][j] = cs[kx][j]*cs[ky][j] + sn[kx][j]*sn[ky][j];
+      sn[kf+1][j] = -cs[kx][j]*sn[ky][j] + sn[kx][j]*cs[ky][j];
+      sfacrl[kc+1] += qj[j]*cs[kf+1][j];
+      sfacim[kc+1] += qj[j]*sn[kf+1][j];
+    }
+    kf += 2;
+    kc += 2;
+  }
+
+  // (0, l, m); (0, l, -m)
+
+  for (m = 0; m < kcount_dims[4]; ++m) {
+    ky = kyvecs[kc]+kcount_dims[0]+1;
+    kz = kzvecs[kc]+kcount_dims[0]+kcount_dims[1]+2;
+    for (j = 0; j < jmax; ++j) {
+      sfacrl[kc] += qj[j]*(cs[ky][j]*cs[kz][j]-sn[ky][j]*sn[kz][j]);
+      sfacim[kc] += qj[j]*(cs[ky][j]*sn[kz][j]+sn[ky][j]*cs[kz][j]);
+      sfacrl[kc+1] += qj[j]*(cs[ky][j]*cs[kz][j]+sn[ky][j]*sn[kz][j]);
+      sfacim[kc+1] += qj[j]*(-cs[ky][j]*sn[kz][j]+sn[ky][j]*cs[kz][j]);
+    }
+    kc += 2;
+  }
+
+  // (k, 0, m); (k, 0, -m)
+
+  for (m = 0; m < kcount_dims[5]; ++m) {
+    kx = kxvecs[kc];
+    kz = kzvecs[kc]+kcount_dims[0]+kcount_dims[1]+2;
+    for (j = 0; j < jmax; ++j) {
+      sfacrl[kc] += qj[j]*(cs[kx][j]*cs[kz][j]-sn[kx][j]*sn[kz][j]);
+      sfacim[kc] += qj[j]*(cs[kx][j]*sn[kz][j]+sn[kx][j]*cs[kz][j]);
+      sfacrl[kc+1] += qj[j]*(cs[kx][j]*cs[kz][j]+sn[kx][j]*sn[kz][j]);
+      sfacim[kc+1] += qj[j]*(-cs[kx][j]*sn[kz][j]+sn[kx][j]*cs[kz][j]);
+    }
+    kc += 2;
+  }
+
+  // (k, l, m); (k, -l, m); (k, l, -m); (k, -l, -m)
+
+  for (m = 0; m < kcount_dims[6]; ++m) {
+    kxy = kxy_list[m]+kcount_dims[0]+kcount_dims[1]+kcount_dims[2]+3;
+    kz = kzvecs[kc]+kcount_dims[0]+kcount_dims[1]+2;
+    for (j = 0; j < jmax; ++j) {
+      sfacrl[kc] += qj[j]*(cs[kxy][j]*cs[kz][j] - sn[kxy][j]*sn[kz][j]);
+      sfacim[kc] += qj[j]*(sn[kxy][j]*cs[kz][j] + cs[kxy][j]*sn[kz][j]);
+
+      sfacrl[kc+1] += qj[j]*(cs[kxy+1][j]*cs[kz][j] - sn[kxy+1][j]*sn[kz][j]);
+      sfacim[kc+1] += qj[j]*(sn[kxy+1][j]*cs[kz][j] + cs[kxy+1][j]*sn[kz][j]);
+
+      sfacrl[kc+2] += qj[j]*(cs[kxy][j]*cs[kz][j] + sn[kxy][j]*sn[kz][j]);
+      sfacim[kc+2] += qj[j]*(sn[kxy][j]*cs[kz][j] - cs[kxy][j]*sn[kz][j]);
+
+      sfacrl[kc+3] += qj[j]*(cs[kxy+1][j]*cs[kz][j] + sn[kxy+1][j]*sn[kz][j]);
+      sfacim[kc+3] += qj[j]*(sn[kxy+1][j]*cs[kz][j] - cs[kxy+1][j]*sn[kz][j]);
+    }
+    kc += 4;
   }
 
   if (runstage == 1) runstage = 2;
@@ -1724,13 +1814,14 @@ double FixConp::rms(int km, double prd, bigint natoms, double q2)
 void FixConp::coeffs()
 {
   int k,l,m;
+  int kx,ky,kxy,kxy_offset,ktemp;
   double sqk;
 
   double g_ewald_sq_inv = 1.0 / (g_ewald*g_ewald);
   double preu = 4.0*MY_PI/volume;
 
   kcount = 0;
-  kcount_dims[0] = kcount_dims[1] = kcount_dims[2] = 0;
+  for (int i = 0; i < 7; ++i) kcount_dims[i] = 0;
 
   // (k,0,0), (0,l,0), (0,0,m)
 
@@ -1768,8 +1859,6 @@ void FixConp::coeffs()
     }
   }
 
-  kcount_dims_sum = kcount_dims[0] + kcount_dims[1] + kcount_dims[2];
-
   // 1 = (k,l,0), 2 = (k,-l,0)
 
   for (k = 1; k <= kxmax; k++) {
@@ -1787,9 +1876,12 @@ void FixConp::coeffs()
         kzvecs[kcount] = 0;
         ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
         kcount++;
+        kcount_dims[3]++;
       }
     }
   }
+
+  kcount_flat = kcount_dims[0]+kcount_dims[1]+kcount_dims[2]+3+2*kcount_dims[3];
 
   // 1 = (0,l,m), 2 = (0,l,-m)
 
@@ -1808,6 +1900,7 @@ void FixConp::coeffs()
         kzvecs[kcount] = -m;
         ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
         kcount++;
+        kcount_dims[4]++;
       }
     }
   }
@@ -1829,6 +1922,7 @@ void FixConp::coeffs()
         kzvecs[kcount] = -m;
         ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
         kcount++;
+        kcount_dims[5]++;
       }
     }
   }
@@ -1864,8 +1958,26 @@ void FixConp::coeffs()
           kzvecs[kcount] = -m;
           ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
           kcount++;
+          kcount_dims[6]++;
         }
       }
     }
+  }
+
+  if (kxy_list != nullptr) delete [] kxy_list;
+  kxy_list = new int[kcount_dims[6]];
+  kxy = 0;
+  kxy_offset = kcount_dims[0] + kcount_dims[1] + kcount_dims[2];
+  ktemp = kcount - 4*kcount_dims[6];
+
+  for (k = 0; k < kcount_dims[6]; ++k) {
+    kx = kxvecs[ktemp];
+    ky = kyvecs[ktemp];
+    while (kxvecs[kxy_offset] != kx || kyvecs[kxy_offset] != ky) {
+      kxy += 1;
+      kxy_offset += 2;
+    }
+    kxy_list[k] = 2*kxy;
+    ktemp += 4;
   }
 }
