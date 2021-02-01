@@ -16,6 +16,7 @@
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
+#include "assert.h"
 #include "unistd.h"
 #include "math.h"
 #include "string.h"
@@ -185,8 +186,8 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
 FixConp::~FixConp()
 {
   fclose(outf);
-  memory->destroy3d_offset(cs,-kmax_created);
-  memory->destroy3d_offset(sn,-kmax_created);
+  memory->destroy2d_offset(cs,-kmax_created);
+  memory->destroy2d_offset(sn,-kmax_created);
   memory->destroy(bbb);
   memory->destroy(ele2tag);
   memory->destroy(ele2eleall);
@@ -426,6 +427,7 @@ void FixConp::setup(int vflag)
   kyvecs = new int[kmax3d];
   kzvecs = new int[kmax3d];
   ug = new double[kmax3d];
+  kcount_dims = new int[3];
 
   double gsqxmx = unitk[0]*unitk[0]*kxmax*kxmax;
   double gsqymx = unitk[1]*unitk[1]*kymax*kymax;
@@ -445,8 +447,8 @@ void FixConp::setup(int vflag)
   //vL *= evscale;
   //vR *= evscale;
   
-  memory->create3d_offset(cs,-kmax,kmax,3,nmax,"fixconp:cs");
-  memory->create3d_offset(sn,-kmax,kmax,3,nmax,"fixconp:sn");
+  memory->create2d_offset(cs,3,-kmax,kmax,"fixconp:cs");
+  memory->create2d_offset(sn,3,-kmax,kmax,"fixconp:sn");
   sfacrl = new double[kmax3d];
   sfacim = new double[kmax3d];
   sfacrl_all = new double[kmax3d];
@@ -681,13 +683,13 @@ void FixConp::update_bk(bool coulyes, double* bbb_all)
 {
   Ktime1 = MPI_Wtime();
   int i,j,k,elei;
-  int nmax = atom->nmax;
-  if (atom->nlocal > nmax) {
-    memory->destroy3d_offset(cs,-kmax_created);
-    memory->destroy3d_offset(sn,-kmax_created);
-    nmax = atom->nmax;
-    kmax_created = kmax;
-  }
+  //int nmax = atom->nmax;
+  //if (atom->nlocal > nmax) {
+  //  memory->destroy3d_offset(cs,-kmax_created);
+  //  memory->destroy3d_offset(sn,-kmax_created);
+  //  nmax = atom->nmax;
+  //  kmax_created = kmax;
+  //}
   sincos_b();
   MPI_Allreduce(sfacrl,sfacrl_all,kcount,MPI_DOUBLE,MPI_SUM,world);
   MPI_Allreduce(sfacim,sfacim_all,kcount,MPI_DOUBLE,MPI_SUM,world);
@@ -807,6 +809,7 @@ void FixConp::a_read()
     }
   }
   MPI_Allgatherv(ele2eleall,elenum,MPI_INT,elebuf2eleall,elenum_list,displs,MPI_INT,world);
+  sincos_a(ff_flag,nullptr);
 }
 
 /*----------------------------------------------------------------------- */
@@ -942,7 +945,7 @@ void FixConp::sincos_a(int ff_flag,double *eleallz)
   memory->create(csk,elenum_all,kcount,"fixconp:csk");
   memory->create(snk,elenum_all,kcount,"fixconp:snk");
   int i,j,m,k,ic,iele;
-  int kx,ky,kz;
+  int kx,ky,kz,kinc;
   double ***csele,***snele;
   memory->create3d_offset(csele,-kmax,kmax,3,elenum_all,"fixconp:csele");
   memory->create3d_offset(snele,-kmax,kmax,3,elenum_all,"fixconp:snele");
@@ -951,44 +954,47 @@ void FixConp::sincos_a(int ff_flag,double *eleallz)
   double *elex_all = new double[elenum_all];
   int nlocal = atom->nlocal;
   double **x = atom->x;
+
+  kinc = 0;
+
   for (ic = 0; ic < 3; ic++) {
-    sqk = unitk[ic]*unitk[ic];
-    if (sqk <= gsqmx) {
-      for (iele = 0; iele < elenum; ++iele) {
-          elex[iele] = x[atom->map(ele2tag[iele])][ic];
-      }
-      b_comm(elex,elex_all);
-      if (ff_flag == NORMAL && ic == 2) {
-        for (i = 0; i < elenum_all; ++i) eleallz[i] = elex_all[i];
-      }
-      for (i = 0; i < elenum_all; i++) {
-        csele[0][ic][i] = 1.0;
-        snele[0][ic][i] = 0.0;
-        csele[1][ic][i] = cos(unitk[ic]*elex_all[i]);
-        snele[1][ic][i] = sin(unitk[ic]*elex_all[i]);
-        csele[-1][ic][i] = csele[1][ic][i];
-        snele[-1][ic][i] = -snele[1][ic][i];
+    for (iele = 0; iele < elenum; ++iele) {
+      elex[iele] = x[atom->map(ele2tag[iele])][ic];
+    }
+    b_comm(elex,elex_all);
+    if (ff_flag == NORMAL && ic == 2 && eleallz != nullptr) {
+      for (i = 0; i < elenum_all; ++i) eleallz[i] = elex_all[i];
+    }
+    for (i = 0; i < elenum_all; i++) {
+      k = kinc;
+      csele[0][ic][i] = 1.0;
+      snele[0][ic][i] = 0.0;
+      csele[1][ic][i] = cos(unitk[ic]*elex_all[i]);
+      snele[1][ic][i] = sin(unitk[ic]*elex_all[i]);
+      csele[-1][ic][i] = csele[1][ic][i];
+      snele[-1][ic][i] = -snele[1][ic][i];
+      csk[i][k] = 2.0*ug[k]*csele[1][ic][i];
+      snk[i][k] = 2.0*ug[k]*snele[1][ic][i];
+      ++k;
+      for (m = 2; m <= kcount_dims[ic]; m++) {
+        csele[m][ic][i] = csele[m-1][ic][i]*csele[1][ic][i] -
+          snele[m-1][ic][i]*snele[1][ic][i];
+        snele[m][ic][i] = snele[m-1][ic][i]*csele[1][ic][i] +
+          csele[m-1][ic][i]*snele[1][ic][i];
+        csele[-m][ic][i] = csele[m][ic][i];
+        snele[-m][ic][i] = -snele[m][ic][i];
+        csk[i][k] = 2.0*ug[k]*csele[m][ic][i];
+        snk[i][k] = 2.0*ug[k]*snele[m][ic][i];
+        ++k;
       }
     }
+    kinc = k;
   }
+
   delete [] elex;
   delete [] elex_all;
-  for (m = 2; m <= kmax; m++) {
-    for (ic = 0; ic < 3; ic++) {
-      sqk = m*unitk[ic] * m*unitk[ic];
-      if (sqk <= gsqmx) {
-        for (i = 0; i < elenum_all; i++) {
-          csele[m][ic][i] = csele[m-1][ic][i]*csele[1][ic][i] -
-            snele[m-1][ic][i]*snele[1][ic][i];
-          snele[m][ic][i] = snele[m-1][ic][i]*csele[1][ic][i] +
-            csele[m-1][ic][i]*snele[1][ic][i];
-          csele[-m][ic][i] = csele[m][ic][i];
-          snele[-m][ic][i] = -snele[m][ic][i];
-        }
-      }
-    }
-  }
-  for (k = 0; k < kcount; ++k) {
+
+  for (k = kinc; k < kcount; ++k) {
     kx = kxvecs[k];
     ky = kyvecs[k];
     kz = kzvecs[k];
@@ -1008,9 +1014,11 @@ void FixConp::sincos_a(int ff_flag,double *eleallz)
 /*--------------------------------------------------------------*/
 void FixConp::sincos_b()
 {
-  int i,k,l,m,n,ic;
-  double cstr1,sstr1,cstr2,sstr2,cstr3,sstr3,cstr4,sstr4;
-  double sqk,clpm,slpm;
+  int i,k,l,m,n,ic,kinc;
+  double cypz,sypz;
+  int kx,ky,kz;
+  // double cstr1,sstr1,cstr2,sstr2,cstr3,sstr3,cstr4,sstr4;
+  // double sqk,clpm,slpm;
 
   double **x = atom->x;
   double *q = atom->q;
@@ -1018,181 +1026,47 @@ void FixConp::sincos_b()
 
   n = 0;
 
-  // (k,0,0), (0,l,0), (0,0,m)
+  for (k = 0; k < kcount; ++k) {
+    sfacrl[k] = 0;
+    sfacim[k] = 0;
+  }
 
-  for (ic = 0; ic < 3; ic++) {
-    sqk = unitk[ic]*unitk[ic];
-    if (sqk <= gsqmx) {
-      cstr1 = 0.0;
-      sstr1 = 0.0;
-      for (i = 0; i < nlocal; i++) {
-        if (electrode_check(i) == 0) {
-          cs[0][ic][i] = 1.0;
-          sn[0][ic][i] = 0.0;
-          cs[1][ic][i] = cos(unitk[ic]*x[i][ic]);
-          sn[1][ic][i] = sin(unitk[ic]*x[i][ic]);
-          cs[-1][ic][i] = cs[1][ic][i];
-          sn[-1][ic][i] = -sn[1][ic][i];
-          cstr1 += q[i]*cs[1][ic][i];
-          sstr1 += q[i]*sn[1][ic][i];
+  for (i = 0; i < nlocal; ++i) {
+    if (electrode_check(i) == 0) {
+      // populate kx_n, ky_n, kz_n
+      kinc = 0;
+      for (ic = 0; ic < 3; ++ic) {
+        cs[ic][0] = 1.0;
+        sn[ic][0] = 0.0;
+        cs[ic][1] = cos(unitk[ic]*x[i][ic]);
+        sn[ic][1] = sin(unitk[ic]*x[i][ic]);
+        cs[ic][-1] = cs[ic][1];
+        sn[ic][-1] = -sn[ic][1];
+        sfacrl[kinc]   += q[i]*cs[ic][1];
+        sfacim[kinc++] += q[i]*sn[ic][1];
+        for (m = 2; m <= kcount_dims[ic]; ++m) {
+          cs[ic][m] = cs[ic][m-1]*cs[ic][1] - sn[ic][m-1]*sn[ic][1];
+          sn[ic][m] = sn[ic][m-1]*cs[ic][1] + cs[ic][m-1]*sn[ic][1];
+          cs[ic][-m] = cs[ic][m];
+          sn[ic][-m] = -sn[ic][m];
+          sfacrl[kinc]   += q[i]*cs[ic][m];
+          sfacim[kinc++] += q[i]*sn[ic][m];
         }
       }
-      sfacrl[n] = cstr1;
-      sfacim[n++] = sstr1;
-    }
-  }
-  for (m = 2; m <= kmax; m++) {
-    for (ic = 0; ic < 3; ic++) {
-      sqk = m*unitk[ic] * m*unitk[ic];
-      if (sqk <= gsqmx) {
-        cstr1 = 0.0;
-        sstr1 = 0.0;
-        for (i = 0; i < nlocal; i++) {
-          if (electrode_check(i) == 0) {
-            cs[m][ic][i] = cs[m-1][ic][i]*cs[1][ic][i] -
-              sn[m-1][ic][i]*sn[1][ic][i];
-            sn[m][ic][i] = sn[m-1][ic][i]*cs[1][ic][i] +
-              cs[m-1][ic][i]*sn[1][ic][i];
-            cs[-m][ic][i] = cs[m][ic][i];
-            sn[-m][ic][i] = -sn[m][ic][i];
-            cstr1 += q[i]*cs[m][ic][i];
-            sstr1 += q[i]*sn[m][ic][i];
-          }
-        }
-        sfacrl[n] = cstr1;
-        sfacim[n++] = sstr1;
+
+      //
+      for (k = kinc; k < kcount; ++k) {
+        kx = kxvecs[k];
+        ky = kyvecs[k];
+        kz = kzvecs[k];
+        cypz = cs[1][ky]*cs[2][kz] - sn[1][ky]*sn[2][kz];
+        sypz = sn[1][ky]*cs[2][kz] + cs[1][ky]*sn[2][kz];
+        sfacrl[k] += q[i]*cs[0][kx]*cypz - q[i]*sn[0][kx]*sypz;
+        sfacim[k] += q[i]*sn[0][kx]*cypz + q[i]*cs[0][kx]*sypz;
       }
     }
   }
 
-  // 1 = (k,l,0), 2 = (k,-l,0)
-  for (k = 1; k <= kxmax; k++) {
-    for (l = 1; l <= kymax; l++) {
-      sqk = (k*unitk[0] * k*unitk[0]) + (l*unitk[1] * l*unitk[1]);
-      if (sqk <= gsqmx) {
-        cstr1 = 0.0;
-        sstr1 = 0.0;
-        cstr2 = 0.0;
-        sstr2 = 0.0;
-        for (i = 0; i < nlocal; i++) {
-          if (electrode_check(i) == 0) {
-            cstr1 += q[i]*(cs[k][0][i]*cs[l][1][i] - sn[k][0][i]*sn[l][1][i]);
-            sstr1 += q[i]*(sn[k][0][i]*cs[l][1][i] + cs[k][0][i]*sn[l][1][i]);
-            cstr2 += q[i]*(cs[k][0][i]*cs[l][1][i] + sn[k][0][i]*sn[l][1][i]);
-            sstr2 += q[i]*(sn[k][0][i]*cs[l][1][i] - cs[k][0][i]*sn[l][1][i]);
-          }
-        }
-        sfacrl[n] = cstr1;
-        sfacim[n++] = sstr1;
-        sfacrl[n] = cstr2;
-        sfacim[n++] = sstr2;
-      }
-    }
-  }
-
-  // 1 = (0,l,m), 2 = (0,l,-m)
-
-  for (l = 1; l <= kymax; l++) {
-    for (m = 1; m <= kzmax; m++) {
-      sqk = (l*unitk[1] * l*unitk[1]) + (m*unitk[2] * m*unitk[2]);
-      if (sqk <= gsqmx) {
-        cstr1 = 0.0;
-        sstr1 = 0.0;
-        cstr2 = 0.0;
-        sstr2 = 0.0;
-        for (i = 0; i < nlocal; i++) {
-          if (electrode_check(i) == 0) {
-            cstr1 += q[i]*(cs[l][1][i]*cs[m][2][i] - sn[l][1][i]*sn[m][2][i]);
-            sstr1 += q[i]*(sn[l][1][i]*cs[m][2][i] + cs[l][1][i]*sn[m][2][i]);
-            cstr2 += q[i]*(cs[l][1][i]*cs[m][2][i] + sn[l][1][i]*sn[m][2][i]);
-            sstr2 += q[i]*(sn[l][1][i]*cs[m][2][i] - cs[l][1][i]*sn[m][2][i]);
-          }
-        }
-        sfacrl[n] = cstr1;
-        sfacim[n++] = sstr1;
-        sfacrl[n] = cstr2;
-        sfacim[n++] = sstr2;
-      }
-    }
-  }
-
-  // 1 = (k,0,m), 2 = (k,0,-m)
-
-  for (k = 1; k <= kxmax; k++) {
-    for (m = 1; m <= kzmax; m++) {
-      sqk = (k*unitk[0] * k*unitk[0]) + (m*unitk[2] * m*unitk[2]);
-      if (sqk <= gsqmx) {
-        cstr1 = 0.0;
-        sstr1 = 0.0;
-        cstr2 = 0.0;
-        sstr2 = 0.0;
-        for (i = 0; i < nlocal; i++) {
-          if (electrode_check(i) == 0) {
-            cstr1 += q[i]*(cs[k][0][i]*cs[m][2][i] - sn[k][0][i]*sn[m][2][i]);
-            sstr1 += q[i]*(sn[k][0][i]*cs[m][2][i] + cs[k][0][i]*sn[m][2][i]);
-            cstr2 += q[i]*(cs[k][0][i]*cs[m][2][i] + sn[k][0][i]*sn[m][2][i]);
-            sstr2 += q[i]*(sn[k][0][i]*cs[m][2][i] - cs[k][0][i]*sn[m][2][i]);
-          }
-        }
-        sfacrl[n] = cstr1;
-        sfacim[n++] = sstr1;
-        sfacrl[n] = cstr2;
-        sfacim[n++] = sstr2;
-      }
-    }
-  }
-
-  // 1 = (k,l,m), 2 = (k,-l,m), 3 = (k,l,-m), 4 = (k,-l,-m)
-
-  for (k = 1; k <= kxmax; k++) {
-    for (l = 1; l <= kymax; l++) {
-      for (m = 1; m <= kzmax; m++) {
-        sqk = (k*unitk[0] * k*unitk[0]) + (l*unitk[1] * l*unitk[1]) +
-          (m*unitk[2] * m*unitk[2]);
-        if (sqk <= gsqmx) {
-          cstr1 = 0.0;
-          sstr1 = 0.0;
-          cstr2 = 0.0;
-          sstr2 = 0.0;
-          cstr3 = 0.0;
-          sstr3 = 0.0;
-          cstr4 = 0.0;
-          sstr4 = 0.0;
-          for (i = 0; i < nlocal; i++) {
-            if (electrode_check(i) == 0) {
-              clpm = cs[l][1][i]*cs[m][2][i] - sn[l][1][i]*sn[m][2][i];
-              slpm = sn[l][1][i]*cs[m][2][i] + cs[l][1][i]*sn[m][2][i];
-              cstr1 += q[i]*(cs[k][0][i]*clpm - sn[k][0][i]*slpm);
-              sstr1 += q[i]*(sn[k][0][i]*clpm + cs[k][0][i]*slpm);
-
-              clpm = cs[l][1][i]*cs[m][2][i] + sn[l][1][i]*sn[m][2][i];
-              slpm = -sn[l][1][i]*cs[m][2][i] + cs[l][1][i]*sn[m][2][i];
-              cstr2 += q[i]*(cs[k][0][i]*clpm - sn[k][0][i]*slpm);
-              sstr2 += q[i]*(sn[k][0][i]*clpm + cs[k][0][i]*slpm);
-
-              clpm = cs[l][1][i]*cs[m][2][i] + sn[l][1][i]*sn[m][2][i];
-              slpm = sn[l][1][i]*cs[m][2][i] - cs[l][1][i]*sn[m][2][i];
-              cstr3 += q[i]*(cs[k][0][i]*clpm - sn[k][0][i]*slpm);
-              sstr3 += q[i]*(sn[k][0][i]*clpm + cs[k][0][i]*slpm);
-
-              clpm = cs[l][1][i]*cs[m][2][i] - sn[l][1][i]*sn[m][2][i];
-              slpm = -sn[l][1][i]*cs[m][2][i] - cs[l][1][i]*sn[m][2][i];
-              cstr4 += q[i]*(cs[k][0][i]*clpm - sn[k][0][i]*slpm);
-              sstr4 += q[i]*(sn[k][0][i]*clpm + cs[k][0][i]*slpm);
-            }
-          }
-          sfacrl[n] = cstr1;
-          sfacim[n++] = sstr1;
-          sfacrl[n] = cstr2;
-          sfacim[n++] = sstr2;
-          sfacrl[n] = cstr3;
-          sfacim[n++] = sstr3;
-          sfacrl[n] = cstr4;
-          sfacim[n++] = sstr4;
-        }
-      }
-    }
-  }
   if (runstage == 1) runstage = 2;
 }
 
@@ -1856,6 +1730,7 @@ void FixConp::coeffs()
   double preu = 4.0*MY_PI/volume;
 
   kcount = 0;
+  kcount_dims[0] = kcount_dims[1] = kcount_dims[2] = 0;
 
   // (k,0,0), (0,l,0), (0,0,m)
 
@@ -1867,7 +1742,10 @@ void FixConp::coeffs()
       kzvecs[kcount] = 0;
       ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
       kcount++;
+      kcount_dims[0]++;
     }
+  }
+  for (m = 1; m <= kmax; m++) {
     sqk = (m*unitk[1]) * (m*unitk[1]);
     if (sqk <= gsqmx) {
       kxvecs[kcount] = 0;
@@ -1875,7 +1753,10 @@ void FixConp::coeffs()
       kzvecs[kcount] = 0;
       ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
       kcount++;
+      kcount_dims[1]++;
     }
+  }
+  for (m = 1; m <= kmax; m++) {
     sqk = (m*unitk[2]) * (m*unitk[2]);
     if (sqk <= gsqmx) {
       kxvecs[kcount] = 0;
@@ -1883,8 +1764,11 @@ void FixConp::coeffs()
       kzvecs[kcount] = m;
       ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
       kcount++;
+      kcount_dims[2]++;
     }
   }
+
+  kcount_dims_sum = kcount_dims[0] + kcount_dims[1] + kcount_dims[2];
 
   // 1 = (k,l,0), 2 = (k,-l,0)
 
@@ -1902,7 +1786,7 @@ void FixConp::coeffs()
         kyvecs[kcount] = -l;
         kzvecs[kcount] = 0;
         ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-        kcount++;;
+        kcount++;
       }
     }
   }

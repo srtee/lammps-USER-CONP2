@@ -108,8 +108,10 @@ class FixConp : public Fix {
   double *ug;
   double g_ewald,eta,gsqmx,volume,slab_volfactor;
   int *kxvecs,*kyvecs,*kzvecs;
-  double ***cs,***sn,**csk,**snk;
+  double **cs,**sn,**csk,**snk;
   int kmax,kmax3d,kmax_created,kcount;
+  int *kcount_dims;
+  int kcount_dims_sum;
   int kxmax,kymax,kzmax;
   double *sfacrl,*sfacrl_all,*sfacim,*sfacim_all;
   int everynum;
