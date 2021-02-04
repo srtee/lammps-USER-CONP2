@@ -608,8 +608,8 @@ void FixConp::post_neighbor()
     if (electrode_check(i)) {
       ++elenum;
     }
-    else ++elytenum;
   }
+  elytenum = nlocal - elenum;
   if (elytenum > elytenum_old+10) {
     if (cs != nullptr) memory->destroy(cs);
     memory->create(cs,kcount_flat,elytenum+10,"fixconp:cs");
