@@ -431,11 +431,15 @@ void FixConp::setup(int vflag)
   kmax = MAX(kmax,kzmax);
   kmax3d = 4*kmax*kmax*kmax + 6*kmax*kmax + 3*kmax;
 
+  if (kxvecs != nullptr) delete [] kxvecs;
   kxvecs = new int[kmax3d];
+  if (kyvecs != nullptr) delete [] kyvecs;
   kyvecs = new int[kmax3d];
+  if (kzvecs != nullptr) delete [] kzvecs;
   kzvecs = new int[kmax3d];
+  if (ug != nullptr) delete [] ug;
   ug = new double[kmax3d];
-  kcount_dims = new int[7];
+  if (kcount_dims == nullptr) kcount_dims = new int[7];
 
   double gsqxmx = unitk[0]*unitk[0]*kxmax*kxmax;
   double gsqymx = unitk[1]*unitk[1]*kymax*kymax;
@@ -455,17 +459,21 @@ void FixConp::setup(int vflag)
   //vL *= evscale;
   //vR *= evscale;
   
+  if (sfacrl != nullptr) delete [] sfacrl;
   sfacrl = new double[kmax3d];
+  if (sfacim != nullptr) delete [] sfacim;
   sfacim = new double[kmax3d];
+  if (sfacrl_all != nullptr) delete [] sfacrl_all;
   sfacrl_all = new double[kmax3d];
+  if (sfacim_all != nullptr) delete [] sfacim_all;
   sfacim_all = new double[kmax3d];
-  tag2eleall = new int[natoms+1];
   // To-do: encapsulate runstage == 0 into a discrete member function?
   // Especially because we should check that electrode atoms obey the
   // smartlist listings, and if not, get the list pointer from coulpair,
   // and if _that_ fails, or if coulpair has newton on, we should bail
   // not too late to process that here because we haven't done a_cal yet
   if (runstage == 0) {
+    tag2eleall = new int[natoms+1];
     int nprocs = comm->nprocs;
     elenum_list = new int[nprocs];
     displs = new int[nprocs];
