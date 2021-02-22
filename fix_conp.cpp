@@ -1312,7 +1312,7 @@ void FixConp::inv()
       for (iele = 0; iele < elenum_all; ++i) {
         zele_is_pos[iele] = (eleallz[iele] > zhalf);
       }      
-
+      totinve = 0;
       for (i = 0; i < elenum_all; i++) {
         ainve[i] = 0;
         for (j = 0; j < elenum_all; j++) {
@@ -1331,6 +1331,7 @@ void FixConp::inv()
   	      }
         }
       }
+      delete [] zele_is_pos;
       delete [] elez;
       delete [] eleallz;      
     }
