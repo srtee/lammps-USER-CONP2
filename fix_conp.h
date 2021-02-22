@@ -118,6 +118,8 @@ class FixConp : public Fix {
   double *sfacrl,*sfacrl_all,*sfacim,*sfacim_all;
   int everynum;
   Pair *coulpair;
+
+  bool zneutrflag;
 };
 
 }

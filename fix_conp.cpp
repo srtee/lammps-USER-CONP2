@@ -88,6 +88,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   eta = utils::numeric(FLERR,arg[4],false,lmp);
   molidL = utils::inumeric(FLERR,arg[5],false,lmp);
   molidR = utils::inumeric(FLERR,arg[6],false,lmp);
+  zneutrflag = false;
   if (strstr(arg[7],"v_") == arg[7]) {
     int n = strlen(&arg[7][2]) + 1;
     qlstr = new char[n];
@@ -155,6 +156,9 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
       }
       smartlist = true;
     }
+    else if (strcmp(arg[iarg],"zneutr") == 0) {
+      zneutrflag = true;
+    }
     else {
       printf(".<%s>.\n",arg[iarg]);
       error->all(FLERR,"Invalid fix conp input command");
@@ -178,7 +182,6 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   cs = sn = nullptr;
   qj = nullptr;
   kxy_list = nullptr;
-
   scalar_flag = 1;
   extscalar = 0;
   global_freq = 1;
@@ -1285,6 +1288,51 @@ void FixConp::inv()
 	        idx1d++;
 	      }
       }
+    }
+
+    // here we project aaa_all onto
+    // the null space of e_pos
+    // if zneutr has been called (i.e. we want each half of the unit cell
+    // to be neutral, not just the overall electrodes, in noslab)
+
+    if (zneutrflag) {
+      int iele;
+      double zprd_half = domain->zprd_half;
+      double zhalf = zprd_half + domain->boxlo[2];
+      double *elez = new double[elenum];
+      double *eleallz = new double[elenum_all];
+      int nlocal = atom->nlocal;
+      double **x = atom->x;
+      for (iele = 0; iele < elenum; ++iele) {
+        elez[iele] = x[atom->map(ele2tag[iele])][2];
+      }
+      b_comm(elez,eleallz);
+
+      bool *zele_is_pos = new bool[elenum_all];
+      for (iele = 0; iele < elenum_all; ++i) {
+        zele_is_pos[iele] = (eleallz[iele] > zhalf);
+      }      
+
+      for (i = 0; i < elenum_all; i++) {
+        ainve[i] = 0;
+        for (j = 0; j < elenum_all; j++) {
+          if (zele_is_pos[j]) ainve[i] += aaa_all[idx1d];
+      	  idx1d++;
+        }
+        totinve += ainve[i];
+      }
+
+      if (totinve*totinve > 1e-8) {
+        idx1d = 0;
+        for (i = 0; i < elenum_all; i++) {
+          for (j = 0; j < elenum_all; j++) {
+            aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
+  	        idx1d++;
+  	      }
+        }
+      }
+      delete [] elez;
+      delete [] eleallz;      
     }
 
     delete [] ainve;
