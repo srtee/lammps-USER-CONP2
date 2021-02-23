@@ -54,6 +54,7 @@
 #define A3        1.421413741
 #define A4       -1.453152027
 #define A5        1.061405429
+#define ERFC_MAX  5.8        // erfc(ERFC_MAX) ~ double machine epsilon (2^-52)
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
@@ -182,6 +183,9 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   cs = sn = nullptr;
   qj = nullptr;
   kxy_list = nullptr;
+  kxvecs = kyvecs = kzvecs = kcount_dims = nullptr;
+  sfacrl = sfacim = sfacrl_all = sfacim_all = nullptr;
+  ug = nullptr;
   scalar_flag = 1;
   extscalar = 0;
   global_freq = 1;
@@ -481,6 +485,7 @@ void FixConp::setup(int vflag)
     elenum_list = new int[nprocs];
     displs = new int[nprocs];
     elenum = 0;
+    elenum_all = 0;
     elytenum = 0;
     post_neighbor();
 
@@ -1543,52 +1548,56 @@ void FixConp::coul_cal(int coulcalflag, double* m)
               r = sqrt(rsq);
               if (coulcalflag != 0) {
                 grij = g_ewald * r;
-                expm2 = exp(-grij*grij);
-                t = 1.0 / (1.0 + EWALD_P*grij);
-                erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-                dudq = erfc/r;
+                if (grij < ERFC_MAX) {
+                  expm2 = exp(-grij*grij);
+                  t = 1.0 / (1.0 + EWALD_P*grij);
+                  erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+                  dudq = erfc/r;
+                }
               }
               if (checksum == 1) etarij = eta*r;
               else if (checksum == 2) etarij = eta*r/sqrt(2);
-              expm2 = exp(-etarij*etarij);
-              t = 1.0 / (1.0+EWALD_P*etarij);
-              erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+              if (etarij < ERFC_MAX) {
+                expm2 = exp(-etarij*etarij);
+                t = 1.0 / (1.0+EWALD_P*etarij);
+                erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
   
-              if (coulcalflag == 0) {
-                prefactor = qqrd2e*qtmp*q[j]/r;
-                forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
-                fpair = forcecoul*r2inv;
-                if (!(electrode_check(i))) {
-                  f[i][0] += delx*forcecoul;
-                  f[i][1] += dely*forcecoul;
-                  f[i][2] += delz*forcecoul;
-                }
-                if (!(electrode_check(j)) && (newton_pair || j < nlocal)) {
-                  f[j][0] -= delx*forcecoul;
-                  f[j][1] -= dely*forcecoul;
-                  f[j][2] -= delz*forcecoul;
-                }
-                ecoul = -prefactor*erfc;
-                force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
-              } else {
-                dudq -= erfc/r;
-                if (i < nlocal && eci) {
-                  elei = eleall2ele[tag2eleall[tag[i]]];
-                  if (coulcalflag == 1) m[elei] -= q[j]*dudq;
-                  else if (coulcalflag == 2 && checksum == 2) {
-                    eleallj = tag2eleall[tag[j]];
-                    idx1d = elei*elenum_all + eleallj;
-                    m[idx1d] += dudq;
+                if (coulcalflag == 0) {
+                  prefactor = qqrd2e*qtmp*q[j]/r;
+                  forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
+                  fpair = forcecoul*r2inv;
+                  if (!(electrode_check(i))) {
+                    f[i][0] += delx*forcecoul;
+                    f[i][1] += dely*forcecoul;
+                    f[i][2] += delz*forcecoul;
                   }
-                }
-                if (j < nlocal && ecj) {
-                  elej = eleall2ele[tag2eleall[tag[j]]];
-                  if (coulcalflag == 1) m[elej] -= q[i]*dudq;
-                  else if (coulcalflag == 2 && checksum == 2) {
-                    elealli = tag2eleall[tag[i]];
-                    idx1d = elej*elenum_all + elealli;
-                    m[idx1d] += dudq;
+                  if (!(electrode_check(j)) && (newton_pair || j < nlocal)) {
+                    f[j][0] -= delx*forcecoul;
+                    f[j][1] -= dely*forcecoul;
+                    f[j][2] -= delz*forcecoul;
                   }
+                  ecoul = -prefactor*erfc;
+                  force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
+                } else {
+                  dudq -= erfc/r;
+		}
+	      }
+              if (i < nlocal && eci) {
+                elei = eleall2ele[tag2eleall[tag[i]]];
+                if (coulcalflag == 1) m[elei] -= q[j]*dudq;
+                else if (coulcalflag == 2 && checksum == 2) {
+                  eleallj = tag2eleall[tag[j]];
+                  idx1d = elei*elenum_all + eleallj;
+                  m[idx1d] += dudq;
+                }
+              }
+              if (j < nlocal && ecj) {
+                elej = eleall2ele[tag2eleall[tag[j]]];
+                if (coulcalflag == 1) m[elej] -= q[i]*dudq;
+                else if (coulcalflag == 2 && checksum == 2) {
+                  elealli = tag2eleall[tag[i]];
+                  idx1d = elej*elenum_all + elealli;
+                  m[idx1d] += dudq;
                 }
               }
             }
@@ -1654,23 +1663,28 @@ void FixConp::alist_coul_cal(double* m)
         jtype = atomtype[j];
         if (rsq < cutsq[itype][jtype]) {
           if (rsq < cut_coulsq) {
+            dudq = 0;
             r2inv = 1.0/rsq;
             r = sqrt(rsq);
             grij = g_ewald * r;
-            expm2 = exp(-grij*grij);
-            t = 1.0 / (1.0 + EWALD_P*grij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            dudq = erfc/r;
+            if (grij < ERFC_MAX) {
+              expm2 = exp(-grij*grij);
+              t = 1.0 / (1.0 + EWALD_P*grij);
+              erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+              dudq = erfc/r;
+            }
             etarij = eta*r/sqrt(2);
-            expm2 = exp(-etarij*etarij);
-            t = 1.0 / (1.0+EWALD_P*etarij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            dudq -= erfc/r;
+            if (etarij < ERFC_MAX) {
+              expm2 = exp(-etarij*etarij);
+              t = 1.0 / (1.0+EWALD_P*etarij);
+              erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+              dudq -= erfc/r;
+            }
             if (i < nlocal) {
               elei = eleall2ele[tag2eleall[tag[i]]];
               eleallj = tag2eleall[tag[j]];
               idx1d = elei*elenum_all + eleallj;
-             m[idx1d] += dudq;
+              m[idx1d] += dudq;
             }
             if (j < nlocal) {
               elej = eleall2ele[tag2eleall[tag[j]]];
@@ -1741,15 +1755,19 @@ void FixConp::blist_coul_cal(double* m)
             dudq = 0.0;
             r = sqrt(rsq);
             grij = g_ewald * r;
-            expm2 = exp(-grij*grij);
-            t = 1.0 / (1.0 + EWALD_P*grij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            dudq = erfc/r;
+            if (grij < ERFC_MAX) {
+              expm2 = exp(-grij*grij);
+              t = 1.0 / (1.0 + EWALD_P*grij);
+              erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+              dudq = erfc/r;
+	    }
             etarij = eta*r;
-            expm2 = exp(-etarij*etarij);
-            t = 1.0 / (1.0+EWALD_P*etarij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            dudq -= erfc/r;
+	    if (etarij < ERFC_MAX) {
+              expm2 = exp(-etarij*etarij);
+              t = 1.0 / (1.0+EWALD_P*etarij);
+              erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+              dudq -= erfc/r;
+	    }
             if (eleilocal) {
               elei = eleall2ele[tag2eleall[tag[i]]];
               m[elei] -= q[j]*dudq;
@@ -1821,26 +1839,28 @@ void FixConp::blist_coul_cal_post_force()
             r2inv = 1.0/rsq;
             r = sqrt(rsq);
             etarij = eta*r;
-            expm2 = exp(-etarij*etarij);
-            t = 1.0 / (1.0+EWALD_P*etarij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            prefactor = qqrd2e*qtmp*q[j]/r;
-            forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
-            fpair = forcecoul*r2inv;
-            // following logic is asymmetric
-            // because we always know i < nlocal (but j could be ghost)
-            if (!eleilocal) {
-              f[i][0] += delx*forcecoul;
-              f[i][1] += dely*forcecoul;
-              f[i][2] += delz*forcecoul;
+            if (etarij < ERFC_MAX) {
+              expm2 = exp(-etarij*etarij);
+              t = 1.0 / (1.0+EWALD_P*etarij);
+              erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+              prefactor = qqrd2e*qtmp*q[j]/r;
+              forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
+              fpair = forcecoul*r2inv;
+              // following logic is asymmetric
+              // because we always know i < nlocal (but j could be ghost)
+              if (!eleilocal) {
+                f[i][0] += delx*forcecoul;
+                f[i][1] += dely*forcecoul;
+                f[i][2] += delz*forcecoul;
+              }
+              else if (newton_pair || j < nlocal) {
+                f[j][0] -= delx*forcecoul;
+                f[j][1] -= dely*forcecoul;
+                f[j][2] -= delz*forcecoul;
+              }
+              ecoul = -prefactor*erfc;
+              force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
             }
-            else if (newton_pair || j < nlocal) {
-              f[j][0] -= delx*forcecoul;
-              f[j][1] -= dely*forcecoul;
-              f[j][2] -= delz*forcecoul;
-            }
-            ecoul = -prefactor*erfc;
-            force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
           }
         }
       }
