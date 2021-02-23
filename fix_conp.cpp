@@ -1314,9 +1314,10 @@ void FixConp::inv()
       b_comm(elez,eleallz);
 
       bool *zele_is_pos = new bool[elenum_all];
-      for (iele = 0; iele < elenum_all; ++i) {
+      for (iele = 0; iele < elenum_all; ++iele) {
         zele_is_pos[iele] = (eleallz[iele] > zhalf);
       }      
+      idx1d = 0;
       totinve = 0;
       for (i = 0; i < elenum_all; i++) {
         ainve[i] = 0;
@@ -1324,7 +1325,7 @@ void FixConp::inv()
           if (zele_is_pos[j]) ainve[i] += aaa_all[idx1d];
       	  idx1d++;
         }
-        totinve += ainve[i];
+        if (zele_is_pos[i]) totinve += ainve[i];
       }
 
       if (totinve*totinve > 1e-8) {
