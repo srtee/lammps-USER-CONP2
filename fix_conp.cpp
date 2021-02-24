@@ -1114,8 +1114,8 @@ void FixConp::sincos_b()
     for (j = 0; j < jmax; ++j) {
       cskf[j] = cos(cs[kf-1][j]);
       snkf[j] = sin(cs[kf-1][j]);
-      temprl0 += qj[j]*cs[kf][j];
-      tempim0 += qj[j]*sn[kf][j];
+      temprl0 += qj[j]*cskf[j];
+      tempim0 += qj[j]*snkf[j];
     }
     sfacrl[kc] = temprl0;
     sfacim[kc] = tempim0;
@@ -1130,8 +1130,8 @@ void FixConp::sincos_b()
       for (j = 0; j < jmax; ++j) {
         cskf1[j] = cs[kf-1][j]*cs[k1][j] - sn[kf-1][j]*sn[k1][j];
         snkf1[j] = sn[kf-1][j]*cs[k1][j] + cs[kf-1][j]*sn[k1][j];
-        temprl0 += qj[j]*cs[kf][j];
-        tempim0 += qj[j]*sn[kf][j];
+        temprl0 += qj[j]*cskf1[j];
+        tempim0 += qj[j]*snkf1[j];
       }
       sfacrl[kc] = temprl0;
       sfacim[kc] = tempim0;
@@ -1157,12 +1157,12 @@ void FixConp::sincos_b()
       // todo: tell compiler that kf, kx and ky do not alias
       cskf0[j] = cs[kx][j]*cs[ky][j] - sn[kx][j]*sn[ky][j];
       snkf0[j] = cs[kx][j]*sn[ky][j] + sn[kx][j]*cs[ky][j];
-      temprl0 += qj[j]*cs[kf][j];
-      tempim0 += qj[j]*sn[kf][j];
+      temprl0 += qj[j]*cskf0[j];
+      tempim0 += qj[j]*snkf0[j];
       cskf1[j] = cs[kx][j]*cs[ky][j] + sn[kx][j]*sn[ky][j];
       snkf1[j] = -cs[kx][j]*sn[ky][j] + sn[kx][j]*cs[ky][j];
-      temprl1 += qj[j]*cs[kf+1][j];
-      tempim1 += qj[j]*sn[kf+1][j];
+      temprl1 += qj[j]*cskf1[j];
+      tempim1 += qj[j]*snkf1[j];
     }
     sfacrl[kc] = temprl0;
     sfacim[kc] = tempim0;
