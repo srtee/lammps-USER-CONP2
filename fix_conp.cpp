@@ -181,7 +181,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   totsetq = 0;
   gotsetq = 0;  //=1 after getting setq vector
   cs = sn = nullptr;
-  qj = nullptr;
+  qj_global = nullptr;
   kxy_list = nullptr;
   kxvecs = kyvecs = kzvecs = kcount_dims = nullptr;
   sfacrl = sfacim = sfacrl_all = sfacim_all = nullptr;
@@ -200,7 +200,7 @@ FixConp::~FixConp()
   //memory->destroy3d_offset(sn,-kmax_created);
   memory->destroy(cs);
   memory->destroy(sn);
-  memory->destroy(qj);
+  memory->destroy(qj_global);
   memory->destroy(bbb);
   memory->destroy(ele2tag);
   memory->destroy(ele2eleall);
@@ -586,7 +586,8 @@ void FixConp::b_setq_cal()
   double zprd = domain->zprd;
   double zprd_half = domain->zprd_half;
   double zhalf = zprd_half + domain->boxlo[2];
-  for (iloc = 0; iloc < elenum; ++iloc) {
+  int const elenum_c = elenum;
+  for (iloc = 0; iloc < elenum_c; ++iloc) {
     iall = ele2eleall[iloc];
     i = atom->map(ele2tag[iloc]);
     eci = electrode_check(i);
@@ -615,8 +616,8 @@ void FixConp::post_neighbor()
   int elenum_old = elenum;
   int elenum_all_old = elenum_all;
   int* tag = atom->tag;
-  int nlocal = atom->nlocal;
-  int nprocs = comm->nprocs;
+  int const nlocal = atom->nlocal;
+  int const nprocs = comm->nprocs;
   int i,elealli,tagi;
   elenum = 0;
   elenum_all = 0;
@@ -631,7 +632,7 @@ void FixConp::post_neighbor()
     memory->create(cs,kcount_flat,elytenum+10,"fixconp:cs");
     if (sn != nullptr) memory->destroy(sn);
     memory->create(sn,kcount_flat,elytenum+10,"fixconp:sn");
-    memory->grow(qj,elytenum+10,"fixconp:qj");
+    memory->grow(qj_global,elytenum+10,"fixconp:qj_global");
   }
   if (elenum > elenum_old) {
     memory->grow(ele2tag,elenum,"fixconp:ele2tag");
@@ -652,6 +653,7 @@ void FixConp::post_neighbor()
     displssum += elenum_list[i];
   }
   elenum_all = displssum;
+  int const elenum_all_c = elenum_all;
   //printf("%d",elenum_all);
 
     //volatile int q = 0;
@@ -677,10 +679,10 @@ void FixConp::post_neighbor()
     for (i = 0; i < natoms+1; i++) tag2eleall[i] = elenum_all;
     eleall2ele[elenum_all] = -1; // not a typo
     MPI_Allgatherv(ele2tag,elenum,MPI_INT,eleall2tag,elenum_list,displs,MPI_INT,world);
-    for (i = 0; i < elenum_all; ++i) tag2eleall[eleall2tag[i]] = i;
+    for (i = 0; i < elenum_all_c; ++i) tag2eleall[eleall2tag[i]] = i;
   }
   j = 0;
-  for (i = 0; i < elenum_all; ++i) eleall2ele[i] = -1;
+  for (i = 0; i < elenum_all_c; ++i) eleall2ele[i] = -1;
   for (i = 0; i < nlocal; ++i) {
     if (electrode_check(i)) {
       ele2eleall[j] = tag2eleall[tag[i]];
@@ -730,29 +732,32 @@ void FixConp::update_bk(bool coulyes, double* bbb_all)
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
   int kx,ky,kz;
-  double cypz,sypz,exprl,expim;
+  double cypz,sypz,exprl,expim,bbbtmp;
   int one = 1;
   for (elei = 0; elei < elenum; ++elei) {
     i = ele2eleall[elei];
     //bbb[elei] = -ddot_(&kcount,csk[i],&one,sfacrl_all,&one);
     //bbb[elei] -= ddot_(&kcount,snk[i],&one,sfacim_all,&one);
-    bbb[elei] = 0;
+    bbbtmp = 0;
     for (k = 0; k < kcount; k++) {
-      bbb[elei] -= (csk[i][k]*sfacrl_all[k]+snk[i][k]*sfacim_all[k]);
+      bbbtmp -= (csk[i][k]*sfacrl_all[k]+snk[i][k]*sfacim_all[k]);
     } // ddot tested -- slower!
+    bbb[elei] = bbbtmp;
   }
 
   //slabcorrection in current timestep -- skip if ff / noslab
   if (ff_flag == NORMAL) {
     double slabcorrtmp = 0.0;
     double slabcorrtmp_all = 0.0;
+    #pragma ivdep
     for (i = 0; i < nlocal; i++) {
       if (electrode_check(i) == 0) {
         slabcorrtmp += 4*q[i]*MY_PI*x[i][2]/volume;
       }
     }
     MPI_Allreduce(&slabcorrtmp,&slabcorrtmp_all,1,MPI_DOUBLE,MPI_SUM,world);
-    for (elei = 0; elei < elenum; ++elei) {
+    const int elenum_c = elenum;
+    for (elei = 0; elei < elenum_c; ++elei) {
       i = atom->map(ele2tag[elei]);
       bbb[elei] -= x[i][2]*slabcorrtmp_all;
     }
@@ -824,12 +829,13 @@ void FixConp::a_read()
   MPI_Bcast(aaa_all,elenum_all*elenum_all,MPI_DOUBLE,0,world);
 
   int tagi;
-  for (i = 0; i < elenum_all; i++) {
+  int const elenum_all_c = elenum_all;
+  for (i = 0; i < elenum_all_c; i++) {
     eleall2ele[i] = -1;
     tagi = eleall2tag[i];
     tag2eleall[tagi] = i;
   }
-  int nlocal = atom->nlocal;
+  int const nlocal = atom->nlocal;
   int *tag = atom->tag;
   int j = 0;
   for (i = 0; i < nlocal; ++i) {
@@ -894,15 +900,19 @@ void FixConp::a_cal()
   // sincos_a loads coordinates into eleallz if asked to
   //delete [] elexyzlist;
   //delete [] elexyzlist_all;
-  int elealli,idx1d,tagi;
+  int idx1d,tagi;
   double zi;
   double CON_4PIoverV = MY_4PI/volume;
   double CON_s2overPIS = sqrt(2.0)/MY_PIS;
   double CON_2overPIS = 2.0/MY_PIS;
   double *aaa = new double[elenum*elenum_all];
-  for (i = 0; i < elenum*elenum_all; ++i) {
-    aaa[i] = 0.0;
-  }
+  double aaatmp;
+  int const elenum_all_c = elenum_all;
+  int const elenum_c = elenum;
+  int const kcount_c = kcount;
+  //for (i = 0; i < elenum_c*elenum_all_c; ++i) {
+  //  aaa[i] = 0.0;
+  //}
   // double *elez = new double[elenum];
   // if (ff_flag == NORMAL) {
   //  for (iele = 0; iele < elenum; ++i) {
@@ -910,14 +920,16 @@ void FixConp::a_cal()
   //  }
   //  b_comm(elez,eleallz);
   // }
-  for (i = 0; i < elenum; ++i) {
-    elealli = ele2eleall[i];
+  for (i = 0; i < elenum_c; ++i) {
+    int const elealli = ele2eleall[i];
     idx1d=i*elenum_all;
     for (j = 0; j <= elealli; ++j) {
-      for (k = 0; k < kcount; ++k) {
-        aaa[idx1d] += 0.5*(csk[elealli][k]*csk[j][k]+snk[elealli][k]*snk[j][k])/ug[k];
+      aaatmp = 0;
+      for (k = 0; k < kcount_c; ++k) {
+        aaatmp += 0.5*(csk[elealli][k]*csk[j][k]+snk[elealli][k]*snk[j][k])/ug[k];
       }
-      if (ff_flag == NORMAL) aaa[idx1d] += CON_4PIoverV*eleallz[elealli]*eleallz[j];
+      if (ff_flag == NORMAL) aaatmp += CON_4PIoverV*eleallz[elealli]*eleallz[j];
+      aaa[idx1d] = aaatmp;
       idx1d++;
     }
     idx1d = i*elenum_all+elealli;
@@ -937,6 +949,7 @@ void FixConp::a_cal()
   }
   MPI_Allgatherv(aaa,elenum*elenum_all,MPI_DOUBLE,aaa_all,elenum_list3,displs3,MPI_DOUBLE,world);
 
+  #pragma ivdep
   for (i = 0; i < elenum_all-1; ++i) {
     for (j = i+1; j < elenum_all; ++j) {
       aaa_all[i*elenum_all+j] = aaa_all[j*elenum_all+i];
@@ -945,12 +958,12 @@ void FixConp::a_cal()
 
   if (me == 0) {
     fprintf(outa," ");
-    for (i = 0; i < elenum_all; ++i) fprintf(outa,"%20d",eleall2tag[i]);
+    for (i = 0; i < elenum_all_c; ++i) fprintf(outa,"%20d",eleall2tag[i]);
     fprintf(outa,"\n");
     idx1d = 0;
-    for (i = 0; i < elenum_all; ++i) {
+    for (i = 0; i < elenum_all_c; ++i) {
       fprintf(outa," ");
-      for (j = 0; j < elenum_all; ++j) {
+      for (j = 0; j < elenum_all_c; ++j) {
         fprintf (outa,"%20.12f",aaa_all[idx1d]);
         idx1d++;
       }
@@ -986,18 +999,22 @@ void FixConp::sincos_a(int ff_flag,double *eleallz)
   double *elex_all = new double[elenum_all];
   int nlocal = atom->nlocal;
   double **x = atom->x;
+  int const elenum_all_c = elenum_all;
+  int const elenum_c = elenum;
+  int const kcount_c = kcount;
 
   kinc = 0;
 
   for (ic = 0; ic < 3; ic++) {
-    for (iele = 0; iele < elenum; ++iele) {
+    for (iele = 0; iele < elenum_c; ++iele) {
       elex[iele] = x[atom->map(ele2tag[iele])][ic];
     }
     b_comm(elex,elex_all);
     if (ff_flag == NORMAL && ic == 2 && eleallz != nullptr) {
-      for (i = 0; i < elenum_all; ++i) eleallz[i] = elex_all[i];
+      for (i = 0; i < elenum_all_c; ++i) eleallz[i] = elex_all[i];
     }
-    for (i = 0; i < elenum_all; i++) {
+    #pragma ivdep
+    for (i = 0; i < elenum_all_c; i++) {
       k = kinc;
       csele[0][ic][i] = 1.0;
       snele[0][ic][i] = 0.0;
@@ -1026,11 +1043,12 @@ void FixConp::sincos_a(int ff_flag,double *eleallz)
   delete [] elex;
   delete [] elex_all;
 
-  for (k = kinc; k < kcount; ++k) {
+  for (k = kinc; k < kcount_c; ++k) {
     kx = kxvecs[k];
     ky = kyvecs[k];
     kz = kzvecs[k];
-    for (i = 0; i < elenum_all; ++i) {
+    #pragma ivdep
+    for (i = 0; i < elenum_all_c; ++i) {
       cypz = csele[ky][1][i]*csele[kz][2][i] - snele[ky][1][i]*snele[kz][2][i];
       sypz = snele[ky][1][i]*csele[kz][2][i] + csele[ky][1][i]*snele[kz][2][i];
       csk[i][k] = csele[kx][0][i]*cypz - snele[kx][0][i]*sypz;
@@ -1054,19 +1072,24 @@ void FixConp::sincos_b()
   // double cstr1,sstr1,cstr2,sstr2,cstr3,sstr3,cstr4,sstr4;
   // double sqk,clpm,slpm;
 
+  double temprl0,temprl1,temprl2,temprl3;
+  double tempim0,tempim1,tempim2,tempim3;
+
   double **x = atom->x;
   double *q = atom->q;
   int nlocal = atom->nlocal;
+
+  double* restrict qj = qj_global;
 
   j = 0;
   jmax = 0;
   kf = 0;
   kc = 0;
 
-  for (kc = 0; kc < kcount; ++kc) {
-    sfacrl[kc] = 0;
-    sfacim[kc] = 0;
-  }
+  //for (kc = 0; kc < kcount; ++kc) {
+  //  sfacrl[kc] = 0;
+  //  sfacim[kc] = 0;
+  //}
 
   for (i = 0; i < nlocal; ++i) {
     if (electrode_check(i) == 0 && q[i] != 0){
@@ -1084,22 +1107,34 @@ void FixConp::sincos_b()
   kc = 0;
   for (ic = 0; ic < 3; ++ic) {
     ++kf;
+    double* restrict cskf = cs[kf];
+    double* restrict snkf = sn[kf];
+    temprl0 = 0;
+    tempim0 = 0;
     for (j = 0; j < jmax; ++j) {
-      cs[kf][j] = cos(cs[kf-1][j]);
-      sn[kf][j] = sin(cs[kf-1][j]);
-      sfacrl[kc] += qj[j]*cs[kf][j];
-      sfacim[kc] += qj[j]*sn[kf][j];
+      cskf[j] = cos(cs[kf-1][j]);
+      snkf[j] = sin(cs[kf-1][j]);
+      temprl0 += qj[j]*cskf[j];
+      tempim0 += qj[j]*snkf[j];
     }
+    sfacrl[kc] = temprl0;
+    sfacim[kc] = tempim0;
     k1 = kf;
     ++kf;
     ++kc;
     for (m = 2; m <= kcount_dims[ic]; ++m) {
+      double* restrict cskf1=cs[kf];
+      double* restrict snkf1=sn[kf];
+      temprl0 = 0;
+      tempim0 = 0;
       for (j = 0; j < jmax; ++j) {
-        cs[kf][j] = cs[kf-1][j]*cs[k1][j] - sn[kf-1][j]*sn[k1][j];
-        sn[kf][j] = sn[kf-1][j]*cs[k1][j] + cs[kf-1][j]*sn[k1][j];
-        sfacrl[kc] += qj[j]*cs[kf][j];
-        sfacim[kc] += qj[j]*sn[kf][j];
+        cskf1[j] = cs[kf-1][j]*cs[k1][j] - sn[kf-1][j]*sn[k1][j];
+        snkf1[j] = sn[kf-1][j]*cs[k1][j] + cs[kf-1][j]*sn[k1][j];
+        temprl0 += qj[j]*cskf1[j];
+        tempim0 += qj[j]*snkf1[j];
       }
+      sfacrl[kc] = temprl0;
+      sfacim[kc] = tempim0;
       ++kf;
       ++kc;
     }
@@ -1110,16 +1145,29 @@ void FixConp::sincos_b()
   for (m = 0; m < kcount_dims[3]; ++m) {
     kx = kxvecs[kc];
     ky = kyvecs[kc]+kcount_dims[0]+1;
+    temprl0 = 0;
+    tempim0 = 0;
+    temprl1 = 0;
+    tempim1 = 0;
+    double* restrict cskf0 = cs[kf];
+    double* restrict snkf0 = sn[kf];
+    double* restrict cskf1 = cs[kf+1];
+    double* restrict snkf1 = sn[kf+1];
     for (j = 0; j < jmax; ++j) {
-      cs[kf][j] = cs[kx][j]*cs[ky][j] - sn[kx][j]*sn[ky][j];
-      sn[kf][j] = cs[kx][j]*sn[ky][j] + sn[kx][j]*cs[ky][j];
-      sfacrl[kc] += qj[j]*cs[kf][j];
-      sfacim[kc] += qj[j]*sn[kf][j];
-      cs[kf+1][j] = cs[kx][j]*cs[ky][j] + sn[kx][j]*sn[ky][j];
-      sn[kf+1][j] = -cs[kx][j]*sn[ky][j] + sn[kx][j]*cs[ky][j];
-      sfacrl[kc+1] += qj[j]*cs[kf+1][j];
-      sfacim[kc+1] += qj[j]*sn[kf+1][j];
+      // todo: tell compiler that kf, kx and ky do not alias
+      cskf0[j] = cs[kx][j]*cs[ky][j] - sn[kx][j]*sn[ky][j];
+      snkf0[j] = cs[kx][j]*sn[ky][j] + sn[kx][j]*cs[ky][j];
+      temprl0 += qj[j]*cskf0[j];
+      tempim0 += qj[j]*snkf0[j];
+      cskf1[j] = cs[kx][j]*cs[ky][j] + sn[kx][j]*sn[ky][j];
+      snkf1[j] = -cs[kx][j]*sn[ky][j] + sn[kx][j]*cs[ky][j];
+      temprl1 += qj[j]*cskf1[j];
+      tempim1 += qj[j]*snkf1[j];
     }
+    sfacrl[kc] = temprl0;
+    sfacim[kc] = tempim0;
+    sfacrl[kc+1] = temprl1;
+    sfacim[kc+1] = tempim1;
     kf += 2;
     kc += 2;
   }
@@ -1129,12 +1177,20 @@ void FixConp::sincos_b()
   for (m = 0; m < kcount_dims[4]; ++m) {
     ky = kyvecs[kc]+kcount_dims[0]+1;
     kz = kzvecs[kc]+kcount_dims[0]+kcount_dims[1]+2;
+    temprl0 = 0;
+    tempim0 = 0;
+    temprl1 = 0;
+    tempim1 = 0;
     for (j = 0; j < jmax; ++j) {
-      sfacrl[kc] += qj[j]*(cs[ky][j]*cs[kz][j]-sn[ky][j]*sn[kz][j]);
-      sfacim[kc] += qj[j]*(cs[ky][j]*sn[kz][j]+sn[ky][j]*cs[kz][j]);
-      sfacrl[kc+1] += qj[j]*(cs[ky][j]*cs[kz][j]+sn[ky][j]*sn[kz][j]);
-      sfacim[kc+1] += qj[j]*(-cs[ky][j]*sn[kz][j]+sn[ky][j]*cs[kz][j]);
+      temprl0 += qj[j]*(cs[ky][j]*cs[kz][j]-sn[ky][j]*sn[kz][j]);
+      tempim0 += qj[j]*(cs[ky][j]*sn[kz][j]+sn[ky][j]*cs[kz][j]);
+      temprl1 += qj[j]*(cs[ky][j]*cs[kz][j]+sn[ky][j]*sn[kz][j]);
+      tempim1 += qj[j]*(-cs[ky][j]*sn[kz][j]+sn[ky][j]*cs[kz][j]);
     }
+    sfacrl[kc] = temprl0;
+    sfacim[kc] = tempim0;
+    sfacrl[kc+1] = temprl1;
+    sfacim[kc+1] = tempim1;
     kc += 2;
   }
 
@@ -1143,12 +1199,20 @@ void FixConp::sincos_b()
   for (m = 0; m < kcount_dims[5]; ++m) {
     kx = kxvecs[kc];
     kz = kzvecs[kc]+kcount_dims[0]+kcount_dims[1]+2;
+    temprl0 = 0;
+    tempim0 = 0;
+    temprl1 = 0;
+    tempim1 = 0;
     for (j = 0; j < jmax; ++j) {
-      sfacrl[kc] += qj[j]*(cs[kx][j]*cs[kz][j]-sn[kx][j]*sn[kz][j]);
-      sfacim[kc] += qj[j]*(cs[kx][j]*sn[kz][j]+sn[kx][j]*cs[kz][j]);
-      sfacrl[kc+1] += qj[j]*(cs[kx][j]*cs[kz][j]+sn[kx][j]*sn[kz][j]);
-      sfacim[kc+1] += qj[j]*(-cs[kx][j]*sn[kz][j]+sn[kx][j]*cs[kz][j]);
+      temprl0 += qj[j]*(cs[kx][j]*cs[kz][j]-sn[kx][j]*sn[kz][j]);
+      tempim0 += qj[j]*(cs[kx][j]*sn[kz][j]+sn[kx][j]*cs[kz][j]);
+      temprl1 += qj[j]*(cs[kx][j]*cs[kz][j]+sn[kx][j]*sn[kz][j]);
+      tempim1 += qj[j]*(-cs[kx][j]*sn[kz][j]+sn[kx][j]*cs[kz][j]);
     }
+    sfacrl[kc] = temprl0;
+    sfacim[kc] = tempim0;
+    sfacrl[kc+1] = temprl1;
+    sfacim[kc+1] = tempim1;
     kc += 2;
   }
 
@@ -1157,20 +1221,36 @@ void FixConp::sincos_b()
   for (m = 0; m < kcount_dims[6]; ++m) {
     kxy = kxy_list[m]+kcount_dims[0]+kcount_dims[1]+kcount_dims[2]+3;
     kz = kzvecs[kc]+kcount_dims[0]+kcount_dims[1]+2;
+    temprl0 = 0;
+    tempim0 = 0;
+    temprl1 = 0;
+    tempim1 = 0;
+    temprl2 = 0;
+    tempim2 = 0;
+    temprl3 = 0;
+    tempim3 = 0;
     for (j = 0; j < jmax; ++j) {
-      sfacrl[kc] += qj[j]*(cs[kxy][j]*cs[kz][j] - sn[kxy][j]*sn[kz][j]);
-      sfacim[kc] += qj[j]*(sn[kxy][j]*cs[kz][j] + cs[kxy][j]*sn[kz][j]);
+      temprl0 += qj[j]*(cs[kxy][j]*cs[kz][j] - sn[kxy][j]*sn[kz][j]);
+      tempim0 += qj[j]*(sn[kxy][j]*cs[kz][j] + cs[kxy][j]*sn[kz][j]);
 
-      sfacrl[kc+2] += qj[j]*(cs[kxy][j]*cs[kz][j] + sn[kxy][j]*sn[kz][j]);
-      sfacim[kc+2] += qj[j]*(sn[kxy][j]*cs[kz][j] - cs[kxy][j]*sn[kz][j]);
+      temprl2 += qj[j]*(cs[kxy][j]*cs[kz][j] + sn[kxy][j]*sn[kz][j]);
+      tempim2 += qj[j]*(sn[kxy][j]*cs[kz][j] - cs[kxy][j]*sn[kz][j]);
     }
     for (j = 0; j < jmax; ++j) {
-      sfacrl[kc+1] += qj[j]*(cs[kxy+1][j]*cs[kz][j] - sn[kxy+1][j]*sn[kz][j]);
-      sfacim[kc+1] += qj[j]*(sn[kxy+1][j]*cs[kz][j] + cs[kxy+1][j]*sn[kz][j]);
+      temprl1 += qj[j]*(cs[kxy+1][j]*cs[kz][j] - sn[kxy+1][j]*sn[kz][j]);
+      tempim1 += qj[j]*(sn[kxy+1][j]*cs[kz][j] + cs[kxy+1][j]*sn[kz][j]);
 
-      sfacrl[kc+3] += qj[j]*(cs[kxy+1][j]*cs[kz][j] + sn[kxy+1][j]*sn[kz][j]);
-      sfacim[kc+3] += qj[j]*(sn[kxy+1][j]*cs[kz][j] - cs[kxy+1][j]*sn[kz][j]);
+      temprl3 += qj[j]*(cs[kxy+1][j]*cs[kz][j] + sn[kxy+1][j]*sn[kz][j]);
+      tempim3 += qj[j]*(sn[kxy+1][j]*cs[kz][j] - cs[kxy+1][j]*sn[kz][j]);
     }
+    sfacrl[kc] = temprl0;
+    sfacim[kc] = tempim0;
+    sfacrl[kc+1] = temprl1;
+    sfacim[kc+1] = tempim1;
+    sfacrl[kc+2] = temprl2;
+    sfacim[kc+2] = tempim2;
+    sfacrl[kc+3] = temprl3;
+    sfacim[kc+3] = tempim3;
     kc += 4;
   }
 
@@ -1190,7 +1270,7 @@ void FixConp::cg()
   for (i = 0; i < elenum_all; ++i) {
     res[i] = bbb_all[i];
     for (j = 0; j < elenum_all; ++j) {
-      idx1d= i*elenum_all+j;
+      idx1d = i*elenum_all+j;
       tmp = aaa_all[idx1d]*eleallq[j];
       res[i] -= tmp;
     }
@@ -1258,6 +1338,8 @@ void FixConp::inv()
     double *work = new double[lwork];
     int info;
     int infosum;
+    int const elenum_c = elenum;
+    int const elenum_all_c = elenum_all;
 
     dgetrf_(&m,&n,aaa_all,&lda,ipiv,&info);
     infosum = info;
@@ -1274,25 +1356,27 @@ void FixConp::inv()
     // the null space of e
 
     double *ainve = new double[elenum_all];
+    double ainvtmp;
     double totinve = 0;
     idx1d = 0;
 
-    for (i = 0; i < elenum_all; i++) {
-      ainve[i] = 0;
-      for (j = 0; j < elenum_all; j++) {
-        ainve[i] += aaa_all[idx1d];
+    for (i = 0; i < elenum_all_c; i++) {
+      ainvtmp = 0;
+      for (j = 0; j < elenum_all_c; j++) {
+        ainvtmp += aaa_all[idx1d];
       	idx1d++;
       }
-      totinve += ainve[i];
+      totinve += ainvtmp;
+      ainve[i] = ainvtmp;
     }
 
     if (totinve*totinve > 1e-8) {
       idx1d = 0;
-      for (i = 0; i < elenum_all; i++) {
-        for (j = 0; j < elenum_all; j++) {
+      for (i = 0; i < elenum_all_c; i++) {
+        for (j = 0; j < elenum_all_c; j++) {
           aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
-	        idx1d++;
-	      }
+	  idx1d++;
+	}
       }
     }
 
@@ -1309,33 +1393,34 @@ void FixConp::inv()
       double *eleallz = new double[elenum_all];
       int nlocal = atom->nlocal;
       double **x = atom->x;
-      for (iele = 0; iele < elenum; ++iele) {
+      for (iele = 0; iele < elenum_c; ++iele) {
         elez[iele] = x[atom->map(ele2tag[iele])][2];
       }
       b_comm(elez,eleallz);
 
       bool *zele_is_pos = new bool[elenum_all];
-      for (iele = 0; iele < elenum_all; ++iele) {
+      for (iele = 0; iele < elenum_all_c; ++iele) {
         zele_is_pos[iele] = (eleallz[iele] > zhalf);
       }      
       idx1d = 0;
       totinve = 0;
-      for (i = 0; i < elenum_all; i++) {
-        ainve[i] = 0;
-        for (j = 0; j < elenum_all; j++) {
-          if (zele_is_pos[j]) ainve[i] += aaa_all[idx1d];
+      for (i = 0; i < elenum_all_c; i++) {
+        ainvtmp = 0;
+        for (j = 0; j < elenum_all_c; j++) {
+          if (zele_is_pos[j]) ainvtmp += aaa_all[idx1d];
       	  idx1d++;
         }
-        if (zele_is_pos[i]) totinve += ainve[i];
+        ainve[i] = ainvtmp;
+        if (zele_is_pos[i]) totinve += ainvtmp;
       }
 
       if (totinve*totinve > 1e-8) {
         idx1d = 0;
-        for (i = 0; i < elenum_all; i++) {
-          for (j = 0; j < elenum_all; j++) {
+        for (i = 0; i < elenum_all_c; i++) {
+          for (j = 0; j < elenum_all_c; j++) {
             aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
-  	        idx1d++;
-  	      }
+  	    idx1d++;
+  	  }
         }
       }
       delete [] zele_is_pos;
@@ -1348,12 +1433,12 @@ void FixConp::inv()
 
     if (me == 0) {
       FILE *outinva = fopen("inv_a_matrix","w");
-      for (i = 0; i < elenum_all; i++) {
+      for (i = 0; i < elenum_all_c; i++) {
         if(i == 0) fprintf (outinva," ");
         fprintf (outinva,"%20d",eleall2tag[i]);
       }
       fprintf (outinva,"\n");
-      for (k = 0; k < elenum_all*elenum_all; k++) {
+      for (k = 0; k < elenum_all_c*elenum_all_c; k++) {
         if (k%elenum_all != 0) {
           fprintf (outinva," ");
         }
@@ -1374,38 +1459,37 @@ void FixConp::get_setq()
 {
   int iall,jall,iloc,i,j,idx1d;
   int elealli,tagi;
-  double eleallq_i;
+  double eleallq_i,bbbtmp;
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
   int nall = nlocal+atom->nghost;
   double netcharge_left_local = 0;
+  int const elenum_all_c = elenum_all;
+  int const elenum_c = elenum;
 
   if (minimizer == 0) { // cg solver used
-    for (iall = 0; iall < elenum_all; ++iall) {
+    for (iall = 0; iall < elenum_all_c; ++iall) {
       elesetq[iall] = eleallq[iall];
     }
   } else if (minimizer == 1) { // inv solver used
     int one = 1;
     idx1d = 0;
-    for (iloc = 0; iloc < elenum; ++iloc) {
+    for (iloc = 0; iloc < elenum_c; ++iloc) {
       iall = ele2eleall[iloc];
       idx1d = iall*elenum_all;
-      bbb[iloc] = ddot_(&elenum_all,&aaa_all[idx1d],&one,bbb_all,&one);
+      bbbtmp = ddot_(&elenum_all,&aaa_all[idx1d],&one,bbb_all,&one);
+      bbb[iloc] = bbbtmp;
     }
     b_comm(bbb,elesetq);
   }
   totsetq = 0;
-  for (iloc = 0; iloc < elenum; ++iloc) {
+  for (iloc = 0; iloc < elenum_c; ++iloc) {
     iall = ele2eleall[iloc];
     if (elecheck_eleall[iall] == 1) {
       totsetq += elesetq[iall];
     }
   }
   MPI_Allreduce(MPI_IN_PLACE,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
-  if (me == 0) {
-    for (iall = 0; iall < elenum_all; ++iall){
-    }
-  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1416,25 +1500,22 @@ void FixConp::update_charge()
   int elealli,tagi;
   double eleallq_i;
   int *tag = atom->tag;
-  int nlocal = atom->nlocal;
-  int nall = nlocal+atom->nghost;
+  int const nlocal = atom->nlocal;
+  int const nall = nlocal+atom->nghost;
   double netcharge_left = 0;
   double *q = atom->q;    
+  int const elenum_c = elenum;
+  int const elenum_all_c = elenum_all;
   if (minimizer == 1) {
     idx1d = 0;
     int one = 1;
-    for (iloc = 0; iloc < elenum; ++iloc) {
+    for (iloc = 0; iloc < elenum_c; ++iloc) {
       iall = ele2eleall[iloc];
       idx1d = iall*elenum_all;
       bbb[iloc] = ddot_(&elenum_all,&aaa_all[idx1d],&one,bbb_all,&one);
     }
     b_comm(bbb,eleallq);
   } // if minimizer == 0 then we already have eleallq ready;
-
-  if (me == 0) {
-    for (iall = 0; iall < elenum_all; ++iall){
-    }
-  }
 
   if (qlstyle == EQUAL) qL = input->variable->compute_equal(qlvar);
   if (qrstyle == EQUAL) qR = input->variable->compute_equal(qrvar);
@@ -1444,7 +1525,7 @@ void FixConp::update_charge()
 
   //  update charges including additional charge needed
   //  this fragment is the only difference from fix_conq
-  for (iall = 0; iall < elenum_all; ++iall) {
+  for (iall = 0; iall < elenum_all_c; ++iall) {
     if (elecheck_eleall[iall] == 1) netcharge_left += eleallq[iall];
     i = atom->map(eleall2tag[iall]);
     if (i != -1) {
@@ -1581,8 +1662,8 @@ void FixConp::coul_cal(int coulcalflag, double* m)
                   force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
                 } else {
                   dudq -= erfc/r;
-		            }
-	            }
+                }
+              }
               if (i < nlocal && eci) {
                 elei = eleall2ele[tag2eleall[tag[i]]];
                 if (coulcalflag == 1) m[elei] -= q[j]*dudq;
@@ -1901,9 +1982,14 @@ void FixConp::coeffs()
   kcount = 0;
   for (int i = 0; i < 7; ++i) kcount_dims[i] = 0;
 
+  int const kmax_c = kmax;
+  int const kxmax_c = kxmax;
+  int const kymax_c = kymax;
+  int const kzmax_c = kzmax;
+
   // (k,0,0), (0,l,0), (0,0,m)
 
-  for (m = 1; m <= kmax; m++) {
+  for (m = 1; m <= kmax_c; m++) {
     sqk = (m*unitk[0]) * (m*unitk[0]);
     if (sqk <= gsqmx) {
       kxvecs[kcount] = m;
@@ -1914,7 +2000,7 @@ void FixConp::coeffs()
       kcount_dims[0]++;
     }
   }
-  for (m = 1; m <= kmax; m++) {
+  for (m = 1; m <= kmax_c; m++) {
     sqk = (m*unitk[1]) * (m*unitk[1]);
     if (sqk <= gsqmx) {
       kxvecs[kcount] = 0;
@@ -1925,7 +2011,7 @@ void FixConp::coeffs()
       kcount_dims[1]++;
     }
   }
-  for (m = 1; m <= kmax; m++) {
+  for (m = 1; m <= kmax_c; m++) {
     sqk = (m*unitk[2]) * (m*unitk[2]);
     if (sqk <= gsqmx) {
       kxvecs[kcount] = 0;
@@ -1939,8 +2025,8 @@ void FixConp::coeffs()
 
   // 1 = (k,l,0), 2 = (k,-l,0)
 
-  for (k = 1; k <= kxmax; k++) {
-    for (l = 1; l <= kymax; l++) {
+  for (k = 1; k <= kxmax_c; k++) {
+    for (l = 1; l <= kymax_c; l++) {
       sqk = (unitk[0]*k) * (unitk[0]*k) + (unitk[1]*l) * (unitk[1]*l);
       if (sqk <= gsqmx) {
         kxvecs[kcount] = k;
@@ -1963,8 +2049,8 @@ void FixConp::coeffs()
 
   // 1 = (0,l,m), 2 = (0,l,-m)
 
-  for (l = 1; l <= kymax; l++) {
-    for (m = 1; m <= kzmax; m++) {
+  for (l = 1; l <= kymax_c; l++) {
+    for (m = 1; m <= kzmax_c; m++) {
       sqk = (unitk[1]*l) * (unitk[1]*l) + (unitk[2]*m) * (unitk[2]*m);
       if (sqk <= gsqmx) {
         kxvecs[kcount] = 0;
@@ -1985,8 +2071,8 @@ void FixConp::coeffs()
 
   // 1 = (k,0,m), 2 = (k,0,-m)
 
-  for (k = 1; k <= kxmax; k++) {
-    for (m = 1; m <= kzmax; m++) {
+  for (k = 1; k <= kxmax_c; k++) {
+    for (m = 1; m <= kzmax_c; m++) {
       sqk = (unitk[0]*k) * (unitk[0]*k) + (unitk[2]*m) * (unitk[2]*m);
       if (sqk <= gsqmx) {
         kxvecs[kcount] = k;
@@ -2007,9 +2093,9 @@ void FixConp::coeffs()
 
   // 1 = (k,l,m), 2 = (k,-l,m), 3 = (k,l,-m), 4 = (k,-l,-m)
 
-  for (k = 1; k <= kxmax; k++) {
-    for (l = 1; l <= kymax; l++) {
-      for (m = 1; m <= kzmax; m++) {
+  for (k = 1; k <= kxmax_c; k++) {
+    for (l = 1; l <= kymax_c; l++) {
+      for (m = 1; m <= kzmax_c; m++) {
         sqk = (unitk[0]*k) * (unitk[0]*k) + (unitk[1]*l) * (unitk[1]*l) +
           (unitk[2]*m) * (unitk[2]*m);
         if (sqk <= gsqmx) {
@@ -2047,8 +2133,9 @@ void FixConp::coeffs()
   kxy = 0;
   kxy_offset = kcount_dims[0] + kcount_dims[1] + kcount_dims[2];
   ktemp = kcount - 4*kcount_dims[6];
+  int const kcount_dims6_c = kcount_dims[6];
 
-  for (k = 0; k < kcount_dims[6]; ++k) {
+  for (k = 0; k < kcount_dims6_c; ++k) {
     kx = kxvecs[ktemp];
     ky = kyvecs[ktemp];
     while (kxvecs[kxy_offset] != kx || kyvecs[kxy_offset] != ky) {
