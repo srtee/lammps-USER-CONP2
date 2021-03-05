@@ -53,6 +53,7 @@ fix [ID] [all] conp [Nevery] [η] [Molecule-ID 1] [Molecule-ID 2] [Potential 1] 
 This tells fix conp that the electrode _only_ contains the specified particle types, and the electrolyte _does not_ contain the specified particle types. For example, "etypes 2 5 3" is a promise to fix conp that the electrode only contains types 3 and 5. This allows fix conp to request specialized neighbor lists from LAMMPS: in the construction of the electrode "A" matrix the neighbor list will contain _only_ electrode-electrode interactions, and in the calculation of the electrolyte "b" vector the neighbor list will contain _only_ electrode-electrolyte interactions. This will speed up your calculation by 10-20% if correctly specified, and will **silently return incorrect results if the electrode and electrolyte particle types overlap in any way.**
 
 **inv [inv_matrix_file]**
+
 **org [org_matrix_file]**
 
 This allows fix conp to read in a pre-existing electrode matrix for its calculations, either the A matrix ("org") or its inverse ("inv"). Option "org" will result in an electroneutral final matrix (since fix conp calculates the electroneutrality projection when inverting the A matrix), while option "inv" has no such guarantee. Use of this option is maintained for compatibility but is discouraged: there are still plenty of possible bugs lurking, and optimization (notably calculating only half the A-matrix and then mirroring by symmetry) means that the A-matrix calculation is very short for all but the largest electrode configurations.
@@ -68,7 +69,7 @@ fix efield all efield 0.0 0.0 v_zfield
 
 where v_L and v_R are the (possibly variable, or numerical) values of the left and right voltages. Note that fix efield already takes its argument in the correct units for _units real_ (V/angstroms) so no unit conversion should usually be needed. Fix conp in ffield mode will **silently return incorrect results without the electric field**; upgrading this is an urgent feature addition priority.
 
-*Note: In [2], electrode atoms are mentioned as being "set at 0V", but the effect of this is already automatically done inside the conp ffield code. You do not specify electrode voltages in any different way whatsoever in the input script when using ffield.
+*Note: In [1], electrode atoms are mentioned as being "set at 0V", but the effect of this is already automatically done inside the conp ffield code. You do not specify electrode voltages in any different way whatsoever in the input script when using ffield.
 
 **noslab** [no values]
 
@@ -82,7 +83,7 @@ This tells fix conp to enforce an additional electroneutrality constraint: the t
 
 The main branch contains two experimental fixes -- conp/dyn and conp/dyn2 -- which dynamically track the changes in the b-vector between timesteps and attempt to use a quadratic extrapolation to avoid having to recalculate everything. Conp/dyn tracks the overall b-vector discrepancies, while conp/dyn2 tracks the pair and kspace contributions separately. If you would like to try these out, let me know.
 
-The _dev-historical_ branch contains versions frozen in various stages of optimization -- including the original conp/v0, with only semantic changes to bring it in line with the latest LAMMPS code -- to prove correctness of optimizations. It also contains the experimental conq fix which maintains a fixed overall electrode charge at a possibly time-varying (but spatially constant) potential. Again, let me know if you'd like to try this out. Detailed listing follows:
+The _dev-historical_ branch contains versions frozen in various stages of optimization -- including the original conp/v0, with only semantic changes to bring it in line with the latest LAMMPS code -- to prove correctness of optimizations. It also contains the experimental conq fix which maintains a fixed overall electrode charge at a possibly time-varying (but spatially constant) potential (analogous to constant E vs constant D simulations in [3]). Again, let me know if you'd like to try this out. Detailed listing follows:
 
 conp/v0 -- the original lammps-conp (https://github.com/zhenxingwang/lammps-conp),
     maintained for comparison
