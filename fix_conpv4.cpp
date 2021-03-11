@@ -32,7 +32,7 @@
 #include "memory.h"
 #include "error.h"
 #include "compute.h"
-#include "fix_conp.h"
+#include "fix_conpv4.h"
 #include "pair_hybrid.h"
 
 #include "pair.h"
@@ -1079,7 +1079,7 @@ void FixConpV4::sincos_b()
   double *q = atom->q;
   int nlocal = atom->nlocal;
 
-  double* restrict qj = qj_global;
+  double* __restrict__ qj = qj_global;
 
   j = 0;
   jmax = 0;
@@ -1107,8 +1107,8 @@ void FixConpV4::sincos_b()
   kc = 0;
   for (ic = 0; ic < 3; ++ic) {
     ++kf;
-    double* restrict cskf = cs[kf];
-    double* restrict snkf = sn[kf];
+    double* __restrict__ cskf = cs[kf];
+    double* __restrict__ snkf = sn[kf];
     temprl0 = 0;
     tempim0 = 0;
     for (j = 0; j < jmax; ++j) {
@@ -1123,8 +1123,8 @@ void FixConpV4::sincos_b()
     ++kf;
     ++kc;
     for (m = 2; m <= kcount_dims[ic]; ++m) {
-      double* restrict cskf1=cs[kf];
-      double* restrict snkf1=sn[kf];
+      double* __restrict__ cskf1=cs[kf];
+      double* __restrict__ snkf1=sn[kf];
       temprl0 = 0;
       tempim0 = 0;
       for (j = 0; j < jmax; ++j) {
@@ -1149,10 +1149,10 @@ void FixConpV4::sincos_b()
     tempim0 = 0;
     temprl1 = 0;
     tempim1 = 0;
-    double* restrict cskf0 = cs[kf];
-    double* restrict snkf0 = sn[kf];
-    double* restrict cskf1 = cs[kf+1];
-    double* restrict snkf1 = sn[kf+1];
+    double* __restrict__ cskf0 = cs[kf];
+    double* __restrict__ snkf0 = sn[kf];
+    double* __restrict__ cskf1 = cs[kf+1];
+    double* __restrict__ snkf1 = sn[kf+1];
     for (j = 0; j < jmax; ++j) {
       // todo: tell compiler that kf, kx and ky do not alias
       cskf0[j] = cs[kx][j]*cs[ky][j] - sn[kx][j]*sn[ky][j];
