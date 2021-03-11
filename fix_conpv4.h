@@ -18,28 +18,29 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(conp/v3,FixConpV3)
+FixStyle(conp/v4,FixConpV4)
 
 #else
 
-#ifndef LMP_FIX_CONPV3_H
-#define LMP_FIX_CONPV3_H
+#ifndef LMP_FIX_CONP_H
+#define LMP_FIX_CONP_H
 
 #include "fix.h"
 #include "pair.h"
 
 namespace LAMMPS_NS {
 
-class FixConpV3 : public Fix {
+class FixConpV4 : public Fix {
  public:
-  FixConpV3(class LAMMPS *, int, char **);
-  ~FixConpV3();
+  FixConpV4(class LAMMPS *, int, char **);
+  ~FixConpV4();
+  bool intelflag;
   int setmask();
   void init();
   void setup(int);
   void pre_force(int);
-  void pre_force_respa(int,int,int);
-  void pre_neighbor();
+  void post_neighbor();
+  void post_force(int);
   void force_cal(int);
   void a_cal();
   void a_read();
@@ -49,17 +50,23 @@ class FixConpV3 : public Fix {
   void equation_solve();
   virtual void update_charge();
   int electrode_check(int);
-  void sincos_a(double **);
+  void sincos_a(int, double *);
   void sincos_b();
   void cg();
   void inv();
   void get_setq();
   void b_comm(double *, double *);
   void coul_cal(int, double *);
+  void alist_coul_cal(double *);
+  void blist_coul_cal(double *);
+  void blist_coul_cal_post_force();
+  void request_smartlist();
   virtual double compute_scalar();
   virtual void dyn_setup() {}
+  void init_list(int, class NeighList*);
 
  protected:
+  class NeighList *list;
   int ff_flag; 
   int minimizer;
   double qL,qR;
@@ -70,10 +77,15 @@ class FixConpV3 : public Fix {
   double *aaa_all,*bbb_all;
   int *tag2eleall,*eleall2tag,*ele2tag;
   int *elecheck_eleall;
-  int *elenum_list,*displs,*i2ele;
-  int *ele2i,*elebuf2eleall,*ele2eleall;
+  int *elenum_list,*displs,*eleall2ele;
+  int *elebuf2eleall,*ele2eleall;
   double totsetq,addv;
   double *bbb,*bbuf;
+
+  bool smartlist;
+  int eletypenum,arequest,brequest;
+  int *eletypes;
+  class NeighList *alist,*blist;
 
   int me,runstage,gotsetq;
   int ilevel_respa;
@@ -96,12 +108,18 @@ class FixConpV3 : public Fix {
   double *ug;
   double g_ewald,eta,gsqmx,volume,slab_volfactor;
   int *kxvecs,*kyvecs,*kzvecs;
-  double ***cs,***sn,**csk,**snk;
-  int kmax,kmax3d,kmax_created,kcount;
+  double **cs,**sn,**csk,**snk;
+  double *qj_global;
+  int elytenum;
+  int kmax,kmax3d,kmax_created,kcount,kcount_flat;
+  int *kcount_dims;
+  int *kxy_list;
   int kxmax,kymax,kzmax;
   double *sfacrl,*sfacrl_all,*sfacim,*sfacim_all;
   int everynum;
   Pair *coulpair;
+
+  bool zneutrflag;
 };
 
 }
@@ -127,8 +145,10 @@ class FixConpV3 : public Fix {
 //
 // Important cross-lists:
 // ele2eleall: length elenum     list holding eleall idx
-// ele2i:      length elenum     list holding i      idx
+// eleall2ele: length elenum_all list holding ele    idx
 // ele2tag:    length elenum     list holding tag    idx
 // eleall2tag: length elenum_all list holding tag    idx
-// i2ele:      length nlocal     list holding ele    idx
 // tag2eleall: length natoms+1   list holding eleall idx
+// for conversions involving i, always use tag!
+// i2ele[i] = eleall2ele[tag2eleall[tag[i]]]
+// ele2i[ele] = atom->map(eleall2tag[ele2eleall[ele]])
