@@ -89,7 +89,6 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   eta = utils::numeric(FLERR,arg[4],false,lmp);
   molidL = utils::inumeric(FLERR,arg[5],false,lmp);
   molidR = utils::inumeric(FLERR,arg[6],false,lmp);
-  zneutrflag = false;
   if (strstr(arg[7],"v_") == arg[7]) {
     int n = strlen(&arg[7][2]) + 1;
     qlstr = new char[n];
@@ -115,6 +114,11 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   } else error->all(FLERR,"Unknown minimization method");
   
   outf = fopen(arg[10],"w");
+  
+  // now process optional arguments:
+
+  zneutrflag = false;
+  vprobeflag = false;
   ff_flag = NORMAL; // turn on ff / noslab options if needed.
   a_matrix_f = 0;
   smartlist = false; // get regular neighbor lists
@@ -160,6 +164,9 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
     else if (strcmp(arg[iarg],"zneutr") == 0) {
       zneutrflag = true;
     }
+    else if (strcmp(arg[iarg],"vprobe") == 0) {
+      vprobeflag = true;
+    }
     else {
       printf(".<%s>.\n",arg[iarg]);
       error->all(FLERR,"Invalid fix conp input command");
@@ -186,6 +193,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   kxvecs = kyvecs = kzvecs = kcount_dims = nullptr;
   sfacrl = sfacim = sfacrl_all = sfacim_all = nullptr;
   ug = nullptr;
+  zele_is_pos = nullptr;
   scalar_flag = 1;
   extscalar = 0;
   global_freq = 1;
@@ -230,6 +238,7 @@ FixConp::~FixConp()
   delete [] elenum_list;
   delete [] kcount_dims;
   delete [] kxy_list;
+  if (zele_is_pos != nullptr) delete [] zele_is_pos;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -240,6 +249,7 @@ int FixConp::setmask()
   mask |= POST_NEIGHBOR;
   mask |= PRE_FORCE;
   mask |= POST_FORCE;
+  mask |= END_OF_STEP;
   return mask;
 }
 
@@ -479,6 +489,7 @@ void FixConp::setup(int vflag)
   // smartlist listings, and if not, get the list pointer from coulpair,
   // and if _that_ fails, or if coulpair has newton on, we should bail
   // not too late to process that here because we haven't done a_cal yet
+  preforce_run_flag = false;
   if (runstage == 0) {
     tag2eleall = new int[natoms+1];
     int nprocs = comm->nprocs;
@@ -533,6 +544,7 @@ void FixConp::setup(int vflag)
 void FixConp::pre_force(int /* vflag */)
 {
   if(update->ntimestep % everynum == 0) {
+    preforce_run_flag = true;
     if (strstr(update->integrate_style,"verlet")) { //not respa
       Btime1 = MPI_Wtime();
       b_cal();
@@ -1079,7 +1091,7 @@ void FixConp::sincos_b()
   double *q = atom->q;
   int nlocal = atom->nlocal;
 
-  double* restrict qj = qj_global;
+  double* __restrict__ qj = qj_global;
 
   j = 0;
   jmax = 0;
@@ -1107,8 +1119,8 @@ void FixConp::sincos_b()
   kc = 0;
   for (ic = 0; ic < 3; ++ic) {
     ++kf;
-    double* restrict cskf = cs[kf];
-    double* restrict snkf = sn[kf];
+    double* __restrict__ cskf = cs[kf];
+    double* __restrict__ snkf = sn[kf];
     temprl0 = 0;
     tempim0 = 0;
     for (j = 0; j < jmax; ++j) {
@@ -1123,8 +1135,8 @@ void FixConp::sincos_b()
     ++kf;
     ++kc;
     for (m = 2; m <= kcount_dims[ic]; ++m) {
-      double* restrict cskf1=cs[kf];
-      double* restrict snkf1=sn[kf];
+      double* __restrict__ cskf1=cs[kf];
+      double* __restrict__ snkf1=sn[kf];
       temprl0 = 0;
       tempim0 = 0;
       for (j = 0; j < jmax; ++j) {
@@ -1149,10 +1161,10 @@ void FixConp::sincos_b()
     tempim0 = 0;
     temprl1 = 0;
     tempim1 = 0;
-    double* restrict cskf0 = cs[kf];
-    double* restrict snkf0 = sn[kf];
-    double* restrict cskf1 = cs[kf+1];
-    double* restrict snkf1 = sn[kf+1];
+    double* __restrict__ cskf0 = cs[kf];
+    double* __restrict__ snkf0 = sn[kf];
+    double* __restrict__ cskf1 = cs[kf+1];
+    double* __restrict__ snkf1 = sn[kf+1];
     for (j = 0; j < jmax; ++j) {
       // todo: tell compiler that kf, kx and ky do not alias
       cskf0[j] = cs[kx][j]*cs[ky][j] - sn[kx][j]*sn[ky][j];
@@ -1354,83 +1366,88 @@ void FixConp::inv()
     
     // here we project aaa_all onto
     // the null space of e
+    // BUT if we are using vprobe
+    // we do electroneutrality in post-processing to also
+    // extract the bulk voltage.
 
-    double *ainve = new double[elenum_all];
-    double ainvtmp;
-    double totinve = 0;
-    idx1d = 0;
-
-    for (i = 0; i < elenum_all_c; i++) {
-      ainvtmp = 0;
-      for (j = 0; j < elenum_all_c; j++) {
-        ainvtmp += aaa_all[idx1d];
-      	idx1d++;
-      }
-      totinve += ainvtmp;
-      ainve[i] = ainvtmp;
-    }
-
-    if (totinve*totinve > 1e-8) {
+    if (!vprobeflag) {
+      double *ainve = new double[elenum_all];
+      double ainvtmp;
+      double totinve = 0;
       idx1d = 0;
-      for (i = 0; i < elenum_all_c; i++) {
-        for (j = 0; j < elenum_all_c; j++) {
-          aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
-	  idx1d++;
-	}
-      }
-    }
-
-    // here we project aaa_all onto
-    // the null space of e_pos
-    // if zneutr has been called (i.e. we want each half of the unit cell
-    // to be neutral, not just the overall electrodes, in noslab)
-
-    if (zneutrflag) {
-      int iele;
-      double zprd_half = domain->zprd_half;
-      double zhalf = zprd_half + domain->boxlo[2];
-      double *elez = new double[elenum];
-      double *eleallz = new double[elenum_all];
-      int nlocal = atom->nlocal;
-      double **x = atom->x;
-      for (iele = 0; iele < elenum_c; ++iele) {
-        elez[iele] = x[atom->map(ele2tag[iele])][2];
-      }
-      b_comm(elez,eleallz);
-
-      bool *zele_is_pos = new bool[elenum_all];
-      for (iele = 0; iele < elenum_all_c; ++iele) {
-        zele_is_pos[iele] = (eleallz[iele] > zhalf);
-      }      
-      idx1d = 0;
-      totinve = 0;
+  
       for (i = 0; i < elenum_all_c; i++) {
         ainvtmp = 0;
         for (j = 0; j < elenum_all_c; j++) {
-          if (zele_is_pos[j]) ainvtmp += aaa_all[idx1d];
-      	  idx1d++;
+          ainvtmp += aaa_all[idx1d];
+        	idx1d++;
         }
+        totinve += ainvtmp;
         ainve[i] = ainvtmp;
-        if (zele_is_pos[i]) totinve += ainvtmp;
       }
-
+  
       if (totinve*totinve > 1e-8) {
         idx1d = 0;
         for (i = 0; i < elenum_all_c; i++) {
           for (j = 0; j < elenum_all_c; j++) {
             aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
-  	    idx1d++;
-  	  }
+  	        idx1d++;
+          }
         }
       }
-      delete [] zele_is_pos;
-      delete [] elez;
-      delete [] eleallz;      
+  
+      // here we project aaa_all onto
+      // the null space of e_pos
+      // if zneutr has been called (i.e. we want each half of the unit cell
+      // to be neutral, not just the overall electrodes, in noslab)
+  
+      if (zneutrflag) {
+        int iele;
+        double zprd_half = domain->zprd_half;
+        double zhalf = zprd_half + domain->boxlo[2];
+        double *elez = new double[elenum];
+        double *eleallz = new double[elenum_all];
+        int nlocal = atom->nlocal;
+        double **x = atom->x;
+        for (iele = 0; iele < elenum_c; ++iele) {
+          elez[iele] = x[atom->map(ele2tag[iele])][2];
+        }
+        b_comm(elez,eleallz);
+  
+        if (zele_is_pos != nullptr) delete [] zele_is_pos;
+        zele_is_pos = new bool[elenum_all];
+        for (iele = 0; iele < elenum_all_c; ++iele) {
+          zele_is_pos[iele] = (eleallz[iele] > zhalf);
+        }      
+        idx1d = 0;
+        totinve = 0;
+        for (i = 0; i < elenum_all_c; i++) {
+          ainvtmp = 0;
+          for (j = 0; j < elenum_all_c; j++) {
+            if (zele_is_pos[j]) ainvtmp += aaa_all[idx1d];
+        	  idx1d++;
+          }
+          ainve[i] = ainvtmp;
+          if (zele_is_pos[i]) totinve += ainvtmp;
+        }
+  
+        if (totinve*totinve > 1e-8) {
+          idx1d = 0;
+          for (i = 0; i < elenum_all_c; i++) {
+            for (j = 0; j < elenum_all_c; j++) {
+              aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
+    	        idx1d++;
+    	      }
+          }
+        }
+        delete [] zele_is_pos;
+        delete [] elez;
+        delete [] eleallz;      
+      }
+      delete [] ainve;
+      ainve = NULL;
     }
-
-    delete [] ainve;
-    ainve = NULL;
-
+    
     if (me == 0) {
       FILE *outinva = fopen("inv_a_matrix","w");
       for (i = 0; i < elenum_all_c; i++) {
@@ -2144,5 +2161,15 @@ void FixConp::coeffs()
     }
     kxy_list[k] = 2*kxy;
     ktemp += 4;
+  }
+}
+
+void FixConp::end_of_step()
+{
+  if(update->ntimestep % everynum == 0) {
+    if (!preforce_run_flag) {
+      post_neighbor();
+      pre_force(0);
+    }
   }
 }

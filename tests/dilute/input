@@ -97,24 +97,24 @@ velocity ele set 0.0 0.0 0.0
 fix 0 ele setforce 0.0 0.0 0.0
 
 if "$n == 0" then &
-"fix e all conp/v0 1 1.979 81 82 -0.5 0.5 inv iter" &
+"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter" &
 elif "$n == 1"  &
-"fix e all conp/v1 1 1.979 81 82 -0.5 0.5 inv iter" &
+"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter" &
 elif "$n == 2"  &
-"fix e all conp/v2 1 1.979 81 82 -0.5 0.5 inv iter" &
+"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter" &
 elif "$n == 3"  &
-"fix e all conp/v3 1 1.979 81 82 -0.5 0.5 inv iter" &
+"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter" &
 elif "$n == 4"  &
-"fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter" &
+"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter" &
 elif "$n == 5"  &
-"fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3" &
+"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3" &
 elif "$n == 6"  &
-"fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 noslab zneutr" &
+"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 noslab zneutr" &
 elif "$n == 7"  &
-"fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield" &
+"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield" &
 "fix efield all efield 0 0 $(-1.0/lz) " &
 elif "$n == 8"  &
-"fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield" &
+"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield" &
 "fix efield all efield 0 0 $(-1.0/lz) "
 
 
@@ -128,5 +128,7 @@ thermo              20
 if "$n == 7" then "dump dsol sol atom 20 sol.traj"
 
 if "$n <= 7" then "run 500" &
-elif "$n == 8" "rerun sol.traj dump x y z"
+elif "$n == 8" &
+"neigh_modify every 1 delay 0 check no" &
+"rerun sol.traj dump x y z" &
 
