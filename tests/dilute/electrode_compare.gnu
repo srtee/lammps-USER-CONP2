@@ -43,10 +43,10 @@ unset grid
 unset raxis
 set theta counterclockwise right
 set style parallel front  lt black linewidth 2.000 dashtype solid
-set key title "" center
-set key fixed right top vertical Right noreverse enhanced autotitle nobox
-set key noinvert samplen 4 spacing 1 width 0 height 0 
-set key maxcolumns 0 maxrows 0
+set key title "" center 
+set key outside right center vertical Right noreverse enhanced autotitle nobox
+set key noinvert samplen 4 spacing 1 width -4 height 1 font ",8"
+set key maxcolumns 3 maxrows 0
 set key noopaque
 unset label
 unset arrow
@@ -112,7 +112,7 @@ set cbtics  norangelimit autofreq
 set rtics axis in scale 1,0.5 nomirror norotate  autojustify
 set rtics  norangelimit autofreq 
 unset ttics
-set title "" 
+set title "Calibration: ACN solvent only, pd = 1V" 
 set title  font "" norotate
 set timestamp bottom 
 set timestamp "" 
@@ -120,17 +120,17 @@ set timestamp  font "" norotate
 set trange [ * : * ] noreverse nowriteback
 set urange [ * : * ] noreverse nowriteback
 set vrange [ * : * ] noreverse nowriteback
-set xlabel "" 
+set xlabel "steps (1 step = 1 fs)" 
 set xlabel  font "" textcolor lt -1 norotate
 set x2label "" 
 set x2label  font "" textcolor lt -1 norotate
-set xrange [ 0.00000 : 200.000 ] noreverse nowriteback
+set xrange [ 0.00000 : 500.000 ] noreverse nowriteback
 set x2range [ * : * ] noreverse nowriteback
-set ylabel "" 
+set ylabel "q (q_e)" 
 set ylabel  font "" textcolor lt -1 rotate
 set y2label "" 
 set y2label  font "" textcolor lt -1 rotate
-set yrange [ -0.100000 : 0.100000 ] noreverse nowriteback
+set yrange [ -0.055000 : 0.055000 ] noreverse nowriteback
 set y2range [ * : * ] noreverse nowriteback
 set zlabel "" 
 set zlabel  font "" textcolor lt -1 norotate
@@ -164,5 +164,25 @@ set psdir
 set fit brief errorvariables nocovariancevariables errorscaling prescale nowrap v5
 GNUTERM = "wxt"
 ## Last datafile plotted: "log.lammps_7"
-plot 'log.lammps_0' u 1:4, '' u 1:5, '' u 1:6, 'log.lammps_5' u 1:4, '' u 1:5, 'log.lammps_6' u 1:4, '' u 1:5, 'log.lammps_7' u 1:4, '' u 1:5, '' u 1:7, '' u 1:8
+set for [i=4:19] linetype i dashtype 2
+nsteps=1
+plot 'log.lammps_0' u ($1*nsteps):4 t 'v0 -ve',\
+  '' u ($1*nsteps):5 t '+ve',\
+  '' u ($1*nsteps):6 t 'tot',\
+  NaN t " " lc rgb "white",\
+  'log.lammps_1' u ($1*nsteps):4 t 'v1 -ve',\
+  '' u ($1*nsteps):5 t '+ve',\
+  NaN t " " lc rgb "white",\
+  'log.lammps_5' u ($1*nsteps):4 t 'v4 -ve',\
+  '' u ($1*nsteps):5 t '+ve',\
+  NaN t " " lc rgb "white",\
+  NaN t "v4 ffield" lc rgb "white",\
+  'log.lammps_6' u ($1*nsteps):4 t '-ve',\
+  '' u ($1*nsteps):5 t '+ve',\
+  NaN t " " lc rgb "white",\
+  NaN t "v4 2cell" lc rgb "white",\
+  'log.lammps_7' u ($1*nsteps):4 t 'left -ve',\
+  '' u ($1*nsteps):5 t 'left +ve',\
+  '' u ($1*nsteps):7 t 'right +ve',\
+  '' u ($1*nsteps):8 every ::25 t 'right -ve'
 #    EOF

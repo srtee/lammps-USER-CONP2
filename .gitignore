@@ -1,0 +1,2 @@
+# ignore nsteps, log.lammps and anything output related
+.vscode

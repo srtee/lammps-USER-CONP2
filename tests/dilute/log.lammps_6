@@ -6,8 +6,8 @@
 # 3 = conp/v3
 # 4 = conp/v4
 # 5 = conp/v4 etypes
-# 6 = conp/v4 etypes ffield
-# 7 = conp/v4 etypes noslab zneutr
+# 6 = conp/v4 etypes noslab zneutr
+# 7 = conp/v4 etypes ffield
 
 units               real
 dimension           3
@@ -23,6 +23,11 @@ bond_style          harmonic
 angle_style         harmonic
 kspace_style        pppm 1.0e-6
 if "$n <= 5" then "kspace_modify slab 3.0"
+#you can try forcing kspace mesh same xy resolution
+#to eliminate spurious differences
+#but fix/conp's own internal k meshing isn't controlled :(
+#resolutions determined by first running:
+#if "$n <= 5" then "kspace_modify mesh 30 27 324 slab 3.0" #elif "$n == 6" "kspace_modify mesh 30 27 144" #elif "$n == 7" "kspace_modify mesh 30 27 250"
 
 ##atom definition
 read_data           data
@@ -46,8 +51,8 @@ Finding 1-2 1-3 1-4 neighbors ...
      1 = max # of 1-3 neighbors
      1 = max # of 1-4 neighbors
      2 = max # of special neighbors
-  special bonds CPU = 0.001 seconds
-  read_data CPU = 0.005 seconds
+  special bonds CPU = 0.000 seconds
+  read_data CPU = 0.006 seconds
 pair_coeff   1   1         0.09935850       3.40000000  # CAB CAB
 pair_coeff   1   2         0.19419428       3.50000000  # CAB CAC
 pair_coeff   1   3         0.07390356       3.38500000  # CAB CG
@@ -60,26 +65,85 @@ pair_coeff   3   4         0.07390356       3.33500000  # CG NAA
 pair_coeff   4   4         0.09935850       3.30000000  # NAA NAA
 
 ##replicate cell if noslab zneutr
-if "$n == 7" then "replicate 1 1 2" "change_box all z final $(-lz/2) $(lz/2) remap units box" "region pos block EDGE EDGE EDGE EDGE 0 EDGE" "group pos region pos" "variable newz atom lz/2-z" "set group pos z v_newz" "variable molmax   equal 82" "variable molleft  equal 81" "variable molright equal 82" "set mol $(v_molmax+v_molright) mol ${molleft} " "set mol $(v_molmax+v_molleft)  mol ${molright}"
+if "$n == 6" then "replicate 1 1 2" "change_box all z final $(-lz/2) $(lz/2) remap units box" "region pos block EDGE EDGE EDGE EDGE 0 EDGE" "group pos region pos" "variable newz atom lz/2-z" "set group pos z v_newz" "variable molmax   equal 82" "variable molleft  equal 81" "variable molright equal 82" "set mol $(v_molmax+v_molright) mol ${molright}" "set mol $(v_molmax+v_molleft)  mol ${molleft}"
+replicate 1 1 2
+Replicating atoms ...
+  orthogonal box = (0.0000000 0.0000000 -44.200000) to (9.8380000 8.5200000 132.60000)
+  1 by 1 by 1 MPI processor grid
+  864 atoms
+  320 bonds
+  160 angles
+Finding 1-2 1-3 1-4 neighbors ...
+  special bond factors lj:    0.0      0.0      0.0     
+  special bond factors coul:  0.0      0.0      0.0     
+     2 = max # of 1-2 neighbors
+     1 = max # of 1-3 neighbors
+     1 = max # of 1-4 neighbors
+     2 = max # of special neighbors
+  special bonds CPU = 0.000 seconds
+  replicate CPU = 0.007 seconds
+change_box all z final $(-lz/2) $(lz/2) remap units box
+change_box all z final -88.400000000000005684 $(lz/2) remap units box
+change_box all z final -88.400000000000005684 88.400000000000005684 remap units box
+Changing box ...
+  orthogonal box = (0.0000000 0.0000000 -88.400000) to (9.8380000 8.5200000 88.400000)
+region pos block EDGE EDGE EDGE EDGE 0 EDGE
+group pos region pos
+432 atoms in group pos
+variable newz atom lz/2-z
+set group pos z v_newz
+Setting atom values ...
+  432 settings made for z
+variable molmax   equal 82
+variable molleft  equal 81
+variable molright equal 82
+set mol $(v_molmax+v_molright) mol ${molright}
+set mol 164 mol ${molright}
+set mol 164 mol 82
+Setting atom values ...
+  96 settings made for mol
+set mol $(v_molmax+v_molleft)  mol ${molleft}
+set mol 163  mol ${molleft}
+set mol 163  mol 81
+Setting atom values ...
+  96 settings made for mol
 
 ##setting
 neighbor            2 bin
 group sol type 1 2 4
-240 atoms in group sol
+480 atoms in group sol
 variable q atom q
 group ele           type 3
-192 atoms in group ele
+384 atoms in group ele
 group eleleft       molecule 81
-96 atoms in group eleleft
+192 atoms in group eleleft
 group eleright      molecule 82
-96 atoms in group eleright
-if "$n != 7" then "group eleall        union eleleft eleright" "compute qleft       eleleft  reduce sum v_q" "compute qright      eleright reduce sum v_q" "compute qall        eleall   reduce sum v_q" "compute tempsl      sol      temp" elif "$n == 7" "group solpos  intersect sol   pos" "group solneg  subtract  sol   solpos" "group elepos  intersect ele   pos" "group eleneg  subtract  ele   elepos" "group eleleftpos  intersect eleleft   pos" "group elerightpos intersect eleright  pos" "group eleleftneg  subtract  eleleft   eleleftpos" "group elerightneg subtract  eleright  elerightpos" "compute qleftpos       eleleftpos  reduce sum v_q" "compute qleftneg       eleleftneg  reduce sum v_q" "compute qrightpos      elerightpos reduce sum v_q" "compute qrightneg      elerightneg reduce sum v_q" "compute qpos           elepos      reduce sum v_q" "compute qneg           eleneg      reduce sum v_q" "compute temppos   solpos temp" "compute tempneg   solneg temp"
-group eleall        union eleleft eleright
-192 atoms in group eleall
-compute qleft       eleleft  reduce sum v_q
-compute qright      eleright reduce sum v_q
-compute qall        eleall   reduce sum v_q
-compute tempsl      sol      temp
+192 atoms in group eleright
+if "$n != 6" then "group eleall        union eleleft eleright" "compute qleft       eleleft  reduce sum v_q" "compute qright      eleright reduce sum v_q" "compute qall        eleall   reduce sum v_q" "compute tempsl      sol      temp" elif "$n == 6" "group solpos  intersect sol   pos" "group solneg  subtract  sol   solpos" "group elepos  intersect ele   pos" "group eleneg  subtract  ele   elepos" "group eleleftpos  intersect eleleft   pos" "group elerightpos intersect eleright  pos" "group eleleftneg  subtract  eleleft   eleleftpos" "group elerightneg subtract  eleright  elerightpos" "compute qleftpos       eleleftpos  reduce sum v_q" "compute qleftneg       eleleftneg  reduce sum v_q" "compute qrightpos      elerightpos reduce sum v_q" "compute qrightneg      elerightneg reduce sum v_q" "compute qpos           elepos      reduce sum v_q" "compute qneg           eleneg      reduce sum v_q" "compute temppos   solpos temp" "compute tempneg   solneg temp"
+group solpos  intersect sol   pos
+240 atoms in group solpos
+group solneg  subtract  sol   solpos
+240 atoms in group solneg
+group elepos  intersect ele   pos
+192 atoms in group elepos
+group eleneg  subtract  ele   elepos
+192 atoms in group eleneg
+group eleleftpos  intersect eleleft   pos
+96 atoms in group eleleftpos
+group elerightpos intersect eleright  pos
+96 atoms in group elerightpos
+group eleleftneg  subtract  eleleft   eleleftpos
+96 atoms in group eleleftneg
+group elerightneg subtract  eleright  elerightpos
+96 atoms in group elerightneg
+compute qleftpos       eleleftpos  reduce sum v_q
+compute qleftneg       eleleftneg  reduce sum v_q
+compute qrightpos      elerightpos reduce sum v_q
+compute qrightneg      elerightneg reduce sum v_q
+compute qpos           elepos      reduce sum v_q
+compute qneg           eleneg      reduce sum v_q
+compute temppos   solpos temp
+compute tempneg   solneg temp
 
 
 run_style           verlet
@@ -87,31 +151,33 @@ timestep            1
 velocity ele set 0.0 0.0 0.0
 fix 0 ele setforce 0.0 0.0 0.0
 
-if "$n == 0" then "fix e all conp/v0 1 1.979 81 82 -0.5 0.5 inv iter" elif "$n == 1"  "fix e all conp/v1 1 1.979 81 82 -0.5 0.5 inv iter" elif "$n == 2"  "fix e all conp/v2 1 1.979 81 82 -0.5 0.5 inv iter" elif "$n == 3"  "fix e all conp/v3 1 1.979 81 82 -0.5 0.5 inv iter" elif "$n == 4"  "fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter" elif "$n == 5"  "fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3" elif "$n == 6"  "fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield" "fix efield all efield 0 0 $(-1.0/lz) " elif "$n == 7"  "fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 noslab zneutr"
-fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield
-fix efield all efield 0 0 $(-1.0/lz) 
-fix efield all efield 0 0 -0.011312217194570135456 
+if "$n == 0" then "fix e all conp/v0 1 1.979 81 82 -0.5 0.5 inv iter" elif "$n == 1"  "fix e all conp/v1 1 1.979 81 82 -0.5 0.5 inv iter" elif "$n == 2"  "fix e all conp/v2 1 1.979 81 82 -0.5 0.5 inv iter" elif "$n == 3"  "fix e all conp/v3 1 1.979 81 82 -0.5 0.5 inv iter" elif "$n == 4"  "fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter" elif "$n == 5"  "fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3" elif "$n == 6"  "fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 noslab zneutr" elif "$n == 7"  "fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield" "fix efield all efield 0 0 $(-1.0/lz) "
+fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 noslab zneutr
 
 fix 1 sol nvt temp 298.0 298.0 100.0
-if "$n != 7" then "thermo_style custom step temp c_tempsl c_qleft c_qright c_qall" elif "$n == 7" "thermo_style custom step temp c_temppos c_qleftneg c_qrightneg c_qneg c_qrightpos c_qleftpos c_qpos c_tempneg"
-thermo_style custom step temp c_tempsl c_qleft c_qright c_qall
-thermo              10
-run 200
+if "$n != 6" then "thermo_style custom step temp c_tempsl c_qleft c_qright c_qall" elif "$n == 6" "thermo_style custom step temp c_temppos c_qleftneg c_qrightneg c_qneg c_qrightpos c_qleftpos c_qpos c_tempneg"
+thermo_style custom step temp c_temppos c_qleftneg c_qrightneg c_qneg c_qrightpos c_qleftpos c_qpos c_tempneg
+thermo              20
+
+if "$n == 7" then "dump dsol sol atom 20 sol.traj"
+
+if "$n <= 7" then "run 500"
+run 500
 PPPM initialization ...
   using 12-bit tables for long-range coulomb (src/kspace.cpp:328)
-  G vector (1/distance) = 0.77236341
-  grid = 27 24 144
+  G vector (1/distance) = 0.77364941
+  grid = 30 27 250
   stencil order = 5
-  estimated absolute RMS force accuracy = 0.00036681621
-  estimated relative force accuracy = 1.1046561e-06
+  estimated absolute RMS force accuracy = 0.00035385041
+  estimated relative force accuracy = 1.06561e-06
   using double precision MKL FFT
-  3d grid and FFT values/proc = 203490 93312
+  3d grid and FFT values/proc = 400406 202500
 Neighbor list info ...
   update every 1 steps, delay 10 steps, check yes
   max neighbors/atom: 2000, page size: 100000
   master list distance cutoff = 6
   ghost atom cutoff = 6
-  binsize = 3, bins = 4 3 30
+  binsize = 3, bins = 4 3 59
   3 neighbor lists, perpetual/occasional/extra = 2 1 0
   (1) pair lj/cut/coul/long, perpetual
       attributes: half, newton off
@@ -128,56 +194,61 @@ Neighbor list info ...
       pair build: skip
       stencil: none
       bin: none
-Per MPI rank memory allocation (min/avg/max) = 24.61 | 24.61 | 24.61 Mbytes
-Step Temp c_tempsl c_qleft c_qright c_qall 
-       0            0            0  0.044057154 -0.044057154 2.7235159e-16 
-      10    872.55042    1573.5114  0.039053975 -0.039053975 2.9316827e-16 
-      20    1009.3219    1820.1579  0.038958446 -0.038958446 2.1684043e-16 
-      30    960.41565     1731.963  0.029811832 -0.029811832 3.1225023e-16 
-      40    877.23248    1581.9548  0.022010038 -0.022010038 1.1275703e-16 
-      50    818.58374    1476.1908 0.0054218063 -0.0054218063 1.7694179e-16 
-      60    745.40519    1344.2244 -0.0089386512 0.0089386512 1.4658413e-16 
-      70    724.46285    1306.4581 -0.023448619  0.023448619 1.9428903e-16 
-      80    667.00477    1202.8412 -0.033965399  0.033965399 2.5717276e-16 
-      90    640.50984    1155.0617 -0.034905981  0.034905981 1.3400739e-16 
-     100    603.90594    1089.0521 -0.032138657  0.032138657 -2.0816682e-16 
-     110    564.80963    1018.5479 -0.023361152  0.023361152 2.4980018e-16 
-     120    526.65834    949.74789 -0.017214399  0.017214399 4.7357951e-16 
-     130    524.68931    946.19704 -0.015049456  0.015049456 5.2562121e-16 
-     140    481.19653    867.76446 -0.015677338  0.015677338 3.2612801e-16 
-     150    436.79278    787.68907 -0.015145961  0.015145961 7.3552275e-16 
-     160    391.48422      705.982 -0.012114735  0.012114735 3.1571967e-16 
-     170    389.89305    703.11257 -0.010654743  0.010654743 -1.3877788e-17 
-     180    364.97561    658.17778 -0.011338573  0.011338573 4.2327253e-16 
-     190    340.65313    614.31589 -0.013931497  0.013931497 2.9490299e-16 
-     200    334.76981    603.70622 -0.015605622  0.015605622 1.9428903e-16 
-Loop time of 8.29376 on 1 procs for 200 steps with 432 atoms
+Per MPI rank memory allocation (min/avg/max) = 42.09 | 42.09 | 42.09 Mbytes
+Step Temp c_temppos c_qleftneg c_qrightneg c_qneg c_qrightpos c_qleftpos c_qpos c_tempneg 
+       0            0            0  0.044053367 -0.044053367 7.0603245e-16 -0.044053367  0.044053367 1.3010426e-16            0 
+      20    1026.1618    1852.6728  0.038860158 -0.038860158 -5.2041704e-17 -0.038860158  0.038860158 5.4643789e-16    1852.6728 
+      40    904.20993    1632.4962  0.021685622 -0.021685622 -6.1582683e-16 -0.021685622  0.021685622 2.8449465e-16    1632.4962 
+      60    784.07773    1415.6048 -0.0099053169 0.0099053169 -2.177078e-16 0.0099053169 -0.0099053169 2.2377933e-16    1415.6048 
+      80    712.92445    1287.1418 -0.035712296  0.035712296 -7.979728e-16  0.035712296 -0.035712296 2.6714742e-16    1287.1418 
+     100    653.21071    1179.3323 -0.033186741  0.033186741 -6.1062266e-16  0.033186741 -0.033186741 4.1286419e-16    1179.3323 
+     120    576.25589    1040.3951 -0.017789131  0.017789131 -8.1011586e-16  0.017789131 -0.017789131 -1.9081958e-17    1040.3951 
+     140    528.53563    954.23902 -0.016632433  0.016632433 -2.6541269e-16  0.016632433 -0.016632433 3.400058e-16    954.23902 
+     160    437.05662    789.07921 -0.012616079  0.012616079 6.2450045e-17  0.012616079 -0.012616079 2.4980018e-16    789.07921 
+     180    405.74418    732.54649 -0.012574962  0.012574962 -3.1225023e-16  0.012574962 -0.012574962 1.7173762e-16    732.54649 
+     200    379.09045     684.4248 -0.017443257  0.017443257 -5.3429483e-16  0.017443257 -0.017443257 3.105155e-16     684.4248 
+     220    361.03912    651.83423 -0.021594338  0.021594338 -4.4430605e-16  0.021594338 -0.021594338 6.4358241e-16    651.83423 
+     240    333.51669    602.14414 -0.021621067  0.021621067 -6.5138867e-16  0.021621067 -0.021621067 4.7011006e-16    602.14414 
+     260    313.78663    566.52273  -0.02637892   0.02637892 -7.2164497e-16   0.02637892  -0.02637892 1.405126e-16    566.52273 
+     280    298.67928    539.24732 -0.029512524  0.029512524 -3.2959746e-16  0.029512524 -0.029512524 1.8908486e-16    539.24732 
+     300    278.81037    503.37522 -0.030423566  0.030423566 -3.5735304e-16  0.030423566 -0.030423566 4.6664062e-16    503.37522 
+     320    276.23138      498.719 -0.025792895  0.025792895 -1.9081958e-16  0.025792895 -0.025792895 4.5623227e-16      498.719 
+     340    256.71535      463.484 -0.020682729  0.020682729 -2.4459601e-16  0.020682729 -0.020682729 4.4235449e-16      463.484 
+     360     245.1001    442.51337 -0.0087422673 0.0087422673 -9.5409791e-17 0.0087422673 -0.0087422673 9.7144515e-17    442.51337 
+     380    224.06882    404.54266 -0.0005154977 0.0005154977 -1.3530843e-16 0.0005154977 -0.0005154977 2.9143354e-16    404.54266 
+     400     210.3909      379.848 0.0049979911 -0.0049979911 -3.6429193e-16 -0.0049979911 0.0049979911 1.5265567e-16      379.848 
+     420    199.34073     359.8976  0.002827545 -0.002827545 -4.9439619e-16 -0.002827545  0.002827545 4.8398785e-16     359.8976 
+     440    192.93217    348.32733 0.0024492306 -0.0024492306 4.0592529e-16 -0.0024492306 0.0024492306 5.1521287e-16    348.32733 
+     460    191.06062    344.94836 0.0010257352 -0.0010257352 4.3801768e-17 -0.0010257352 0.0010257352 4.4582393e-16    344.94836 
+     480     183.6009    331.48028 0.0014256217 -0.0014256217 -6.8868522e-16 -0.0014256217 0.0014256217 6.0541849e-16    331.48028 
+     500    187.88391      339.213 -0.0025694539 0.0025694539 -2.9316827e-16 0.0025694539 -0.0025694539 2.8449465e-16      339.213 
+Loop time of 133.325 on 1 procs for 500 steps with 864 atoms
 
-Performance: 2.083 ns/day, 11.519 hours/ns, 24.115 timesteps/s
-397.0% CPU use with 1 MPI tasks x no OpenMP threads
+Performance: 0.324 ns/day, 74.070 hours/ns, 3.750 timesteps/s
+124.5% CPU use with 1 MPI tasks x no OpenMP threads
 
 MPI task timing breakdown:
 Section |  min time  |  avg time  |  max time  |%varavg| %total
 ---------------------------------------------------------------
-Pair    | 0.089105   | 0.089105   | 0.089105   |   0.0 |  1.07
-Bond    | 0.0064838  | 0.0064838  | 0.0064838  |   0.0 |  0.08
-Kspace  | 5.973      | 5.973      | 5.973      |   0.0 | 72.02
-Neigh   | 0.0093412  | 0.0093412  | 0.0093412  |   0.0 |  0.11
-Comm    | 0.0061672  | 0.0061672  | 0.0061672  |   0.0 |  0.07
-Output  | 0.0057545  | 0.0057545  | 0.0057545  |   0.0 |  0.07
-Modify  | 2.2004     | 2.2004     | 2.2004     |   0.0 | 26.53
-Other   |            | 0.003487   |            |       |  0.04
+Pair    | 0.49638    | 0.49638    | 0.49638    |   0.0 |  0.37
+Bond    | 0.045815   | 0.045815   | 0.045815   |   0.0 |  0.03
+Kspace  | 95.565     | 95.565     | 95.565     |   0.0 | 71.68
+Neigh   | 0.030782   | 0.030782   | 0.030782   |   0.0 |  0.02
+Comm    | 0.022861   | 0.022861   | 0.022861   |   0.0 |  0.02
+Output  | 0.010367   | 0.010367   | 0.010367   |   0.0 |  0.01
+Modify  | 37.144     | 37.144     | 37.144     |   0.0 | 27.86
+Other   |            | 0.01023    |            |       |  0.01
 
-Nlocal:        432.000 ave         432 max         432 min
+Nlocal:        864.000 ave         864 max         864 min
 Histogram: 1 0 0 0 0 0 0 0 0 0
-Nghost:        2205.00 ave        2205 max        2205 min
+Nghost:        4088.00 ave        4088 max        4088 min
 Histogram: 1 0 0 0 0 0 0 0 0 0
-Neighs:        18308.0 ave       18308 max       18308 min
+Neighs:        36670.0 ave       36670 max       36670 min
 Histogram: 1 0 0 0 0 0 0 0 0 0
 
-Total # of neighbors = 18308
-Ave neighs/atom = 42.379630
+Total # of neighbors = 36670
+Ave neighs/atom = 42.442130
 Ave special neighs/atom = 1.1111111
-Neighbor list builds = 6
+Neighbor list builds = 10
 Dangerous builds = 0
-Total wall time: 0:00:09
+Total wall time: 0:02:26
