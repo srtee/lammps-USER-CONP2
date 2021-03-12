@@ -44,7 +44,7 @@ class FixConp : public Fix {
   void force_cal(int);
   void a_cal();
   void a_read();
-  void b_setq_cal();
+  void b_setq_cal(int);
   virtual void b_cal();
   void update_bk(bool, double *);
   void equation_solve();
@@ -124,6 +124,8 @@ class FixConp : public Fix {
   bool *zele_is_pos;
   bool vprobeflag;
   bool preforce_run_flag;
+  double *elechiq;
+  double *elechiq_pos;
 };
 
 }

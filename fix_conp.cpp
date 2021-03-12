@@ -525,13 +525,8 @@ void FixConp::setup(int vflag)
     runstage = 1;
 
     gotsetq = 0; 
-    // elebuf2eleall = new int[elenum_all];
-    // bbuf = new double[elenum_all];
-    // memory->create(bbb,elenum,"fixconp:bbb");
-    //post_neighbor();
-    b_setq_cal();
+    b_setq_cal(0);
     equation_solve();
-    // elesetq = new double[elenum_all]; 
     get_setq();
     gotsetq = 1;
     dyn_setup(); // additional setup for dynamic versions
@@ -588,8 +583,12 @@ int FixConp::electrode_check(int atomid)
 
 /* ----------------------------------------------------------------------*/
 
-void FixConp::b_setq_cal()
+void FixConp::b_setq_cal(int setchiflag)
 {
+// setchiflag: 0 = d, 1 = e, 2 = e (zneutr)
+// 0: vec is electrode (+/-) indicator
+// 1: vec is sum vector (1, ... ,1)
+// 2: vec is sum vector for z > 0
   int i,iall,iloc,eci;
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
@@ -599,20 +598,31 @@ void FixConp::b_setq_cal()
   double zprd_half = domain->zprd_half;
   double zhalf = zprd_half + domain->boxlo[2];
   int const elenum_c = elenum;
-  for (iloc = 0; iloc < elenum_c; ++iloc) {
-    iall = ele2eleall[iloc];
-    i = atom->map(ele2tag[iloc]);
-    eci = electrode_check(i);
-    if (ff_flag == FFIELD) {
-      if (eci == 1 && x[i][2] < zhalf) {
-        bbb[iloc] = -(x[i][2]/zprd + 1)*evscale;
+  if (setchiflag == 0) {
+    for (iloc = 0; iloc < elenum_c; ++iloc) {
+      iall = ele2eleall[iloc];
+      i = atom->map(ele2tag[iloc]);
+      eci = electrode_check(i);
+      if (ff_flag == FFIELD) {
+        if (eci == 1 && x[i][2] < zhalf) {
+          bbb[iloc] = -(x[i][2]/zprd + 1)*evscale;
+        }
+        else bbb[iloc] = -x[i][2]*evscale/zprd;
       }
-      else bbb[iloc] = -x[i][2]*evscale/zprd;
+      else bbb[iloc] = -0.5*evscale*eci;
+      elecheck_eleall[iall] = eci;
     }
-    else bbb[iloc] = -0.5*evscale*eci;
-    elecheck_eleall[iall] = eci;
+    MPI_Allreduce(MPI_IN_PLACE,elecheck_eleall,elenum_all,MPI_INT,MPI_SUM,world);
   }
-  MPI_Allreduce(MPI_IN_PLACE,elecheck_eleall,elenum_all,MPI_INT,MPI_SUM,world);
+  else if (setchiflag == 1) {
+    for (iloc = 0; iloc < elenum_c; ++iloc) bbb[iloc] = 1;
+  }
+  else if (setchiflag == 2) {
+    for (iloc = 0; iloc < elenum_c; ++iloc) {
+      iall = ele2eleall[iloc];
+      if (zele_is_pos[iall]) bbb[iloc] = 1;
+    }
+  }
   // this really could be a b_comm but I haven't written the method for an int array
   b_comm(bbb,bbb_all);
   if (runstage == 1) runstage = 2;
@@ -1363,7 +1373,27 @@ void FixConp::inv()
     work = NULL;
 
     if (infosum != 0) error->all(FLERR,"Inversion failed!");
-    
+
+    if (zneutrflag) {
+      int iele;
+      double zprd_half = domain->zprd_half;
+      double zhalf = zprd_half + domain->boxlo[2];
+      double *elez = new double[elenum];
+      double *eleallz = new double[elenum_all];
+      int nlocal = atom->nlocal;
+      double **x = atom->x;
+      for (iele = 0; iele < elenum_c; ++iele) {
+        elez[iele] = x[atom->map(ele2tag[iele])][2];
+      }
+      b_comm(elez,eleallz);
+
+      if (zele_is_pos != nullptr) delete [] zele_is_pos;
+      zele_is_pos = new bool[elenum_all];
+      for (iele = 0; iele < elenum_all_c; ++iele) {
+        zele_is_pos[iele] = (eleallz[iele] > zhalf);
+      } 
+    }
+
     // here we project aaa_all onto
     // the null space of e
     // BUT if we are using vprobe
@@ -1402,23 +1432,6 @@ void FixConp::inv()
       // to be neutral, not just the overall electrodes, in noslab)
   
       if (zneutrflag) {
-        int iele;
-        double zprd_half = domain->zprd_half;
-        double zhalf = zprd_half + domain->boxlo[2];
-        double *elez = new double[elenum];
-        double *eleallz = new double[elenum_all];
-        int nlocal = atom->nlocal;
-        double **x = atom->x;
-        for (iele = 0; iele < elenum_c; ++iele) {
-          elez[iele] = x[atom->map(ele2tag[iele])][2];
-        }
-        b_comm(elez,eleallz);
-  
-        if (zele_is_pos != nullptr) delete [] zele_is_pos;
-        zele_is_pos = new bool[elenum_all];
-        for (iele = 0; iele < elenum_all_c; ++iele) {
-          zele_is_pos[iele] = (eleallz[iele] > zhalf);
-        }      
         idx1d = 0;
         totinve = 0;
         for (i = 0; i < elenum_all_c; i++) {
@@ -1441,6 +1454,7 @@ void FixConp::inv()
           }
         }
         delete [] zele_is_pos;
+        zele_is_pos = nullptr;
         delete [] elez;
         delete [] eleallz;      
       }
