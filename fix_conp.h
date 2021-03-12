@@ -44,7 +44,7 @@ class FixConp : public Fix {
   void force_cal(int);
   void a_cal();
   void a_read();
-  void b_setq_cal(int);
+  void b_setq_cal();
   virtual void b_cal();
   void update_bk(bool, double *);
   void equation_solve();
@@ -62,6 +62,7 @@ class FixConp : public Fix {
   void blist_coul_cal_post_force();
   void request_smartlist();
   virtual double compute_scalar();
+  virtual double compute_vector(int);
   virtual void dyn_setup() {}
   void init_list(int, class NeighList*);
   void end_of_step();
@@ -74,13 +75,13 @@ class FixConp : public Fix {
   int qlstyle,qrstyle,qlvar,qrvar;
   int elenum,elenum_old,elenum_all;
   double *eleallq;
-  double *elesetq;
+  double *ainvd;
   double *aaa_all,*bbb_all;
   int *tag2eleall,*eleall2tag,*ele2tag;
   int *elecheck_eleall;
   int *elenum_list,*displs,*eleall2ele;
   int *elebuf2eleall,*ele2eleall;
-  double totsetq,addv;
+  double d_ainvd,addv;
   double *bbb,*bbuf;
 
   bool smartlist;
@@ -124,8 +125,11 @@ class FixConp : public Fix {
   bool *zele_is_pos;
   bool vprobeflag;
   bool preforce_run_flag;
-  double *elechiq;
-  double *elechiq_pos;
+  double *ainve;
+  double *ainve_pos;
+  double e_ainve, e_ainve_pos, e_pos_ainve_pos, e_norm;
+  double e_ainvd, e_pos_ainvd;
+  double chi_all, chi_pos;
 };
 
 }

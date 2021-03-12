@@ -9,7 +9,9 @@ log log.lammps_$n
 # 4 = conp/v4
 # 5 = conp/v4 etypes
 # 6 = conp/v4 etypes noslab zneutr
-# 7 = conp/v4 etypes ffield
+# 7 = conp/v4 etypes noslab zneutr (noflip)
+# 8 = conp/v4 etypes ffield
+# 9 = rerun tests
 
 units               real    
 dimension           3   
@@ -46,18 +48,22 @@ pair_coeff   3   4         0.07390356       3.33500000  # CG NAA
 pair_coeff   4   4         0.09935850       3.30000000  # NAA NAA
 
 ##replicate cell if noslab zneutr
-if "$n == 6" then &
+if "$n == 6 || $n == 7" then &
 "replicate 1 1 2" &
 "change_box all z final $(-lz/2) $(lz/2) remap units box" &
 "region pos block EDGE EDGE EDGE EDGE 0 EDGE" &
 "group pos region pos" &
-"variable newz atom lz/2-z" &
-"set group pos z v_newz" &
 "variable molmax   equal 82" &
 "variable molleft  equal 81" &
-"variable molright equal 82" &
+"variable molright equal 82"
+if "$n == 6" then &
+"variable newz atom lz/2-z" &
+"set group pos z v_newz" &
 "set mol $(v_molmax+v_molright) mol ${molright}" &
-"set mol $(v_molmax+v_molleft)  mol ${molleft}"
+"set mol $(v_molmax+v_molleft)  mol ${molleft}"  &
+elif "$n == 7" &
+"set mol $(v_molmax+v_molright) mol ${molleft}"  &
+"set mol $(v_molmax+v_molleft)  mol ${molright}" &
 
 ##setting
 neighbor            2 bin
@@ -66,13 +72,13 @@ variable q atom q
 group ele           type 3
 group eleleft       molecule 81
 group eleright      molecule 82
-if "$n != 6" then &
+if "$n != 6 && $n != 7" then &
 "group eleall        union eleleft eleright" &
 "compute qleft       eleleft  reduce sum v_q" &
 "compute qright      eleright reduce sum v_q" &
 "compute qall        eleall   reduce sum v_q" &
 "compute tempsl      sol      temp" &
-elif "$n == 6" &
+elif "$n == 6 || $n == 7" &
 "group solpos  intersect sol   pos" &
 "group solneg  subtract  sol   solpos" &
 "group elepos  intersect ele   pos" &
@@ -110,25 +116,30 @@ elif "$n == 5"  &
 "fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3" &
 elif "$n == 6"  &
 "fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 noslab zneutr" &
-elif "$n == 7"  &
-"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield" &
-"fix efield all efield 0 0 $(-1.0/lz) " &
+elif "$n == 7" &
+"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 noslab zneutr" &
 elif "$n == 8"  &
 "fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield" &
+"fix efield all efield 0 0 $(-1.0/lz) " &
+elif "$n == 9"  &
+"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield" &
+"fix efield all efield 0 0 $(-1.0/lz) " &
+elif "$n == 10"  &
+"fix e all conp 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield vprobe" &
 "fix efield all efield 0 0 $(-1.0/lz) "
 
 
 fix 1 sol nvt temp 298.0 298.0 100.0
-if "$n != 6" then &
+if "$n != 6 && $n != 7 && $n != 9 && $n != 10" then &
 "thermo_style custom step temp c_tempsl c_qleft c_qright c_qall" &
-elif "$n == 6" &
+elif "$n == 9 || $n == 10" &
+"thermo_style custom step temp c_tempsl c_qleft c_qright c_qall f_e[1] f_e[2]" &
+elif "$n == 6 || $n == 7" &
 "thermo_style custom step temp c_temppos c_qleftneg c_qrightneg c_qneg c_qrightpos c_qleftpos c_qpos c_tempneg"
 thermo              20
 
-if "$n == 7" then "dump dsol sol atom 20 sol.traj"
+if "$n == 8" then "dump dsol sol atom 20 sol.traj"
 
-if "$n <= 7" then "run 500" &
-elif "$n == 8" &
-"neigh_modify every 1 delay 0 check no" &
-"rerun sol.traj dump x y z" &
-
+if "$n <= 8" then "run 500" &
+elif "$n >= 9" &
+"rerun sol.traj dump x y z"

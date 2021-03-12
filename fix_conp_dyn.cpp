@@ -139,7 +139,7 @@ void FixConpDyn::post_integrate()
 
 int FixConpDyn::update_diffvecs_from_q()
 {
-  // now we know qR, qL, eleallq, and elesetq
+  // now we know qR, qL, eleallq, and ainvd
   int i;
   double qi,dqi;
   if (dyn_status == DYN_READY) {
@@ -152,7 +152,7 @@ int FixConpDyn::update_diffvecs_from_q()
     for (i = 0; i < elenum_all; ++i) {
       vq[i] += aq[i];
       qold[i] += vq[i];
-      qi = eleallq[i] + (qR - qL)*elesetq[i];
+      qi = eleallq[i] + (qR - qL)*ainvd[i];
       dqi = qi - qold[i];
       qsq += qi*qi;
       sqerr += dqi * dqi;
@@ -168,14 +168,14 @@ int FixConpDyn::update_diffvecs_from_q()
   }
   else if (dyn_status == NO_QOLD) {
     for (i = 0; i < elenum_all; ++i) {
-      qold[i] = eleallq[i] + (qR - qL)*elesetq[i];
+      qold[i] = eleallq[i] + (qR - qL)*ainvd[i];
     }
     dyn_status = NO_VQ;
     return DYN_INIT;
   }
   else if (dyn_status == NO_VQ) {
     for (i = 0; i < elenum_all; ++i) {
-      qi = eleallq[i] + (qR - qL)*elesetq[i];
+      qi = eleallq[i] + (qR - qL)*ainvd[i];
       vq[i] = (qi - qold[i])/static_cast<double>(dyn_interval);
       qold[i] = qi;
     }
@@ -184,7 +184,7 @@ int FixConpDyn::update_diffvecs_from_q()
   }
   else if (dyn_status == NO_AQ) {
     for (i = 0; i < elenum_all; ++i) {
-      qi = eleallq[i] + (qR - qL)*elesetq[i];
+      qi = eleallq[i] + (qR - qL)*ainvd[i];
       dqi = qi - qold[i];
       aq[i] = (dqi - vq[i])/static_cast<double>(dyn_interval);
       vq[i] = dqi;

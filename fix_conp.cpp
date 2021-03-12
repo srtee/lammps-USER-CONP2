@@ -176,7 +176,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   csk = snk = nullptr;
   aaa_all = nullptr;
   bbb_all = nullptr;
-  eleallq = elesetq = nullptr;
+  eleallq = ainvd = ainve = ainve_pos = nullptr;
   tag2eleall = eleall2tag = ele2tag = nullptr;
   elecheck_eleall = nullptr;
   eleall2ele = ele2eleall = elebuf2eleall = nullptr;
@@ -185,7 +185,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   alist = blist = list = nullptr;
   runstage = 0; //after operation
                 //0:init; 1: a_cal; 2: first sin/cos cal; 3: inv only, aaa inverse
-  totsetq = 0;
+  d_ainvd = 0;
   gotsetq = 0;  //=1 after getting setq vector
   cs = sn = nullptr;
   qj_global = nullptr;
@@ -195,6 +195,8 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   ug = nullptr;
   zele_is_pos = nullptr;
   scalar_flag = 1;
+  vector_flag = 1;
+  size_vector = 2;
   extscalar = 0;
   global_freq = 1;
 }
@@ -220,7 +222,7 @@ FixConp::~FixConp()
   memory->destroy(eleallq);
   memory->destroy(elebuf2eleall);
   memory->destroy(bbuf);
-  memory->destroy(elesetq);
+  memory->destroy(ainvd);
   memory->destroy(csk);
   memory->destroy(snk);
   delete [] tag2eleall;
@@ -525,7 +527,7 @@ void FixConp::setup(int vflag)
     runstage = 1;
 
     gotsetq = 0; 
-    b_setq_cal(0);
+    b_setq_cal();
     equation_solve();
     get_setq();
     gotsetq = 1;
@@ -583,12 +585,8 @@ int FixConp::electrode_check(int atomid)
 
 /* ----------------------------------------------------------------------*/
 
-void FixConp::b_setq_cal(int setchiflag)
+void FixConp::b_setq_cal()
 {
-// setchiflag: 0 = d, 1 = e, 2 = e (zneutr)
-// 0: vec is electrode (+/-) indicator
-// 1: vec is sum vector (1, ... ,1)
-// 2: vec is sum vector for z > 0
   int i,iall,iloc,eci;
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
@@ -598,31 +596,20 @@ void FixConp::b_setq_cal(int setchiflag)
   double zprd_half = domain->zprd_half;
   double zhalf = zprd_half + domain->boxlo[2];
   int const elenum_c = elenum;
-  if (setchiflag == 0) {
-    for (iloc = 0; iloc < elenum_c; ++iloc) {
-      iall = ele2eleall[iloc];
-      i = atom->map(ele2tag[iloc]);
-      eci = electrode_check(i);
-      if (ff_flag == FFIELD) {
-        if (eci == 1 && x[i][2] < zhalf) {
-          bbb[iloc] = -(x[i][2]/zprd + 1)*evscale;
-        }
-        else bbb[iloc] = -x[i][2]*evscale/zprd;
+  for (iloc = 0; iloc < elenum_c; ++iloc) {
+    iall = ele2eleall[iloc];
+    i = atom->map(ele2tag[iloc]);
+    eci = electrode_check(i);
+    if (ff_flag == FFIELD) {
+      if (eci == 1 && x[i][2] < zhalf) {
+        bbb[iloc] = -(x[i][2]/zprd + 1)*evscale;
       }
-      else bbb[iloc] = -0.5*evscale*eci;
-      elecheck_eleall[iall] = eci;
+      else bbb[iloc] = -x[i][2]*evscale/zprd;
     }
-    MPI_Allreduce(MPI_IN_PLACE,elecheck_eleall,elenum_all,MPI_INT,MPI_SUM,world);
+    else bbb[iloc] = -0.5*evscale*eci;
+    elecheck_eleall[iall] = eci;
   }
-  else if (setchiflag == 1) {
-    for (iloc = 0; iloc < elenum_c; ++iloc) bbb[iloc] = 1;
-  }
-  else if (setchiflag == 2) {
-    for (iloc = 0; iloc < elenum_c; ++iloc) {
-      iall = ele2eleall[iloc];
-      if (zele_is_pos[iall]) bbb[iloc] = 1;
-    }
-  }
+  MPI_Allreduce(MPI_IN_PLACE,elecheck_eleall,elenum_all,MPI_INT,MPI_SUM,world);
   // this really could be a b_comm but I haven't written the method for an int array
   b_comm(bbb,bbb_all);
   if (runstage == 1) runstage = 2;
@@ -695,7 +682,11 @@ void FixConp::post_neighbor()
     memory->grow(eleallq,elenum_all,"fixconp:eleallq");
     memory->grow(elebuf2eleall,elenum_all,"fixconp:elebuf2eleall");
     memory->grow(bbuf,elenum_all,"fixconp:bbuf");
-    memory->grow(elesetq,elenum_all,"fixconp:elesetq");
+    memory->grow(ainvd,elenum_all,"fixconp:ainvd");
+    if (vprobeflag) {
+      memory->grow(ainve,elenum_all,"fixconp:ainve");
+      if (zneutrflag) memory->grow(ainve_pos,elenum_all,"fixconp:ainve_pos");
+    }
     MPI_Barrier(world); // otherwise next MPI_Allgatherv can race??
     for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
     for (i = 0; i < natoms+1; i++) tag2eleall[i] = elenum_all;
@@ -1391,8 +1382,29 @@ void FixConp::inv()
       zele_is_pos = new bool[elenum_all];
       for (iele = 0; iele < elenum_all_c; ++iele) {
         zele_is_pos[iele] = (eleallz[iele] > zhalf);
-      } 
+      }
+      delete [] elez;
+      delete [] eleallz; 
     }
+
+    // here we get ainv.e for null projection or vprobe
+
+    if (!vprobeflag && ainve != nullptr) delete [] ainve;
+    if (!vprobeflag) ainve = new double[elenum_all];
+    e_ainve = 0;
+    idx1d = 0;
+    double ainvtmp;
+    for (i = 0; i < elenum_all_c; i++) {
+      ainvtmp = 0;
+      for (j = 0; j < elenum_all_c; j++) {
+        ainvtmp += aaa_all[idx1d];
+        idx1d++;
+      }
+      e_ainve += ainvtmp;
+      ainve[i] = ainvtmp;
+    }
+
+    e_norm = e_ainve;
 
     // here we project aaa_all onto
     // the null space of e
@@ -1401,65 +1413,56 @@ void FixConp::inv()
     // extract the bulk voltage.
 
     if (!vprobeflag) {
-      double *ainve = new double[elenum_all];
-      double ainvtmp;
-      double totinve = 0;
-      idx1d = 0;
+      if (e_ainve*e_ainve > 1e-8) {
+        idx1d = 0;
+        for (i = 0; i < elenum_all_c; i++) {
+          for (j = 0; j < elenum_all_c; j++) {
+            aaa_all[idx1d] -= ainve[i]*ainve[j]/e_ainve;
+            idx1d++;
+          }
+        }
+      }
+      delete [] ainve;
+    }
   
+    // here we project aaa_all onto
+    // the null space of e_pos
+    // if zneutr has been called (i.e. we want each half of the unit cell
+    // to be neutral, not just the overall electrodes, in noslab)
+
+    if (zneutrflag) {
+      if (!vprobeflag && ainve_pos != nullptr) delete [] ainve_pos;
+      if (!vprobeflag) ainve_pos = new double[elenum_all];
+      idx1d = 0;
+      e_ainve_pos = 0;
+      e_pos_ainve_pos = 0;
       for (i = 0; i < elenum_all_c; i++) {
         ainvtmp = 0;
         for (j = 0; j < elenum_all_c; j++) {
-          ainvtmp += aaa_all[idx1d];
-        	idx1d++;
+          if (zele_is_pos[j]) ainvtmp += aaa_all[idx1d];
+      	  idx1d++;
         }
-        totinve += ainvtmp;
-        ainve[i] = ainvtmp;
+        ainve_pos[i] = ainvtmp;
+	e_ainve_pos += ainvtmp;
+        if (zele_is_pos[i]) e_pos_ainve_pos += ainvtmp;
       }
-  
-      if (totinve*totinve > 1e-8) {
-        idx1d = 0;
-        for (i = 0; i < elenum_all_c; i++) {
-          for (j = 0; j < elenum_all_c; j++) {
-            aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
-  	        idx1d++;
-          }
-        }
-      }
-  
-      // here we project aaa_all onto
-      // the null space of e_pos
-      // if zneutr has been called (i.e. we want each half of the unit cell
-      // to be neutral, not just the overall electrodes, in noslab)
-  
-      if (zneutrflag) {
-        idx1d = 0;
-        totinve = 0;
-        for (i = 0; i < elenum_all_c; i++) {
-          ainvtmp = 0;
-          for (j = 0; j < elenum_all_c; j++) {
-            if (zele_is_pos[j]) ainvtmp += aaa_all[idx1d];
-        	  idx1d++;
-          }
-          ainve[i] = ainvtmp;
-          if (zele_is_pos[i]) totinve += ainvtmp;
-        }
-  
-        if (totinve*totinve > 1e-8) {
+      e_norm *= e_pos_ainve_pos;
+      e_norm -= e_ainve_pos*e_ainve_pos;
+      if (!vprobeflag) {
+        if (e_pos_ainve_pos*e_pos_ainve_pos > 1e-8) {
           idx1d = 0;
           for (i = 0; i < elenum_all_c; i++) {
             for (j = 0; j < elenum_all_c; j++) {
-              aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
-    	        idx1d++;
-    	      }
+            aaa_all[idx1d] -= ainve_pos[i]*ainve_pos[j]/e_pos_ainve_pos;
+            idx1d++;
+            }
           }
         }
         delete [] zele_is_pos;
         zele_is_pos = nullptr;
-        delete [] elez;
-        delete [] eleallz;      
+        delete [] ainve_pos;
+	ainve_pos = nullptr;
       }
-      delete [] ainve;
-      ainve = NULL;
     }
     
     if (me == 0) {
@@ -1479,6 +1482,15 @@ void FixConp::inv()
         }
       }
       fclose(outinva);
+      fprintf(outf,"Inner products:  \n");
+      if (vprobeflag) {
+        fprintf(outf,"e . Ainv . e    = %g\n",e_ainve);
+	if (zneutrflag) {
+          fprintf(outf,"e . Ainv . ep   = %g\n",e_ainve_pos);
+	  fprintf(outf,"ep. Ainv . ep   = %g\n",e_pos_ainve_pos);
+	}
+	fprintf(outf,"e norm          = %g\n",e_norm);
+      }
     }
   }
   if (runstage == 2) runstage = 3;
@@ -1500,7 +1512,7 @@ void FixConp::get_setq()
 
   if (minimizer == 0) { // cg solver used
     for (iall = 0; iall < elenum_all_c; ++iall) {
-      elesetq[iall] = eleallq[iall];
+      ainvd[iall] = eleallq[iall];
     }
   } else if (minimizer == 1) { // inv solver used
     int one = 1;
@@ -1511,16 +1523,31 @@ void FixConp::get_setq()
       bbbtmp = ddot_(&elenum_all,&aaa_all[idx1d],&one,bbb_all,&one);
       bbb[iloc] = bbbtmp;
     }
-    b_comm(bbb,elesetq);
+    b_comm(bbb,ainvd);
   }
-  totsetq = 0;
+  d_ainvd = 0;
+  e_ainvd = 0;
+  e_pos_ainvd = 0;
   for (iloc = 0; iloc < elenum_c; ++iloc) {
+    e_ainvd += ainvd[iall];
     iall = ele2eleall[iloc];
     if (elecheck_eleall[iall] == 1) {
-      totsetq += elesetq[iall];
+      d_ainvd += ainvd[iall];
+    }
+    if (zneutrflag && vprobeflag && zele_is_pos[iall]) {
+      e_pos_ainvd += ainvd[iall];
     }
   }
-  MPI_Allreduce(MPI_IN_PLACE,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
+  MPI_Allreduce(MPI_IN_PLACE,&d_ainvd,1,MPI_DOUBLE,MPI_SUM,world);
+  MPI_Allreduce(MPI_IN_PLACE,&e_ainvd,1,MPI_DOUBLE,MPI_SUM,world);
+  if (zneutrflag && vprobeflag) {
+    MPI_Allreduce(MPI_IN_PLACE,&e_pos_ainvd,1,MPI_DOUBLE,MPI_SUM,world);
+  }
+  if (me == 0) {
+    fprintf(outf,"d . Ainv . d    = %g\n",d_ainvd);
+    fprintf(outf,"e . Ainv . d    = %g\n",e_ainvd);
+    if (zneutrflag && vprobeflag) fprintf(outf,"ep. Ainv . d    = %g\n",e_pos_ainvd);
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1533,7 +1560,9 @@ void FixConp::update_charge()
   int *tag = atom->tag;
   int const nlocal = atom->nlocal;
   int const nall = nlocal+atom->nghost;
+  double netcharge = 0;
   double netcharge_left = 0;
+  double netcharge_pos = 0;
   double *q = atom->q;    
   int const elenum_c = elenum;
   int const elenum_all_c = elenum_all;
@@ -1551,6 +1580,27 @@ void FixConp::update_charge()
   if (qlstyle == EQUAL) qL = input->variable->compute_equal(qlvar);
   if (qrstyle == EQUAL) qR = input->variable->compute_equal(qrvar);
   addv = qR - qL;
+  
+  if (vprobeflag) {
+    for (iall = 0; iall < elenum_all_c; ++iall) netcharge += eleallq[iall];
+    if (zneutrflag) {
+      for (iall = 0; iall < elenum_all_c; ++iall) {
+        if (zele_is_pos[iall]) netcharge_pos += eleallq[iall];
+      }
+    }
+    chi_all = (netcharge + addv*e_ainvd)/e_norm;
+    chi_pos = 0;
+    for (iall = 0; iall < elenum_all_c; ++iall) {
+      eleallq[iall] -= chi_all*ainve[iall];
+    }
+    if (zneutrflag) {
+      chi_pos = (netcharge_pos + addv*e_pos_ainvd)/e_norm;
+      for (iall = 0; iall < elenum_all_c; ++iall) {
+        eleallq[iall] -= chi_pos*ainve_pos[iall];
+      }
+    }
+  }
+
   //  now qL and qR are left and right *voltages*
   //  evscale was included in the precalculation of eleallq
 
@@ -1560,12 +1610,12 @@ void FixConp::update_charge()
     if (elecheck_eleall[iall] == 1) netcharge_left += eleallq[iall];
     i = atom->map(eleall2tag[iall]);
     if (i != -1) {
-      q[i] = eleallq[iall] + addv*elesetq[iall];
+      q[i] = eleallq[iall] + addv*ainvd[iall];
     }
   } // we need to loop like this to correctly charge ghost atoms
 
   //  hack: we will use addv to store total electrode charge
-  addv *= totsetq;
+  addv *= d_ainvd;
   addv += netcharge_left;
 }
 /* ---------------------------------------------------------------------- */
@@ -1992,6 +2042,14 @@ double FixConp::compute_scalar()
 }
 
 /* ---------------------------------------------------------------------- */
+
+double FixConp::compute_vector(int n)
+{
+  if (n==0) return -chi_all;
+  else if (n==1) return -chi_all-chi_pos;
+}
+/* ---------------------------------------------------------------------- */
+
 double FixConp::rms(int km, double prd, bigint natoms, double q2)
 {
   double value = 2.0*q2*g_ewald/prd *

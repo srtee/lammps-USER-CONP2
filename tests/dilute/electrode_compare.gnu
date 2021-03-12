@@ -164,7 +164,7 @@ set psdir
 set fit brief errorvariables nocovariancevariables errorscaling prescale nowrap v5
 GNUTERM = "wxt"
 ## Last datafile plotted: "log.lammps_7"
-set for [i=4:19] linetype i dashtype 2
+set for [i=4:20] linetype i dashtype 2
 nsteps=1
 plot 'log.lammps_0' u ($1*nsteps):4 t 'v0 -ve',\
   '' u ($1*nsteps):5 t '+ve',\
@@ -177,10 +177,15 @@ plot 'log.lammps_0' u ($1*nsteps):4 t 'v0 -ve',\
   '' u ($1*nsteps):5 t '+ve',\
   NaN t " " lc rgb "white",\
   NaN t "v4 ffield" lc rgb "white",\
-  'log.lammps_6' u ($1*nsteps):4 t '-ve',\
+  'log.lammps_8' u ($1*nsteps):4 t '-ve',\
   '' u ($1*nsteps):5 t '+ve',\
   NaN t " " lc rgb "white",\
   NaN t "v4 2cell" lc rgb "white",\
+  'log.lammps_6' u ($1*nsteps):4 t 'left -ve',\
+  '' u ($1*nsteps):5 t 'left +ve',\
+  '' u ($1*nsteps):7 t 'right +ve',\
+  '' u ($1*nsteps):8 every ::25 t 'right -ve',\
+  NaN t "v4 2cell flip" lc rgb "white",\
   'log.lammps_7' u ($1*nsteps):4 t 'left -ve',\
   '' u ($1*nsteps):5 t 'left +ve',\
   '' u ($1*nsteps):7 t 'right +ve',\
