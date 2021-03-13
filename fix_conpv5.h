@@ -18,7 +18,7 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(conp,FixConpV5)
+FixStyle(conp/v5,FixConpV5)
 
 #else
 
