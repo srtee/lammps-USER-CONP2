@@ -2,20 +2,18 @@ variable n getenv "N"
 log log.lammps_$n
 
 # trial numbers:
-# 0 = conp/v0
-# 1 = conp/v1
-# 2 = conp/v2
-# 3 = conp/v3
-# 4 = conp/v4
-# 5 = conp/v4 etypes
-# 6 = conp/v4 etypes noslab zneutr
-# 7 = conp/v4 etypes ffield
+# 0 = conp slab
+# 1 = conp slab etypes
+# 2 = conp ffield etypes [write traj]
+# 3 = conp noslab zneutr etypes [sym]
+# 4 = conp noslab zneutr etypes [anti]
+# 5 = conp ffield etypes [rerun]
 
 units               real    
 dimension           3   
 newton              off 
 #processors          * * 2
-if "$n <= 5" then "boundary p p f" else "boundary p p p"
+if "$n <= 1" then "boundary p p f" else "boundary p p p"
 atom_style          full 
 
 ##force field
@@ -23,7 +21,7 @@ pair_style          lj/cut/coul/long 4.0
 bond_style          harmonic
 angle_style         harmonic
 kspace_style        pppm 1.0e-6
-if "$n <= 5" then "kspace_modify slab 3.0"
+if "$n <= 1" then "kspace_modify slab 3.0"
 #you can try forcing kspace mesh same xy resolution
 #to eliminate spurious differences
 #but fix/conp's own internal k meshing isn't controlled :(
@@ -45,19 +43,24 @@ pair_coeff   3   3         0.05497000       3.37000000  # CG CG
 pair_coeff   3   4         0.07390356       3.33500000  # CG NAA
 pair_coeff   4   4         0.09935850       3.30000000  # NAA NAA
 
+variable molmax   equal 82
+variable molleft  equal 81
+variable molright equal 82
+
 ##replicate cell if noslab zneutr
-if "$n == 6" then &
+if "$n == 3 || $n == 4" then &
 "replicate 1 1 2" &
 "change_box all z final $(-lz/2) $(lz/2) remap units box" &
 "region pos block EDGE EDGE EDGE EDGE 0 EDGE" &
-"group pos region pos" &
+"group pos region pos"
+if "$n == 3" then &
 "variable newz atom lz/2-z" &
 "set group pos z v_newz" &
-"variable molmax   equal 82" &
-"variable molleft  equal 81" &
-"variable molright equal 82" &
 "set mol $(v_molmax+v_molright) mol ${molright}" &
-"set mol $(v_molmax+v_molleft)  mol ${molleft}"
+"set mol $(v_molmax+v_molleft)  mol ${molleft}" &
+elif "$n == 4" &
+"set mol $(v_molmax+v_molright) mol ${molleft}" &
+"set mol $(v_molmax+v_molleft)  mol ${molright}" &
 
 ##setting
 neighbor            2 bin
@@ -66,13 +69,13 @@ variable q atom q
 group ele           type 3
 group eleleft       molecule 81
 group eleright      molecule 82
-if "$n != 6" then &
+if "$n != 3 && $n != 4" then &
 "group eleall        union eleleft eleright" &
 "compute qleft       eleleft  reduce sum v_q" &
 "compute qright      eleright reduce sum v_q" &
 "compute qall        eleall   reduce sum v_q" &
 "compute tempsl      sol      temp" &
-elif "$n == 6" &
+elif "$n == 3 || $n == 4" &
 "group solpos  intersect sol   pos" &
 "group solneg  subtract  sol   solpos" &
 "group elepos  intersect ele   pos" &
@@ -90,43 +93,40 @@ elif "$n == 6" &
 "compute temppos   solpos temp" &
 "compute tempneg   solneg temp"
 
-
 run_style           verlet
 timestep            1  
 velocity ele set 0.0 0.0 0.0
 fix 0 ele setforce 0.0 0.0 0.0
 
 if "$n == 0" then &
-"fix e all conp/v0 1 1.979 81 82 -0.5 0.5 inv iter" &
+"fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter" &
 elif "$n == 1"  &
-"fix e all conp/v1 1 1.979 81 82 -0.5 0.5 inv iter" &
+"fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter etypes 1 3" &
 elif "$n == 2"  &
-"fix e all conp/v2 1 1.979 81 82 -0.5 0.5 inv iter" &
-elif "$n == 3"  &
-"fix e all conp/v3 1 1.979 81 82 -0.5 0.5 inv iter" &
-elif "$n == 4"  &
-"fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter" &
-elif "$n == 5"  &
-"fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3" &
-elif "$n == 6"  &
-"fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 noslab zneutr" &
-elif "$n == 7"  &
-"fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield" &
+"fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter etypes 1 3 ffield" &
 "fix efield all efield 0 0 $(-1.0/lz) " &
-elif "$n == 8"  &
-"fix e all conp/v4 1 1.979 81 82 -0.5 0.5 inv iter etypes 1 3 ffield" &
-"fix efield all efield 0 0 $(-1.0/lz) "
+elif "$n == 3 || $n == 4"  &
+"fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter etypes 1 3 noslab zneutr" &
+elif "$n == 5"  &
+"fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter ffield"
 
+if "$n <= 2" then &
+"fix 1 sol nvt temp 298.0 298.0 100.0" &
+elif "$n == 3 || $n == 4" &
+"fix 1 solpos nvt temp 298.0 298.0 100.0" &
+"fix 2 solneg nvt temp 298.0 298.0 100.0"
 
-fix 1 sol nvt temp 298.0 298.0 100.0
-if "$n != 6" then &
+if "$n != 3 && $n != 4" then &
 "thermo_style custom step temp c_tempsl c_qleft c_qright c_qall" &
-elif "$n == 6" &
+elif "$n == 3 || $n == 4" &
 "thermo_style custom step temp c_temppos c_qleftneg c_qrightneg c_qneg c_qrightpos c_qleftpos c_qpos c_tempneg"
 thermo              20
 
-if "$n == 7" then "dump dsol sol atom 20 sol.traj"
+if "$n == 1 || $n == 2" then "dump dsol sol atom 20 sol$n.traj"
 
-if "$n <= 7" then "run 500" &
-elif "$n == 8" "rerun sol.traj dump x y z"
+if "$n <= 4" then "run 500" &
+elif "$n == 5" &
+"rerun sol1.traj dump x y z" &
+"rerun sol1.traj dump x y z" &
+"rerun sol2.traj dump x y z"
 

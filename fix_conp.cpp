@@ -189,6 +189,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   scalar_flag = 1;
   extscalar = 0;
   global_freq = 1;
+  initflag = false;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -240,6 +241,7 @@ int FixConp::setmask()
   mask |= POST_NEIGHBOR;
   mask |= PRE_FORCE;
   mask |= POST_FORCE;
+  mask |= END_OF_STEP;
   return mask;
 }
 
@@ -289,19 +291,22 @@ void FixConp::init()
   int ifix = modify->find_fix("package_intel");
   if (ifix >= 0) intelflag = true;
 
-  // request neighbor list 
-  // if not smart list half, newton off
-  // else do request_smartlist()
-  if (smartlist) request_smartlist();
-  // TO-DO: check failure conditions in request_smartlist
-  // and flip smartlist bool to trigger this loop as backup
-  if (!smartlist) {
-    int irequest = neighbor->request(this,instance_me);
-    neighbor->requests[irequest]->pair = 0;
-    neighbor->requests[irequest]->fix  = 1;
-    neighbor->requests[irequest]->newton = 2;
-    if (intelflag) neighbor->requests[irequest]->intel = 1;
+  if (!initflag) {
+    // request neighbor list 
+    // if not smart list half, newton off
+    // else do request_smartlist()
+    if (smartlist) request_smartlist();
+    // TO-DO: check failure conditions in request_smartlist
+    // and flip smartlist bool to trigger this loop as backup
+    if (!smartlist) {
+      int irequest = neighbor->request(this,instance_me);
+      neighbor->requests[irequest]->pair = 0;
+      neighbor->requests[irequest]->fix  = 1;
+      neighbor->requests[irequest]->newton = 2;
+      if (intelflag) neighbor->requests[irequest]->intel = 1;
+    }
   }
+  initflag = true;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -374,8 +379,8 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
       blist = ptr;
     }
     else {
-      if (me == 0) printf("Init_list returned ID %d\n",ptr->index);
-      error->all(FLERR,"Smart request init_list is being weird!");
+      // if (me == 0) printf("Init_list returned ID %d\n",ptr->index);
+      // error->all(FLERR,"Smart request init_list is being weird!");
     }
   }
   else list = ptr;
@@ -479,6 +484,7 @@ void FixConp::setup(int vflag)
   // smartlist listings, and if not, get the list pointer from coulpair,
   // and if _that_ fails, or if coulpair has newton on, we should bail
   // not too late to process that here because we haven't done a_cal yet
+  preforceflag = false;
   if (runstage == 0) {
     tag2eleall = new int[natoms+1];
     int nprocs = comm->nprocs;
@@ -533,6 +539,7 @@ void FixConp::setup(int vflag)
 void FixConp::pre_force(int /* vflag */)
 {
   if(update->ntimestep % everynum == 0) {
+    preforceflag = true;
     if (strstr(update->integrate_style,"verlet")) { //not respa
       Btime1 = MPI_Wtime();
       b_cal();
@@ -1079,7 +1086,7 @@ void FixConp::sincos_b()
   double *q = atom->q;
   int nlocal = atom->nlocal;
 
-  double* restrict qj = qj_global;
+  double* __restrict__ qj = qj_global;
 
   j = 0;
   jmax = 0;
@@ -1107,8 +1114,8 @@ void FixConp::sincos_b()
   kc = 0;
   for (ic = 0; ic < 3; ++ic) {
     ++kf;
-    double* restrict cskf = cs[kf];
-    double* restrict snkf = sn[kf];
+    double* __restrict__ cskf = cs[kf];
+    double* __restrict__ snkf = sn[kf];
     temprl0 = 0;
     tempim0 = 0;
     for (j = 0; j < jmax; ++j) {
@@ -1123,8 +1130,8 @@ void FixConp::sincos_b()
     ++kf;
     ++kc;
     for (m = 2; m <= kcount_dims[ic]; ++m) {
-      double* restrict cskf1=cs[kf];
-      double* restrict snkf1=sn[kf];
+      double* __restrict__ cskf1=cs[kf];
+      double* __restrict__ snkf1=sn[kf];
       temprl0 = 0;
       tempim0 = 0;
       for (j = 0; j < jmax; ++j) {
@@ -1149,10 +1156,10 @@ void FixConp::sincos_b()
     tempim0 = 0;
     temprl1 = 0;
     tempim1 = 0;
-    double* restrict cskf0 = cs[kf];
-    double* restrict snkf0 = sn[kf];
-    double* restrict cskf1 = cs[kf+1];
-    double* restrict snkf1 = sn[kf+1];
+    double* __restrict__ cskf0 = cs[kf];
+    double* __restrict__ snkf0 = sn[kf];
+    double* __restrict__ cskf1 = cs[kf+1];
+    double* __restrict__ snkf1 = sn[kf+1];
     for (j = 0; j < jmax; ++j) {
       // todo: tell compiler that kf, kx and ky do not alias
       cskf0[j] = cs[kx][j]*cs[ky][j] - sn[kx][j]*sn[ky][j];
@@ -2144,5 +2151,16 @@ void FixConp::coeffs()
     }
     kxy_list[k] = 2*kxy;
     ktemp += 4;
+  }
+}
+
+void FixConp::end_of_step()
+{
+  if(update->ntimestep % everynum == 0) {
+    if ( !preforceflag ) {
+      post_neighbor();
+      pre_force(0);
+    }
+    else preforceflag = false;
   }
 }

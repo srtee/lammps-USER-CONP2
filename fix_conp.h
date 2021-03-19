@@ -64,6 +64,7 @@ class FixConp : public Fix {
   virtual double compute_scalar();
   virtual void dyn_setup() {}
   void init_list(int, class NeighList*);
+  void end_of_step();
 
  protected:
   class NeighList *list;
@@ -119,7 +120,7 @@ class FixConp : public Fix {
   int everynum;
   Pair *coulpair;
 
-  bool zneutrflag;
+  bool zneutrflag,preforceflag,initflag;
 };
 
 }
