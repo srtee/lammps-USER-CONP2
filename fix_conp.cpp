@@ -12,7 +12,7 @@
 ------------------------------------------------------------------------- */
 
 /* ----------------------------------------------------------------------
-   Version: Nov/2020
+   Version: Mar/2021
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
@@ -140,7 +140,6 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
         printf("Opened file %s for reading A matrix\n",arg[iarg]);
         if (a_matrix_fp == nullptr) error->all(FLERR,"Cannot open A matrix file");
       }
-      outa = nullptr;
     }
     else if (strcmp(arg[iarg],"etypes") == 0) {
       ++iarg;
