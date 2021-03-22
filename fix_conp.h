@@ -120,7 +120,7 @@ class FixConp : public Fix {
   int everynum;
   Pair *coulpair;
 
-  bool zneutrflag,preforceflag,initflag;
+  bool zneutrflag,preforceflag,initflag,matoutflag;
 };
 
 }
