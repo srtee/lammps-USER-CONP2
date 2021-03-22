@@ -118,6 +118,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   ff_flag = NORMAL; // turn on ff / noslab options if needed.
   a_matrix_f = 0;
   smartlist = false; // get regular neighbor lists
+  matoutflag = false; // turn off matrix output unless explicitly requested
   int iarg;
   for (iarg = 11; iarg < narg; ++iarg){
     if (strcmp(arg[iarg],"ffield") == 0) {
@@ -159,6 +160,9 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
     }
     else if (strcmp(arg[iarg],"zneutr") == 0) {
       zneutrflag = true;
+    }
+    else if (strcmp(arg[iarg],"matout") == 0) {
+      matoutflag = true;
     }
     else {
       printf(".<%s>.\n",arg[iarg]);
@@ -509,7 +513,6 @@ void FixConp::setup(int vflag)
     // for (i = 0; i < natoms+1; i++) tag2eleall[i] = elenum_all;
     // eleallq = new double[elenum_all];
     if (a_matrix_f == 0) {
-      if (me == 0) outa = fopen("amatrix","w");
       if (me == 0) printf("Fix conp is now calculating A matrix ... ");
       a_cal();
       if (me == 0) printf(" ... done!\n");
@@ -963,7 +966,8 @@ void FixConp::a_cal()
     }
   }
 
-  if (me == 0) {
+  if (matoutflag && me == 0) {
+    FILE *outa = fopen("amatrix","w");
     fprintf(outa," ");
     for (i = 0; i < elenum_all_c; ++i) fprintf(outa,"%20d",eleall2tag[i]);
     fprintf(outa,"\n");
@@ -1438,7 +1442,7 @@ void FixConp::inv()
     delete [] ainve;
     ainve = NULL;
 
-    if (me == 0) {
+    if (matoutflag && me == 0) {
       FILE *outinva = fopen("inv_a_matrix","w");
       for (i = 0; i < elenum_all_c; i++) {
         if(i == 0) fprintf (outinva," ");
