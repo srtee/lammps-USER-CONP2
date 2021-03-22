@@ -33,7 +33,7 @@ fix [ID] [all] conp [Nevery] [η] [Molecule-ID 1] [Molecule-ID 2] [Potential 1] 
 
 `Nevery` = Compute charge every this many steps
 
-`η` = Parameter for Gaussian charge. The unit is is angstrom<sup>-1</sup> (see note below)
+`η` = Parameter for Gaussian charge. The unit is is angstrom<sup>-1</sup>. Usually this is 19.79 for graphene.
 
 `Molecule-ID 1` = Molecule ID of first electrode (the second column in data file)
 
@@ -43,7 +43,9 @@ fix [ID] [all] conp [Nevery] [η] [Molecule-ID 1] [Molecule-ID 2] [Potential 1] 
 
 `Potential 2` = Potential on second electrode in V (can be v_ style variable)
 
-`Method` = Method for solving linear equations. "inv" for inverse matrix and "cg" for conjugate gradient
+`Method` = Method for solving linear equations. "inv" for inverse matrix and "cg" for conjugate gradient.
+
+*For stationary electrodes, `inv` calculates the inverse matrix at the start of run (including neutrality constraints), and will be faster than `cg`. As such, the `cg` code branches have not been debugged and optimized as extensively as the `inv` branches. Please do not use `cg` unless you know what you are doing and can spot when the results are wrong. In particular, the `zneutr` flag (below) does not yet work with `cg`, even though `ffield` and `noslab` (should!) work.*
 
 `Log` = Name of log file recording time usage of different parts
 
