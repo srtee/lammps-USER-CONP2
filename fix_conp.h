@@ -12,7 +12,7 @@
 ------------------------------------------------------------------------- */
 
 /* ----------------------------------------------------------------------
-   Version: Nov/2020
+   Version: Mar/2021
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
@@ -94,7 +94,7 @@ class FixConp : public Fix {
   double Ctime,Ctime1,Ctime2;
   double Ktime,Ktime1,Ktime2;
   double cgtime,cgtime1,cgtime2;
-  FILE *outf,*outa,*a_matrix_fp;
+  FILE *outf,*a_matrix_fp;
   int a_matrix_f;
   int molidL,molidR;
   int maxiter;
