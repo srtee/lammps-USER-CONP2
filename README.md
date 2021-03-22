@@ -34,7 +34,7 @@ fix [ID] [all] conp [Nevery] [η] [Molecule-ID 1] [Molecule-ID 2] [Potential 1] 
 
 `Nevery` = Compute charge every this many steps
 
-`η` = Parameter for Gaussian charge. The unit is is angstrom<sup>-1</sup>. Usually this is 19.79 for graphene.
+`η` = Parameter for Gaussian charge. The unit is is angstrom<sup>-1</sup>. Usually this is 1.979 for graphene.
 
 `Molecule-ID 1` = Molecule ID of first electrode (the second column in data file)
 
