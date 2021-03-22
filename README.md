@@ -5,18 +5,19 @@ The updated constant potential plugin for LAMMPS
 
 The USER-CONP2 package updates the original LAMMPS-CONP (https://github.com/zhenxingwang/lammps-conp) with a variety of optimizations, primarily:
 
-(1) compatibility with periodic geometries for constant potential simulations
-(2) enforced unit cell electroneutrality
-(3) equal-style variables for imposed voltages
-(4) enhanced neighborlisting to avoid unnecessary branching in pair calculations
-(5) precalculation, storage, and vectorization for massive speedups in long-range electrostatic calculations
-(6) output of total induced charge as a fix scalar
+1. compatibility with periodic geometries for constant potential simulations
+2. enforced unit cell electroneutrality
+3. equal-style variables for imposed voltages
+4. enhanced neighborlisting to avoid unnecessary branching in pair calculations
+5. precalculation, storage, and vectorization for massive speedups in long-range electrostatic calculations
+6. output of total induced charge as a fix scalar
+7. (experimental) bugfixes to make fix work across multiple 'run's and in reruns
 
 as well as miscellaneous bugfixes and updates.
 
 # Installation instructions
 
-As per the old conp: simply copy all .cpp and .h files to the lammps/src folder, and compile. Explicit vectorization is enforced in the Ewald code via the restrict keyword, so let me know if this trips up any compilers.
+As per the old conp: simply copy all .cpp and .h files to the lammps/src folder, and compile. Explicit vectorization is enforced in the Ewald code via the restrict keyword, so let me know if this trips up any compilers. Vectorization may not be enabled without the correct optimization flags.
 
 # Usage instructions
 
@@ -26,58 +27,60 @@ The fix command is mostly identical to the previous version:
 fix [ID] [all] conp [Nevery] [η] [Molecule-ID 1] [Molecule-ID 2] [Potential 1] [Potential 2] [Method] [Log] [optional keyword1] [optional value1] ...
 ```
 
-**ID** = ID of FIX command
+`ID` = ID of FIX command
 
-**[all]** = LAMMPS format requires you to list a valid group name here but it doesn't matter to the code
+`[all]` = LAMMPS format requires you to list a valid group name here but it doesn't matter to the code
 
-**Nevery** = Compute charge every this many steps
+`Nevery` = Compute charge every this many steps
 
-**η** = Parameter for Gaussian charge. The unit is is angstrom<sup>-1</sup> (see note below)
+`η` = Parameter for Gaussian charge. The unit is is angstrom<sup>-1</sup> (see note below)
 
-**Molecule-ID 1** = Molecule ID of first electrode (the second column in data file)
+`Molecule-ID 1` = Molecule ID of first electrode (the second column in data file)
 
-**Molecule-ID 2** = Molecule ID of second electrode
+`Molecule-ID 2` = Molecule ID of second electrode
 
-**Potential 1** = Potential on first electrode in V (can be v_ style variable)
+`Potential 1` = Potential on first electrode in V (can be v_ style variable)
 
-**Potential 2** = Potential on second electrode in V (can be v_ style variable)
+`Potential 2` = Potential on second electrode in V (can be v_ style variable)
 
-**Method** = Method for solving linear equations. "inv" for inverse matrix and "cg" for conjugate gradient
+`Method` = Method for solving linear equations. "inv" for inverse matrix and "cg" for conjugate gradient
 
-**Log** = Name of log file recording time usage of different parts
+`Log` = Name of log file recording time usage of different parts
 
 ## The optional keywords and values allowed are as follows:
 
-**etypes [Ntypes] [type1] [type2] ... [typeN]**
+`etypes [Ntypes] [type1] [type2] ... [typeN]`
 
 This tells fix conp that the electrode _only_ contains the specified particle types, and the electrolyte _does not_ contain the specified particle types. For example, "etypes 2 5 3" is a promise to fix conp that the electrode only contains types 3 and 5. This allows fix conp to request specialized neighbor lists from LAMMPS: in the construction of the electrode "A" matrix the neighbor list will contain _only_ electrode-electrode interactions, and in the calculation of the electrolyte "b" vector the neighbor list will contain _only_ electrode-electrolyte interactions. This will speed up your calculation by 10-20% if correctly specified, and will **silently return incorrect results if the electrode and electrolyte particle types overlap in any way.**
 
-**inv [inv_matrix_file]**
+`inv [inv_matrix_file]`
 
-**org [org_matrix_file]**
+`org [org_matrix_file]`
 
 This allows fix conp to read in a pre-existing electrode matrix for its calculations, either the A matrix ("org") or its inverse ("inv"). Option "org" will result in an electroneutral final matrix (since fix conp calculates the electroneutrality projection when inverting the A matrix), while option "inv" has no such guarantee. Use of this option is maintained for compatibility but is discouraged: there are still plenty of possible bugs lurking, and optimization (notably calculating only half the A-matrix and then mirroring by symmetry) means that the A-matrix calculation is very short for all but the largest electrode configurations.
 
-**ffield** [no values]
+`ffield [no values]`
 
 This tells fix conp to run in finite-field mode as per Dufils (2019) [1], where (1) slab corrections are disabled and (2) the electrode preset charge vector is calculated using the electrodes' z coordinates. Configurations can be switched seamlessly between slab and finite-field mode, as long as the usual changes to the script are made ("boundary p p p" instead of "boundary p p f" and no "kspace_modify slab").
 
-_However_, you must add in the electric field separately: if fix conp is run in ffield mode, you _must_ include lines like these in your script:
+**_However_, you must add in the electric field separately: if fix conp is run in ffield mode, you _must_ include lines like these in your script:**
 
+```
 variable v_zfield equal (v_L-v_R)/lz
 fix efield all efield 0.0 0.0 v_zfield
+```
 
 where v_L and v_R are the (possibly variable, or numerical) values of the left and right voltages. Note that fix efield already takes its argument in the correct units for _units real_ (V/angstroms) so no unit conversion should usually be needed. Fix conp in ffield mode will **silently return incorrect results without the electric field**; upgrading this is an urgent feature addition priority.
 
 *Note: In [1], electrode atoms are mentioned as being "set at 0V", but the effect of this is already automatically done inside the conp ffield code. You do not specify electrode voltages in any different way whatsoever in the input script when using ffield.
 
-**noslab** [no values]
+`noslab [no values]`
 
 This tells fix conp to run in no-slab-corrections mode, without further modifications. Run this with _zneutr_ (see below) unless you know what you are doing.
 
-**zneutr** [no values]
+`zneutr [no values]`
 
-This tells fix conp to enforce an additional electroneutrality constraint: the total sum of electrode charges in the right half of the box (_z_ > 0) will be zero. Thus, _noslab zneutr_ enables fix conp to run a "doubled cell" simulation, in which two cells are positioned back-to-back with reversed polarities to create a zero dipole supercell -- see Raiteri (2020) [2] for a version of this simulation geometry, but with fixed charges.
+This tells fix conp to enforce an additional electroneutrality constraint: the total sum of electrode charges in the right half of the box (_z_ > 0) will be zero. Thus, `noslab zneutr` enables fix conp to run a "doubled cell" simulation, in which two cells are positioned back-to-back with reversed polarities to create a zero dipole supercell -- see Raiteri (2020) [2] for a version of this simulation geometry, but with fixed charges.
 
 # Development: Other fixes included
 
@@ -101,7 +104,10 @@ conp/v2 --
     q*(DV) = q*(0) + DV x q_c, where Aq*(0) = b
 
 conp/v3 --
-    first version to incorporate finite field and noslab versions 
+    first version to incorporate finite field and noslab versions
+
+conp/v4 --
+    zneutr implemented and performance optimization (ewald reworking, vectorization)
    
 # Citations
     
