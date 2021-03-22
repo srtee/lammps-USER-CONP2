@@ -12,6 +12,7 @@ The USER-CONP2 package updates the original LAMMPS-CONP (https://github.com/zhen
 5. precalculation, storage, and vectorization for massive speedups in long-range electrostatic calculations
 6. output of total induced charge as a fix scalar
 7. (experimental) bugfixes to make fix work across multiple 'run's and in reruns
+8. no longer outputs amatrix and inv_a_matrix by default
 
 as well as miscellaneous bugfixes and updates.
 
@@ -84,6 +85,10 @@ This tells fix conp to run in no-slab-corrections mode, without further modifica
 
 This tells fix conp to enforce an additional electroneutrality constraint: the total sum of electrode charges in the right half of the box (_z_ > 0) will be zero. Thus, `noslab zneutr` enables fix conp to run a "doubled cell" simulation, in which two cells are positioned back-to-back with reversed polarities to create a zero dipole supercell -- see Raiteri (2020) [2] for a version of this simulation geometry, but with fixed charges.
 
+`matout [no values]`
+
+Causes fix conp to print out the A-matrix and the inverse A-matrix (if `inv` is used) to `amatrix` and `inv_a_matrix` respectively. The inverse matrix will already be projected into the space of electroneutral charge vectors (see [4], eq (21) for the expression, which they label as "S"). Note that the former conp would print out this matrix by default -- I have decided to make this capability opt-in because the A matrix reading code still has bugs lurking in it and the alternative of just computing the A matrix afresh is not much slower (and can be even faster when the B-vector optimizations are eventually added to the calculations of the A-matrix scattering factors), and the A matrix is almost never used directly, and takes up a tremendous amount of space (doubled if `inv` solver is used, which it should always be).
+
 # Development: Other fixes included
 
 The main branch contains two experimental fixes -- conp/dyn and conp/dyn2 -- which dynamically track the changes in the b-vector between timesteps and attempt to use a quadratic extrapolation to avoid having to recalculate everything. Conp/dyn tracks the overall b-vector discrepancies, while conp/dyn2 tracks the pair and kspace contributions separately. If you would like to try these out, let me know.
@@ -121,3 +126,6 @@ https://doi.org/10.1063/5.0027876
 
 [3] Zhang et al, J Phys Energy **2**: 032005 (2020)
 https://doi.org/10.1088/2515-7655/ab9d8c
+
+[4] Scalfi et al, Phys Chem Chem Phys **22**: 10480-10489 (2020)
+https://doi.org/10.1039/C9CP06285H
