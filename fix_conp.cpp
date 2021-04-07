@@ -81,10 +81,6 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   ilevel_respa = 0;
   maxiter = 100;
   tolerance = 0.000001;
-  // everynum = force->numeric(FLERR,arg[3]);
-  // eta = force->numeric(FLERR,arg[4]);
-  // molidL = force->inumeric(FLERR,arg[5]);
-  // molidR = force->inumeric(FLERR,arg[6]);
   everynum = utils::inumeric(FLERR,arg[3],false,lmp);
   eta = utils::numeric(FLERR,arg[4],false,lmp);
   molidL = utils::inumeric(FLERR,arg[5],false,lmp);
@@ -96,7 +92,6 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
     strcpy(qlstr,&arg[7][2]);
     qlstyle = EQUAL;
   } else {
-    // qL = force->numeric(FLERR,arg[7]);
     qL = utils::numeric(FLERR,arg[7],false,lmp);
   }
   if (strstr(arg[8],"v_") == arg[8]) {
@@ -105,7 +100,6 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
     strcpy(qrstr,&arg[8][2]);
     qrstyle = EQUAL;
   } else {
-    // qR = force->numeric(FLERR,arg[8]);
     qR = utils::numeric(FLERR,arg[8],false,lmp);
   }
   if (strcmp(arg[9],"cg") == 0) {
@@ -200,8 +194,6 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
 FixConp::~FixConp()
 {
   fclose(outf);
-  //memory->destroy3d_offset(cs,-kmax_created);
-  //memory->destroy3d_offset(sn,-kmax_created);
   memory->destroy(cs);
   memory->destroy(sn);
   memory->destroy(qj_global);
@@ -253,7 +245,6 @@ int FixConp::setmask()
 void FixConp::init()
 {
   MPI_Comm_rank(world,&me);
-  //Pair *coulpair;
 
   // assign coulpair to either the existing pair style if it matches 'coul'
   // or, if hybrid, the pair style matching 'coul'
@@ -265,8 +256,6 @@ void FixConp::init()
     coulpair = (Pair *) force->pair_match("coul",0,1);
     }
   if (coulpair == nullptr) error->all(FLERR,"Must use conp with coul pair style");
-  //PairHybrid *pairhybrid = dynamic_cast<PairHybrid*>(force->pair);
-  //Pair *coulpair = pairhybrid->styles[0];
   
   if (strstr(update->integrate_style,"respa")) {
     ilevel_respa = ((Respa *) update->integrate)->nlevels-1;
@@ -393,95 +382,9 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
 
 void FixConp::setup(int vflag)
 {
-  g_ewald = force->kspace->g_ewald;
-  slab_volfactor = force->kspace->slab_volfactor;
-  double accuracy = force->kspace->accuracy;
-  
-  int i;
-  double qsqsum = 0.0;
-  for (i = 0; i < atom->nlocal; i++) {
-    qsqsum += atom->q[i]*atom->q[i];
-  }
-  double tmp,q2;
-  MPI_Allreduce(&qsqsum,&tmp,1,MPI_DOUBLE,MPI_SUM,world);
-  qsqsum = tmp;
-  q2 = qsqsum * force->qqrd2e / force->dielectric;
-
-// Copied from ewald.cpp
-  double xprd = domain->xprd;
-  double yprd = domain->yprd;
-  double zprd = domain->zprd;
-  double zprd_slab = zprd*slab_volfactor;
-  volume = xprd * yprd * zprd_slab;
-
-  unitk[0] = 2.0*MY_PI/xprd;
-  unitk[1] = 2.0*MY_PI/yprd;
-  unitk[2] = 2.0*MY_PI/zprd_slab;
-
-  bigint natoms = atom->natoms;
-  double err;
-  kxmax = 1;
-  kymax = 1;
-  kzmax = 1;
-
-  err = rms(kxmax,xprd,natoms,q2);
-  while (err > accuracy) {
-    kxmax++;
-    err = rms(kxmax,xprd,natoms,q2);
-  }
-
-  err = rms(kymax,yprd,natoms,q2);
-  while (err > accuracy) {
-    kymax++;
-    err = rms(kymax,yprd,natoms,q2);
-  }
-
-  err = rms(kzmax,zprd_slab,natoms,q2);
-  while (err > accuracy) {
-    kzmax++;
-    err = rms(kzmax,zprd_slab,natoms,q2);
-  }
-
-  kmax = MAX(kxmax,kymax);
-  kmax = MAX(kmax,kzmax);
-  kmax3d = 4*kmax*kmax*kmax + 6*kmax*kmax + 3*kmax;
-
-  if (kxvecs != nullptr) delete [] kxvecs;
-  kxvecs = new int[kmax3d];
-  if (kyvecs != nullptr) delete [] kyvecs;
-  kyvecs = new int[kmax3d];
-  if (kzvecs != nullptr) delete [] kzvecs;
-  kzvecs = new int[kmax3d];
-  if (ug != nullptr) delete [] ug;
-  ug = new double[kmax3d];
-  if (kcount_dims == nullptr) kcount_dims = new int[7];
-
-  double gsqxmx = unitk[0]*unitk[0]*kxmax*kxmax;
-  double gsqymx = unitk[1]*unitk[1]*kymax*kymax;
-  double gsqzmx = unitk[2]*unitk[2]*kzmax*kzmax;
-  gsqmx = MAX(gsqxmx,gsqymx);
-  gsqmx = MAX(gsqmx,gsqzmx);
-
-  gsqmx *= 1.00001;
-
-  coeffs();
-  kmax_created = kmax;
-
-//copied from ewald.cpp end
-
   int nmax = atom->nmax;
-  //double evscale = 0.069447;
-  //vL *= evscale;
-  //vR *= evscale;
-  
-  if (sfacrl != nullptr) delete [] sfacrl;
-  sfacrl = new double[kmax3d];
-  if (sfacim != nullptr) delete [] sfacim;
-  sfacim = new double[kmax3d];
-  if (sfacrl_all != nullptr) delete [] sfacrl_all;
-  sfacrl_all = new double[kmax3d];
-  if (sfacim_all != nullptr) delete [] sfacim_all;
-  sfacim_all = new double[kmax3d];
+  ewald_setup();
+
   // To-do: encapsulate runstage == 0 into a discrete member function?
   // Especially because we should check that electrode atoms obey the
   // smartlist listings, and if not, get the list pointer from coulpair,
@@ -498,19 +401,6 @@ void FixConp::setup(int vflag)
     elytenum = 0;
     post_neighbor();
 
-    // eleall2tag = new int[elenum_all];
-    // eleall2ele = new int[elenum_all+1];
-    // elecheck_eleall = new int[elenum_all];
-    // elecheck_eleall[tag2eleall[tag[i]]] = electrode_check(i)
-    // for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
-    // for (i = 0; i <= elenum_all; i++) eleall2ele[i] = -1;
-    // aaa_all = new double[elenum_all*elenum_all];
-    // bbb_all = new double[elenum_all];
-    // memory->create(ele2tag,elenum,"fixconp:ele2tag");
-    // memory->create(ele2eleall,elenum,"fixconp:ele2eleall");
-    // memory->create(bbb,elenum,"fixconp:bbb");
-    // for (i = 0; i < natoms+1; i++) tag2eleall[i] = elenum_all;
-    // eleallq = new double[elenum_all];
     if (a_matrix_f == 0) {
       if (me == 0) printf("Fix conp is now calculating A matrix ... ");
       a_cal();
@@ -522,13 +412,8 @@ void FixConp::setup(int vflag)
     runstage = 1;
 
     gotsetq = 0; 
-    // elebuf2eleall = new int[elenum_all];
-    // bbuf = new double[elenum_all];
-    // memory->create(bbb,elenum,"fixconp:bbb");
-    //post_neighbor();
     b_setq_cal();
     equation_solve();
-    // elesetq = new double[elenum_all]; 
     get_setq();
     gotsetq = 1;
     dyn_setup(); // additional setup for dynamic versions
@@ -568,6 +453,8 @@ void FixConp::pre_force(int /* vflag */)
     update_charge();
   }
 }
+
+/* ---------------------------------------------------------------------- */
 
 void FixConp::post_force(int vflag) {
   force_cal(vflag);
@@ -663,15 +550,6 @@ void FixConp::post_neighbor()
   }
   elenum_all = displssum;
   int const elenum_all_c = elenum_all;
-  //printf("%d",elenum_all);
-
-    //volatile int q = 0;
-    //char hostname[256];
-    //gethostname(hostname, sizeof(hostname));
-    //printf("PID %d on %s ready for attach\n", getpid(), hostname);
-    //fflush(stdout);
-    //while (0 == q)
-    //    sleep(5);
 
   if (elenum_all > elenum_all_old) {
     memory->grow(eleall2tag,elenum_all,"fixconp:eleall2tag");
@@ -871,44 +749,12 @@ void FixConp::a_cal()
     fprintf(outf,"A matrix calculating ...\n");
   }
 
-  //double **eleallx = nullptr;
-  //memory->create(eleallx,elenum_all,3,"fixconp:eleallx");
 
   //gather tag,x and q
   double **x = atom->x;
-  //double *elexyzlist = new double[3*elenum];
-  //double *elexyzlist_all = new double[3*elenum_all];
-  //j = 0;
-  //for (iele = 0; iele < elenum; iele++) {
-  //  i = atom->map(ele2tag[iele]);
-  //  elexyzlist[j] = x[i][0];
-  //  j++;
-  //  elexyzlist[j] = x[i][1];
-  //  j++;
-  //  elexyzlist[j] = x[i][2];
-  //  j++;
-  //}
-  //int displs2[nprocs];
-  //int elenum_list2[nprocs];
-  //for (i = 0; i < nprocs; i++) {
-  //  elenum_list2[i] = elenum_list[i]*3;
-  //  displs2[i] = displs[i]*3;
-  //}
-  //MPI_Allgatherv(elexyzlist,elenum*3,MPI_DOUBLE,elexyzlist_all,elenum_list2,displs2,MPI_DOUBLE,world);
-  //j = 0;
-  //for (i = 0; i < elenum_all; i++) {
-  //  eleallx[i][0] = elexyzlist_all[j];
-  //  j++;
-  //  eleallx[i][1] = elexyzlist_all[j];
-  //  j++;
-  //  eleallx[i][2] = elexyzlist_all[j];
-  //  j++;
-  //}
   double *eleallz = new double[elenum_all];
   sincos_a(ff_flag,eleallz);
   // sincos_a loads coordinates into eleallz if asked to
-  //delete [] elexyzlist;
-  //delete [] elexyzlist_all;
   int idx1d,tagi;
   double zi;
   double CON_4PIoverV = MY_4PI/volume;
@@ -919,16 +765,6 @@ void FixConp::a_cal()
   int const elenum_all_c = elenum_all;
   int const elenum_c = elenum;
   int const kcount_c = kcount;
-  //for (i = 0; i < elenum_c*elenum_all_c; ++i) {
-  //  aaa[i] = 0.0;
-  //}
-  // double *elez = new double[elenum];
-  // if (ff_flag == NORMAL) {
-  //  for (iele = 0; iele < elenum; ++i) {
-  //    elez[iele] = x[atom->map(ele2tag[iele])][2];
-  //  }
-  //  b_comm(elez,eleallz);
-  // }
   for (i = 0; i < elenum_c; ++i) {
     int const elealli = ele2eleall[i];
     idx1d=i*elenum_all;
@@ -937,6 +773,7 @@ void FixConp::a_cal()
       for (k = 0; k < kcount_c; ++k) {
         aaatmp += 0.5*(csk[elealli][k]*csk[j][k]+snk[elealli][k]*snk[j][k])/ug[k];
       }
+      // slab correction:
       if (ff_flag == NORMAL) aaatmp += CON_4PIoverV*eleallz[elealli]*eleallz[j];
       aaa[idx1d] = aaatmp;
       idx1d++;
@@ -944,7 +781,6 @@ void FixConp::a_cal()
     idx1d = i*elenum_all+elealli;
     aaa[idx1d] += CON_s2overPIS*eta-CON_2overPIS*g_ewald; //gaussian self correction
   }
-  //memory->destroy(eleallx);
   delete [] eleallz;
 
   if (smartlist) alist_coul_cal(aaa);
@@ -1079,8 +915,6 @@ void FixConp::sincos_b()
   // kc tracks the index of kcount
   int jmax;
   int kx,ky,kz,kxy;
-  // double cstr1,sstr1,cstr2,sstr2,cstr3,sstr3,cstr4,sstr4;
-  // double sqk,clpm,slpm;
 
   double temprl0,temprl1,temprl2,temprl3;
   double tempim0,tempim1,tempim2,tempim3;
@@ -1095,11 +929,6 @@ void FixConp::sincos_b()
   jmax = 0;
   kf = 0;
   kc = 0;
-
-  //for (kc = 0; kc < kcount; ++kc) {
-  //  sfacrl[kc] = 0;
-  //  sfacim[kc] = 0;
-  //}
 
   for (i = 0; i < nlocal; ++i) {
     if (electrode_check(i) == 0 && q[i] != 0){
@@ -2157,6 +1986,95 @@ void FixConp::coeffs()
   }
 }
 
+/* ---------------------------------------------------------------------- */
+void FixConp::ewald_setup()
+{
+  g_ewald = force->kspace->g_ewald;
+  slab_volfactor = force->kspace->slab_volfactor;
+  double accuracy = force->kspace->accuracy;
+  
+  int i;
+  double qsqsum = 0.0;
+  for (i = 0; i < atom->nlocal; i++) {
+    qsqsum += atom->q[i]*atom->q[i];
+  }
+  double tmp,q2;
+  MPI_Allreduce(&qsqsum,&tmp,1,MPI_DOUBLE,MPI_SUM,world);
+  qsqsum = tmp;
+  q2 = qsqsum * force->qqrd2e / force->dielectric;
+
+// Copied from ewald.cpp
+  double xprd = domain->xprd;
+  double yprd = domain->yprd;
+  double zprd = domain->zprd;
+  double zprd_slab = zprd*slab_volfactor;
+  volume = xprd * yprd * zprd_slab;
+
+  unitk[0] = 2.0*MY_PI/xprd;
+  unitk[1] = 2.0*MY_PI/yprd;
+  unitk[2] = 2.0*MY_PI/zprd_slab;
+
+  bigint natoms = atom->natoms;
+  double err;
+  kxmax = 1;
+  kymax = 1;
+  kzmax = 1;
+
+  err = rms(kxmax,xprd,natoms,q2);
+  while (err > accuracy) {
+    kxmax++;
+    err = rms(kxmax,xprd,natoms,q2);
+  }
+
+  err = rms(kymax,yprd,natoms,q2);
+  while (err > accuracy) {
+    kymax++;
+    err = rms(kymax,yprd,natoms,q2);
+  }
+
+  err = rms(kzmax,zprd_slab,natoms,q2);
+  while (err > accuracy) {
+    kzmax++;
+    err = rms(kzmax,zprd_slab,natoms,q2);
+  }
+
+  kmax = MAX(kxmax,kymax);
+  kmax = MAX(kmax,kzmax);
+  kmax3d = 4*kmax*kmax*kmax + 6*kmax*kmax + 3*kmax;
+
+  if (kxvecs != nullptr) delete [] kxvecs;
+  kxvecs = new int[kmax3d];
+  if (kyvecs != nullptr) delete [] kyvecs;
+  kyvecs = new int[kmax3d];
+  if (kzvecs != nullptr) delete [] kzvecs;
+  kzvecs = new int[kmax3d];
+  if (ug != nullptr) delete [] ug;
+  ug = new double[kmax3d];
+  if (kcount_dims == nullptr) kcount_dims = new int[7];
+
+  double gsqxmx = unitk[0]*unitk[0]*kxmax*kxmax;
+  double gsqymx = unitk[1]*unitk[1]*kymax*kymax;
+  double gsqzmx = unitk[2]*unitk[2]*kzmax*kzmax;
+  gsqmx = MAX(gsqxmx,gsqymx);
+  gsqmx = MAX(gsqmx,gsqzmx);
+
+  gsqmx *= 1.00001;
+
+  coeffs();
+  kmax_created = kmax;
+  if (sfacrl != nullptr) delete [] sfacrl;
+  sfacrl = new double[kmax3d];
+  if (sfacim != nullptr) delete [] sfacim;
+  sfacim = new double[kmax3d];
+  if (sfacrl_all != nullptr) delete [] sfacrl_all;
+  sfacrl_all = new double[kmax3d];
+  if (sfacim_all != nullptr) delete [] sfacim_all;
+  sfacim_all = new double[kmax3d];
+
+
+}
+
+/* ---------------------------------------------------------------------- */
 void FixConp::end_of_step()
 {
   if(update->ntimestep % everynum == 0) {
