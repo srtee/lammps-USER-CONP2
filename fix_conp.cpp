@@ -383,7 +383,7 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
 void FixConp::setup(int vflag)
 {
   int nmax = atom->nmax;
-  ewald_setup();
+  kspace_setup();
 
   // To-do: encapsulate runstage == 0 into a discrete member function?
   // Especially because we should check that electrode atoms obey the
@@ -392,6 +392,7 @@ void FixConp::setup(int vflag)
   // not too late to process that here because we haven't done a_cal yet
   preforceflag = false;
   if (runstage == 0) {
+    bigint natoms = atom->natoms;
     tag2eleall = new int[natoms+1];
     int nprocs = comm->nprocs;
     elenum_list = new int[nprocs];
@@ -748,7 +749,6 @@ void FixConp::a_cal()
   if (me == 0) {
     fprintf(outf,"A matrix calculating ...\n");
   }
-
 
   //gather tag,x and q
   double **x = atom->x;
@@ -1987,7 +1987,7 @@ void FixConp::coeffs()
 }
 
 /* ---------------------------------------------------------------------- */
-void FixConp::ewald_setup()
+void FixConp::kspace_setup()
 {
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;

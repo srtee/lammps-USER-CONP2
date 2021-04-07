@@ -17,10 +17,11 @@ if "$n <= 1" then "boundary p p f" else "boundary p p p"
 atom_style          full 
 
 ##force field
-pair_style          lj/cut/coul/long 4.0
+pair_style          lj/cut/coul/long 16.0
+pair_modify         mix arithmetic
 bond_style          harmonic
 angle_style         harmonic
-kspace_style        pppm 1.0e-6
+kspace_style        pppm 1.0e-7
 if "$n <= 1" then "kspace_modify slab 3.0"
 #you can try forcing kspace mesh same xy resolution
 #to eliminate spurious differences
@@ -32,20 +33,10 @@ if "$n <= 1" then "kspace_modify slab 3.0"
 
 ##atom definition
 read_data           data
-pair_coeff   1   1         0.09935850       3.40000000  # CAB CAB
-pair_coeff   1   2         0.19419428       3.50000000  # CAB CAC
-pair_coeff   1   3         0.07390356       3.38500000  # CAB CG
-pair_coeff   1   4         0.09935850       3.35000000  # CAB NAA
-pair_coeff   2   2         0.37954900       3.60000000  # CAC CAC
-pair_coeff   2   3         0.14444310       3.48500000  # CAC CG
-pair_coeff   2   4         0.19419428       3.45000000  # CAC NAA
-pair_coeff   3   3         0.05497000       3.37000000  # CG CG
-pair_coeff   3   4         0.07390356       3.33500000  # CG NAA
-pair_coeff   4   4         0.09935850       3.30000000  # NAA NAA
 
-variable molmax   equal 82
-variable molleft  equal 81
-variable molright equal 82
+variable molmax   equal 642
+variable molleft  equal 641
+variable molright equal 642
 
 ##replicate cell if noslab zneutr
 if "$n == 3 || $n == 4" then &
@@ -64,9 +55,10 @@ elif "$n == 4" &
 
 ##setting
 neighbor            2 bin
-group sol type 1 2 4
+group sol type 1:4
 variable q atom q
-group ele           type 3
+variable etype equal 5
+group ele           type ${etype}
 group eleleft       molecule ${molleft}
 group eleright      molecule ${molright}
 if "$n != 3 && $n != 4" then &
@@ -101,12 +93,12 @@ fix 0 ele setforce 0.0 0.0 0.0
 if "$n == 0" then &
 "fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter" &
 elif "$n == 1"  &
-"fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter etypes 1 3" &
+"fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter etypes 1 ${etype}" &
 elif "$n == 2"  &
-"fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter etypes 1 3 ffield" &
+"fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter etypes 1 ${etype} ffield" &
 "fix efield all efield 0 0 $(-1.0/lz) " &
 elif "$n == 3 || $n == 4"  &
-"fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter etypes 1 3 noslab zneutr" &
+"fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter etypes 1 ${etype} noslab zneutr" &
 elif "$n == 5"  &
 "fix e all conp 1 1.979 ${molleft} ${molright} -0.5 0.5 inv iter ffield"
 
