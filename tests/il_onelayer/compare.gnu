@@ -112,7 +112,7 @@ set cbtics  norangelimit autofreq
 set rtics axis in scale 1,0.5 nomirror norotate  autojustify
 set rtics  norangelimit autofreq 
 unset ttics
-set title "Calibration: ACN solvent only, pd = 1V" 
+set title "Calibration: BMI-PF6, pd = 1V" 
 set title  font "" norotate
 set timestamp bottom 
 set timestamp "" 
@@ -126,11 +126,11 @@ set x2label ""
 set x2label  font "" textcolor lt -1 norotate
 set xrange [ 0.00000 : 500.000 ] noreverse nowriteback
 set x2range [ * : * ] noreverse nowriteback
-set ylabel "total dipole (q_e x angstrom)" 
+set ylabel "q (q_e)" 
 set ylabel  font "" textcolor lt -1 rotate
 set y2label "" 
 set y2label  font "" textcolor lt -1 rotate
-set yrange [ * : * ] noreverse nowriteback
+set yrange [ -.5 : .5 ] noreverse nowriteback
 set y2range [ * : * ] noreverse nowriteback
 set zlabel "" 
 set zlabel  font "" textcolor lt -1 norotate
@@ -166,10 +166,12 @@ GNUTERM = "wxt"
 ## Last datafile plotted: "log.lammps_7"
 #set for [i=4:19] linetype i dashtype 2
 nsteps=1
-plot 'log.lammps_2' u ($1*nsteps):7 every ::25 lt 1 pt 6 t 'fcm slab',\
-  'log.lammps_6' u ($1*nsteps):11 lt 2 pt 8 t 'fcm 2cell sym (left)',\
-  'log.lammps_6' u ($1*nsteps):(-$12) lt 2 pt 8 t 'fcm 2cell sym (right)',\
-  'log.lammps_7' u ($1*nsteps):11 lt 3 pt 10 t 'fcm 2cell anti (left)',\
-  'log.lammps_7' u ($1*nsteps):(-$12) lt 3 pt 10 t 'fcm 2cell anti (right)'
-
+plot NaN t "sym" lc rgb "white",\
+  'log.lammps_3' u ($1*nsteps):(-$4) lt 1 pt 6 t 'left',\
+  '' u ($1*nsteps):($7) lt 1 pt 6 dashtype 2 t 'right',\
+  NaN t "anti" lc rgb "white" ,\
+  'log.lammps_4' u ($1*nsteps):(-$4) lt 2 pt 8 t 'left',\
+  '' u ($1*nsteps):(-$7) lt 2 dashtype 2 pt 8 t 'right',\
+  'log.lammps_1' u ($1*nsteps):(-$4) lt 4 pt 12 t 'slab',\
+  'log.lammps_2' u ($1*nsteps):(-$4) lt 3 pt 10 t 'ffield'
 #    EOF

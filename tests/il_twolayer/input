@@ -1,0 +1,134 @@
+variable n getenv "N"
+log log.lammps_$n
+
+# trial numbers:
+# 0 = conp slab
+# 1 = conp slab etypes
+# 2 = conp ffield etypes [write traj]
+# 3 = conp noslab zneutr etypes [sym]
+# 4 = conp noslab zneutr etypes [anti]
+# 5 = conp ffield etypes [rerun]
+
+units               real    
+dimension           3   
+newton              off 
+#processors          * * 2
+if "$n <= 1" then "boundary p p f" else "boundary p p p"
+atom_style          full 
+
+##force field
+pair_style          lj/cut/coul/long 16.0
+pair_modify         mix arithmetic
+bond_style          harmonic
+angle_style         harmonic
+kspace_style        pppm 1.0e-7
+if "$n <= 1" then "kspace_modify slab 3.0"
+#you can try forcing kspace mesh same xy resolution
+#to eliminate spurious differences
+#but fix/conp's own internal k meshing isn't controlled :(
+#resolutions determined by first running:
+#if "$n <= 5" then "kspace_modify mesh 30 27 324 slab 3.0" &
+#elif "$n == 6" "kspace_modify mesh 30 27 144" &
+#elif "$n == 7" "kspace_modify mesh 30 27 250"
+
+##atom definition
+read_data           data
+
+variable molmax   equal 646
+variable molleft  equal 641
+variable molright equal 642
+
+set mol $(v_molleft+2) mol ${molleft}
+set mol $(v_molright+2) mol ${molright}
+
+##replicate cell if noslab zneutr
+if "$n == 3 || $n == 4" then &
+"replicate 1 1 2" &
+"change_box all z final $(-lz/2) $(lz/2) remap units box" &
+"region pos block EDGE EDGE EDGE EDGE 0 EDGE" &
+"group pos region pos"
+if "$n == 3" then &
+"variable newz atom lz/2-z" &
+"variable newvz atom -vz" &
+"set group pos z v_newz" &
+"set group pos vz v_newvz" &
+"set mol $(v_molmax+v_molright) mol ${molright}" &
+"set mol $(v_molmax+v_molleft)  mol ${molleft}" &
+elif "$n == 4" &
+"set mol $(v_molmax+v_molright) mol ${molleft}" &
+"set mol $(v_molmax+v_molleft)  mol ${molright}" &
+
+##setting
+#neighbor            2 bin
+group sol type 1:4
+variable q atom q
+variable etype equal 5
+group ele           type ${etype}
+group eleleft       molecule ${molleft}
+group eleright      molecule ${molright}
+if "$n != 3 && $n != 4" then &
+"group eleall        union eleleft eleright" &
+"compute qleft       eleleft  reduce sum v_q" &
+"compute qright      eleright reduce sum v_q" &
+"compute qall        eleall   reduce sum v_q" &
+"compute tempsl      sol      temp" &
+elif "$n == 3 || $n == 4" &
+"group solpos  intersect sol   pos" &
+"group solneg  subtract  sol   solpos" &
+"group elepos  intersect ele   pos" &
+"group eleneg  subtract  ele   elepos" &
+"group eleleftpos  intersect eleleft   pos" &
+"group elerightpos intersect eleright  pos" &
+"group eleleftneg  subtract  eleleft   eleleftpos" &
+"group elerightneg subtract  eleright  elerightpos" &
+"compute qleftpos       eleleftpos  reduce sum v_q" &
+"compute qleftneg       eleleftneg  reduce sum v_q" &
+"compute qrightpos      elerightpos reduce sum v_q" &
+"compute qrightneg      elerightneg reduce sum v_q" &
+"compute qpos           elepos      reduce sum v_q" &
+"compute qneg           eleneg      reduce sum v_q" &
+"compute temppos   solpos temp" &
+"compute tempneg   solneg temp"
+
+run_style           verlet
+timestep            2
+velocity ele set 0.0 0.0 0.0
+#fix 0 ele setforce 0.0 0.0 0.0
+variable v equal 1.0
+
+if "$n == 0" then &
+"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter" &
+elif "$n == 1"  &
+"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype}" &
+elif "$n == 2"  &
+"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} ffield" &
+"fix efield all efield 0 0 $(-2*v_v/lz) " &
+elif "$n == 3 || $n == 4"  &
+"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} noslab zneutr" &
+elif "$n == 5"  &
+"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter ffield"
+
+variable t equal 500
+group bmi type 1:3
+fix bmishake bmi shake 0.0001 10 0 t 1 2 3 b 1 2 a 1
+
+if "$n <= 2" then &
+"fix 1 sol nvt temp $t $t 100.0" &
+elif "$n == 3 || $n == 4" &
+"fix 1 solpos nvt temp $t $t 100.0" &
+"fix 2 solneg nvt temp $t $t 100.0"
+
+if "$n != 3 && $n != 4" then &
+"thermo_style custom step temp c_tempsl c_qleft c_qright c_qall" &
+elif "$n == 3 || $n == 4" &
+"thermo_style custom step temp c_temppos c_qleftneg c_qrightneg c_qneg c_qrightpos c_qleftpos c_qpos c_tempneg"
+thermo              20
+
+if "$n == 1 || $n == 2" then "dump dsol sol atom 20 sol$n.traj"
+
+if "$n <= 4" then "run 500" &
+elif "$n == 5" &
+"rerun sol1.traj dump x y z" &
+"rerun sol1.traj dump x y z" &
+"rerun sol2.traj dump x y z"
+
