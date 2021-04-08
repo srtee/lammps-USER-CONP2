@@ -38,6 +38,7 @@ class FixConp : public Fix {
   int setmask();
   void init();
   void setup(int);
+  void kspace_setup();
   void pre_force(int);
   void post_neighbor();
   void post_force(int);
