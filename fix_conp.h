@@ -38,7 +38,6 @@ class FixConp : public Fix {
   int setmask();
   void init();
   void setup(int);
-  void kspace_setup();
   void pre_force(int);
   void post_neighbor();
   void post_force(int);
@@ -66,7 +65,7 @@ class FixConp : public Fix {
   virtual void dyn_setup() {}
   void init_list(int, class NeighList*);
   void end_of_step();
-
+  
  protected:
   class NeighList *list;
   int ff_flag; 
@@ -101,11 +100,17 @@ class FixConp : public Fix {
   int maxiter;
   double tolerance;
 
-  double rms(int,double,bigint,double);
-  void coeffs();
-
   char *qlstr,*qrstr;
 
+  virtual void kspace_constructor();
+  virtual void kspace_setup();
+  virtual void kspace_setup_allocate();
+  virtual void kspace_elyte_allocate();
+  virtual void kspace_ele_allocate();
+  virtual void kspace_deallocate();
+  virtual void kspace_sincos_a(double **, double **);
+  double rms(int,double,bigint,double);
+  void coeffs();
   double unitk[3];
   double *ug;
   double g_ewald,eta,gsqmx,volume,slab_volfactor;
@@ -118,6 +123,7 @@ class FixConp : public Fix {
   int *kxy_list;
   int kxmax,kymax,kzmax;
   double *sfacrl,*sfacrl_all,*sfacim,*sfacim_all;
+
   int everynum;
   Pair *coulpair;
 

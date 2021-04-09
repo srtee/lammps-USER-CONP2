@@ -162,8 +162,13 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
       error->all(FLERR,"Invalid fix conp input command");
     }
   }
+  scalar_flag = 1;
+  extscalar = 0;
+  global_freq = 1;
+  initflag = false;
+  runstage = 0; //after operation
+                //0:init; 1: a_cal; 2: first sin/cos cal; 3: inv only, aaa inverse
   elenum = elenum_old = 0;
-  csk = snk = nullptr;
   aaa_all = nullptr;
   bbb_all = nullptr;
   eleallq = elesetq = nullptr;
@@ -173,20 +178,9 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   bbb = bbuf = nullptr;
   Btime = cgtime = Ctime = Ktime = 0;
   alist = blist = list = nullptr;
-  runstage = 0; //after operation
-                //0:init; 1: a_cal; 2: first sin/cos cal; 3: inv only, aaa inverse
   totsetq = 0;
   gotsetq = 0;  //=1 after getting setq vector
-  cs = sn = nullptr;
-  qj_global = nullptr;
-  kxy_list = nullptr;
-  kxvecs = kyvecs = kzvecs = kcount_dims = nullptr;
-  sfacrl = sfacim = sfacrl_all = sfacim_all = nullptr;
-  ug = nullptr;
-  scalar_flag = 1;
-  extscalar = 0;
-  global_freq = 1;
-  initflag = false;
+  kspace_constructor();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -194,8 +188,6 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
 FixConp::~FixConp()
 {
   fclose(outf);
-  memory->destroy(cs);
-  memory->destroy(sn);
   memory->destroy(qj_global);
   memory->destroy(bbb);
   memory->destroy(ele2tag);
@@ -209,23 +201,12 @@ FixConp::~FixConp()
   memory->destroy(elebuf2eleall);
   memory->destroy(bbuf);
   memory->destroy(elesetq);
-  memory->destroy(csk);
-  memory->destroy(snk);
   delete [] tag2eleall;
-  delete [] kxvecs;
-  delete [] kyvecs;
-  delete [] kzvecs;
-  delete [] ug;
-  delete [] sfacrl;
-  delete [] sfacim;
-  delete [] sfacrl_all;
-  delete [] sfacim_all;
   delete [] qlstr;
   delete [] qrstr;
   delete [] displs;
   delete [] elenum_list;
-  delete [] kcount_dims;
-  delete [] kxy_list;
+  kspace_deallocate();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -382,7 +363,6 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
 
 void FixConp::setup(int vflag)
 {
-  int nmax = atom->nmax;
   kspace_setup();
 
   // To-do: encapsulate runstage == 0 into a discrete member function?
@@ -401,6 +381,7 @@ void FixConp::setup(int vflag)
     elenum_all = 0;
     elytenum = 0;
     post_neighbor();
+    kspace_ele_allocate();
 
     if (a_matrix_f == 0) {
       if (me == 0) printf("Fix conp is now calculating A matrix ... ");
@@ -422,88 +403,6 @@ void FixConp::setup(int vflag)
   }
 }
 
-/* ---------------------------------------------------------------------- */
-
-void FixConp::pre_force(int /* vflag */)
-{
-  if(update->ntimestep % everynum == 0) {
-    preforceflag = true;
-    if (strstr(update->integrate_style,"verlet")) { //not respa
-      Btime1 = MPI_Wtime();
-      b_cal();
-      Btime2 = MPI_Wtime();
-      Btime += Btime2-Btime1;
-      if (update->laststep == update->ntimestep) {
-        double Btime_all;
-        MPI_Reduce(&Btime,&Btime_all,1,MPI_DOUBLE,MPI_SUM,0,world);
-        double Ctime_all;
-        MPI_Reduce(&Ctime,&Ctime_all,1,MPI_DOUBLE,MPI_SUM,0,world);
-        double Ktime_all;
-        MPI_Reduce(&Ktime,&Ktime_all,1,MPI_DOUBLE,MPI_SUM,0,world);
-        if (me == 0) {
-          Btime = Btime_all/comm->nprocs;
-          Ctime = Ctime_all/comm->nprocs;
-          Ktime = Ktime_all/comm->nprocs;
-          fprintf(outf,"B vector calculation time = %g\n",Btime);
-          fprintf(outf,"Coulomb calculation time = %g\n",Ctime);
-          fprintf(outf,"Kspace calculation time = %g\n",Ktime);
-        }
-      }
-    }
-    equation_solve();
-    update_charge();
-  }
-}
-
-/* ---------------------------------------------------------------------- */
-
-void FixConp::post_force(int vflag) {
-  force_cal(vflag);
-}
-
-/* ---------------------------------------------------------------------- */
-
-int FixConp::electrode_check(int atomid)
-{
-  int *molid = atom->molecule;
-  if (molid[atomid] == molidL) return 1;
-  else if (molid[atomid] == molidR) return -1;
-  else return 0;
-}
-
-/* ----------------------------------------------------------------------*/
-
-void FixConp::b_setq_cal()
-{
-  int i,iall,iloc,eci;
-  int *tag = atom->tag;
-  int nlocal = atom->nlocal;
-  double evscale = force->qe2f/force->qqr2e;
-  double **x = atom->x;
-  double zprd = domain->zprd;
-  double zprd_half = domain->zprd_half;
-  double zhalf = zprd_half + domain->boxlo[2];
-  int const elenum_c = elenum;
-  for (iloc = 0; iloc < elenum_c; ++iloc) {
-    iall = ele2eleall[iloc];
-    i = atom->map(ele2tag[iloc]);
-    eci = electrode_check(i);
-    if (ff_flag == FFIELD) {
-      if (eci == 1 && x[i][2] < zhalf) {
-        bbb[iloc] = -(x[i][2]/zprd + 1)*evscale;
-      }
-      else bbb[iloc] = -x[i][2]*evscale/zprd;
-    }
-    else bbb[iloc] = -0.5*evscale*eci;
-    elecheck_eleall[iall] = eci;
-  }
-  MPI_Allreduce(MPI_IN_PLACE,elecheck_eleall,elenum_all,MPI_INT,MPI_SUM,world);
-  // this really could be a b_comm but I haven't written the method for an int array
-  b_comm(bbb,bbb_all);
-  if (runstage == 1) runstage = 2;
-}
-
-
 /* ----------------------------------------------------------------------*/
 
 void FixConp::post_neighbor()
@@ -524,13 +423,7 @@ void FixConp::post_neighbor()
     }
   }
   elytenum = nlocal - elenum;
-  if (elytenum > elytenum_old+10) {
-    if (cs != nullptr) memory->destroy(cs);
-    memory->create(cs,kcount_flat,elytenum+10,"fixconp:cs");
-    if (sn != nullptr) memory->destroy(sn);
-    memory->create(sn,kcount_flat,elytenum+10,"fixconp:sn");
-    memory->grow(qj_global,elytenum+10,"fixconp:qj_global");
-  }
+  if (elytenum > elytenum_old) kspace_elyte_allocate();
   if (elenum > elenum_old) {
     memory->grow(ele2tag,elenum,"fixconp:ele2tag");
     memory->grow(ele2eleall,elenum,"fixconp:ele2eleall");
@@ -581,6 +474,107 @@ void FixConp::post_neighbor()
   MPI_Allgatherv(ele2eleall,elenum,MPI_INT,elebuf2eleall,elenum_list,displs,MPI_INT,world);
 }
 
+/* ---------------------------------------------------------------------- */
+
+void FixConp::pre_force(int /* vflag */)
+{
+  if(update->ntimestep % everynum == 0) {
+    preforceflag = true;
+    if (strstr(update->integrate_style,"verlet")) { //not respa
+      Btime1 = MPI_Wtime();
+      b_cal();
+      Btime2 = MPI_Wtime();
+      Btime += Btime2-Btime1;
+      if (update->laststep == update->ntimestep) {
+        double Btime_all;
+        MPI_Reduce(&Btime,&Btime_all,1,MPI_DOUBLE,MPI_SUM,0,world);
+        double Ctime_all;
+        MPI_Reduce(&Ctime,&Ctime_all,1,MPI_DOUBLE,MPI_SUM,0,world);
+        double Ktime_all;
+        MPI_Reduce(&Ktime,&Ktime_all,1,MPI_DOUBLE,MPI_SUM,0,world);
+        if (me == 0) {
+          Btime = Btime_all/comm->nprocs;
+          Ctime = Ctime_all/comm->nprocs;
+          Ktime = Ktime_all/comm->nprocs;
+          fprintf(outf,"B vector calculation time = %g\n",Btime);
+          fprintf(outf,"Coulomb calculation time = %g\n",Ctime);
+          fprintf(outf,"Kspace calculation time = %g\n",Ktime);
+        }
+      }
+    }
+    equation_solve();
+    update_charge();
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixConp::post_force(int vflag) {
+  force_cal(vflag);
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixConp::end_of_step()
+{
+  if(update->ntimestep % everynum == 0) {
+    if ( !preforceflag ) {
+      post_neighbor();
+      pre_force(0);
+    }
+    else preforceflag = false;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+double FixConp::compute_scalar()
+{
+  return addv;
+}
+
+/* ---------------------------------------------------------------------- */
+
+int FixConp::electrode_check(int atomid)
+{
+  int *molid = atom->molecule;
+  if (molid[atomid] == molidL) return 1;
+  else if (molid[atomid] == molidR) return -1;
+  else return 0;
+}
+
+/* ----------------------------------------------------------------------*/
+
+void FixConp::b_setq_cal()
+{
+  int i,iall,iloc,eci;
+  int *tag = atom->tag;
+  int nlocal = atom->nlocal;
+  double evscale = force->qe2f/force->qqr2e;
+  double **x = atom->x;
+  double zprd = domain->zprd;
+  double zprd_half = domain->zprd_half;
+  double zhalf = zprd_half + domain->boxlo[2];
+  int const elenum_c = elenum;
+  for (iloc = 0; iloc < elenum_c; ++iloc) {
+    iall = ele2eleall[iloc];
+    i = atom->map(ele2tag[iloc]);
+    eci = electrode_check(i);
+    if (ff_flag == FFIELD) {
+      if (eci == 1 && x[i][2] < zhalf) {
+        bbb[iloc] = -(x[i][2]/zprd + 1)*evscale;
+      }
+      else bbb[iloc] = -x[i][2]*evscale/zprd;
+    }
+    else bbb[iloc] = -0.5*evscale*eci;
+    elecheck_eleall[iall] = eci;
+  }
+  MPI_Allreduce(MPI_IN_PLACE,elecheck_eleall,elenum_all,MPI_INT,MPI_SUM,world);
+  // this really could be a b_comm but I haven't written the method for an int array
+  b_comm(bbb,bbb_all);
+  if (runstage == 1) runstage = 2;
+}
+
 /* ----------------------------------------------------------------------*/
 
 void FixConp::b_comm(double* bsend, double* brecv)
@@ -605,13 +599,6 @@ void FixConp::update_bk(bool coulyes, double* bbb_all)
 {
   Ktime1 = MPI_Wtime();
   int i,j,k,elei;
-  int nmax = atom->nmax;
-  if (atom->nlocal > nmax) {
-    memory->destroy(cs);
-    memory->destroy(sn);
-    nmax = atom->nmax;
-    kmax_created = kmax;
-  }
   sincos_b();
   MPI_Allreduce(sfacrl,sfacrl_all,kcount,MPI_DOUBLE,MPI_SUM,world);
   MPI_Allreduce(sfacim,sfacim_all,kcount,MPI_DOUBLE,MPI_SUM,world);
@@ -735,10 +722,12 @@ void FixConp::a_read()
     }
   }
   MPI_Allgatherv(ele2eleall,elenum,MPI_INT,elebuf2eleall,elenum_list,displs,MPI_INT,world);
-  sincos_a(ff_flag,nullptr);
+  // sincos_a(ff_flag,nullptr);
+  kspace_sincos_a(csk,snk);
 }
 
 /*----------------------------------------------------------------------- */
+
 void FixConp::a_cal()
 {
   double t1,t2;
@@ -750,11 +739,17 @@ void FixConp::a_cal()
     fprintf(outf,"A matrix calculating ...\n");
   }
 
-  //gather tag,x and q
-  double **x = atom->x;
+  // gather tag,x and q
   double *eleallz = new double[elenum_all];
-  sincos_a(ff_flag,eleallz);
-  // sincos_a loads coordinates into eleallz if asked to
+  int const elenum_c = elenum;
+  kspace_sincos_a(csk,snk);
+  if (ff_flag == NORMAL) {
+    double *elez = new double[elenum];
+    double **x = atom->x;
+    for (i = 0; i < elenum_c; ++i) elez[i] = x[atom->map(ele2tag[i])][2];
+    b_comm(elez,eleallz);
+    delete [] elez;
+  }
   int idx1d,tagi;
   double zi;
   double CON_4PIoverV = MY_4PI/volume;
@@ -763,8 +758,8 @@ void FixConp::a_cal()
   double *aaa = new double[elenum*elenum_all];
   double aaatmp;
   int const elenum_all_c = elenum_all;
-  int const elenum_c = elenum;
   int const kcount_c = kcount;
+
   for (i = 0; i < elenum_c; ++i) {
     int const elealli = ele2eleall[i];
     idx1d=i*elenum_all;
@@ -829,91 +824,11 @@ void FixConp::a_cal()
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
 }
-/*--------------------------------------------------------------*/
-
-void FixConp::sincos_a(int ff_flag,double *eleallz)
-{
-  memory->create(csk,elenum_all,kcount,"fixconp:csk");
-  memory->create(snk,elenum_all,kcount,"fixconp:snk");
-  int i,j,m,k,ic,iele;
-  int kx,ky,kz,kinc;
-  double ***csele,***snele;
-  memory->create3d_offset(csele,-kmax,kmax,3,elenum_all,"fixconp:csele");
-  memory->create3d_offset(snele,-kmax,kmax,3,elenum_all,"fixconp:snele");
-  double sqk,cypz,sypz;
-  double *elex = new double[elenum];
-  double *elex_all = new double[elenum_all];
-  int nlocal = atom->nlocal;
-  double **x = atom->x;
-  int const elenum_all_c = elenum_all;
-  int const elenum_c = elenum;
-  int const kcount_c = kcount;
-
-  kinc = 0;
-
-  for (ic = 0; ic < 3; ic++) {
-    for (iele = 0; iele < elenum_c; ++iele) {
-      elex[iele] = x[atom->map(ele2tag[iele])][ic];
-    }
-    b_comm(elex,elex_all);
-    if (ff_flag == NORMAL && ic == 2 && eleallz != nullptr) {
-      for (i = 0; i < elenum_all_c; ++i) eleallz[i] = elex_all[i];
-    }
-    #pragma ivdep
-    for (i = 0; i < elenum_all_c; i++) {
-      k = kinc;
-      csele[0][ic][i] = 1.0;
-      snele[0][ic][i] = 0.0;
-      csele[1][ic][i] = cos(unitk[ic]*elex_all[i]);
-      snele[1][ic][i] = sin(unitk[ic]*elex_all[i]);
-      csele[-1][ic][i] = csele[1][ic][i];
-      snele[-1][ic][i] = -snele[1][ic][i];
-      csk[i][k] = 2.0*ug[k]*csele[1][ic][i];
-      snk[i][k] = 2.0*ug[k]*snele[1][ic][i];
-      ++k;
-      for (m = 2; m <= kcount_dims[ic]; m++) {
-        csele[m][ic][i] = csele[m-1][ic][i]*csele[1][ic][i] -
-          snele[m-1][ic][i]*snele[1][ic][i];
-        snele[m][ic][i] = snele[m-1][ic][i]*csele[1][ic][i] +
-          csele[m-1][ic][i]*snele[1][ic][i];
-        csele[-m][ic][i] = csele[m][ic][i];
-        snele[-m][ic][i] = -snele[m][ic][i];
-        csk[i][k] = 2.0*ug[k]*csele[m][ic][i];
-        snk[i][k] = 2.0*ug[k]*snele[m][ic][i];
-        ++k;
-      }
-    }
-    kinc = k;
-  }
-
-  delete [] elex;
-  delete [] elex_all;
-
-  for (k = kinc; k < kcount_c; ++k) {
-    kx = kxvecs[k];
-    ky = kyvecs[k];
-    kz = kzvecs[k];
-    #pragma ivdep
-    for (i = 0; i < elenum_all_c; ++i) {
-      cypz = csele[ky][1][i]*csele[kz][2][i] - snele[ky][1][i]*snele[kz][2][i];
-      sypz = snele[ky][1][i]*csele[kz][2][i] + csele[ky][1][i]*snele[kz][2][i];
-      csk[i][k] = csele[kx][0][i]*cypz - snele[kx][0][i]*sypz;
-      snk[i][k] = snele[kx][0][i]*cypz + csele[kx][0][i]*sypz;
-      csk[i][k] *= 2.0*ug[k];
-      snk[i][k] *= 2.0*ug[k];
-    }
-  }
-  memory->destroy3d_offset(csele,-kmax_created);
-  memory->destroy3d_offset(snele,-kmax_created);
-} 
 
 /*--------------------------------------------------------------*/
 void FixConp::sincos_b()
 {
-  int i,j,k,l,m,n,ic,kf,kc,k1;
-  // kf tracks the first index of cs / sn,
-  // kc tracks the index of kcount
-  int jmax;
+  int i,j,k,l,m,n,ic,kf;
   int kx,ky,kz,kxy;
 
   double temprl0,temprl1,temprl2,temprl3;
@@ -926,64 +841,54 @@ void FixConp::sincos_b()
   double* __restrict__ qj = qj_global;
 
   j = 0;
-  jmax = 0;
   kf = 0;
-  kc = 0;
 
   for (i = 0; i < nlocal; ++i) {
     if (electrode_check(i) == 0 && q[i] != 0){
       qj[j] = q[i];
       kf = 0;
       for (ic = 0; ic < 3; ++ic) {
-        cs[kf][j] = unitk[ic]*x[i][ic]; // store x values for later optimization
-        kf += kcount_dims[ic]+1;
+        double xdotk = unitk[ic]*x[i][ic];
+        cs[kf][j] = cos(xdotk);
+        sn[kf][j] = sin(xdotk);
+        kf += kcount_dims[ic];
       }
       ++j;
     }
   }
-  jmax = j;
+  const int jmax = j;
   kf = 0;
-  kc = 0;
   for (ic = 0; ic < 3; ++ic) {
-    ++kf;
-    double* __restrict__ cskf = cs[kf];
-    double* __restrict__ snkf = sn[kf];
     temprl0 = 0;
     tempim0 = 0;
     for (j = 0; j < jmax; ++j) {
-      cskf[j] = cos(cs[kf-1][j]);
-      snkf[j] = sin(cs[kf-1][j]);
-      temprl0 += qj[j]*cskf[j];
-      tempim0 += qj[j]*snkf[j];
+      temprl0 += qj[j]*cs[kf][j];
+      tempim0 += qj[j]*sn[kf][j];
     }
-    sfacrl[kc] = temprl0;
-    sfacim[kc] = tempim0;
-    k1 = kf;
-    ++kf;
-    ++kc;
-    for (m = 2; m <= kcount_dims[ic]; ++m) {
-      double* __restrict__ cskf1=cs[kf];
-      double* __restrict__ snkf1=sn[kf];
+    sfacrl[kf] = temprl0;
+    sfacim[kf] = tempim0;
+    for (m = 1; m < kcount_dims[ic]; ++m) {
+      double* __restrict__ cskf1=cs[kf+m];
+      double* __restrict__ snkf1=sn[kf+m];
       temprl0 = 0;
       tempim0 = 0;
       for (j = 0; j < jmax; ++j) {
-        cskf1[j] = cs[kf-1][j]*cs[k1][j] - sn[kf-1][j]*sn[k1][j];
-        snkf1[j] = sn[kf-1][j]*cs[k1][j] + cs[kf-1][j]*sn[k1][j];
+        cskf1[j] = cs[kf+m-1][j]*cs[kf][j] - sn[kf+m-1][j]*sn[kf][j];
+        snkf1[j] = sn[kf+m-1][j]*cs[kf][j] + cs[kf+m-1][j]*sn[kf][j];
         temprl0 += qj[j]*cskf1[j];
         tempim0 += qj[j]*snkf1[j];
       }
-      sfacrl[kc] = temprl0;
-      sfacim[kc] = tempim0;
-      ++kf;
-      ++kc;
+      sfacrl[kf+m] = temprl0;
+      sfacim[kf+m] = tempim0;
     }
+    kf += kcount_dims[ic];
   }
   
   // (k, l, 0); (k, -l, 0)
 
   for (m = 0; m < kcount_dims[3]; ++m) {
-    kx = kxvecs[kc];
-    ky = kyvecs[kc]+kcount_dims[0]+1;
+    kx = kxvecs[kf]-1;
+    ky = kyvecs[kf]+kcount_dims[0]-1;
     temprl0 = 0;
     tempim0 = 0;
     temprl1 = 0;
@@ -993,7 +898,6 @@ void FixConp::sincos_b()
     double* __restrict__ cskf1 = cs[kf+1];
     double* __restrict__ snkf1 = sn[kf+1];
     for (j = 0; j < jmax; ++j) {
-      // todo: tell compiler that kf, kx and ky do not alias
       cskf0[j] = cs[kx][j]*cs[ky][j] - sn[kx][j]*sn[ky][j];
       snkf0[j] = cs[kx][j]*sn[ky][j] + sn[kx][j]*cs[ky][j];
       temprl0 += qj[j]*cskf0[j];
@@ -1003,19 +907,18 @@ void FixConp::sincos_b()
       temprl1 += qj[j]*cskf1[j];
       tempim1 += qj[j]*snkf1[j];
     }
-    sfacrl[kc] = temprl0;
-    sfacim[kc] = tempim0;
-    sfacrl[kc+1] = temprl1;
-    sfacim[kc+1] = tempim1;
+    sfacrl[kf] = temprl0;
+    sfacim[kf] = tempim0;
+    sfacrl[kf+1] = temprl1;
+    sfacim[kf+1] = tempim1;
     kf += 2;
-    kc += 2;
   }
 
   // (0, l, m); (0, l, -m)
 
   for (m = 0; m < kcount_dims[4]; ++m) {
-    ky = kyvecs[kc]+kcount_dims[0]+1;
-    kz = kzvecs[kc]+kcount_dims[0]+kcount_dims[1]+2;
+    ky = kyvecs[kf]+kcount_dims[0]-1;
+    kz = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
     temprl0 = 0;
     tempim0 = 0;
     temprl1 = 0;
@@ -1026,18 +929,18 @@ void FixConp::sincos_b()
       temprl1 += qj[j]*(cs[ky][j]*cs[kz][j]+sn[ky][j]*sn[kz][j]);
       tempim1 += qj[j]*(-cs[ky][j]*sn[kz][j]+sn[ky][j]*cs[kz][j]);
     }
-    sfacrl[kc] = temprl0;
-    sfacim[kc] = tempim0;
-    sfacrl[kc+1] = temprl1;
-    sfacim[kc+1] = tempim1;
-    kc += 2;
+    sfacrl[kf] = temprl0;
+    sfacim[kf] = tempim0;
+    sfacrl[kf+1] = temprl1;
+    sfacim[kf+1] = tempim1;
+    kf += 2;
   }
 
   // (k, 0, m); (k, 0, -m)
 
   for (m = 0; m < kcount_dims[5]; ++m) {
-    kx = kxvecs[kc];
-    kz = kzvecs[kc]+kcount_dims[0]+kcount_dims[1]+2;
+    kx = kxvecs[kf]-1;
+    kz = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
     temprl0 = 0;
     tempim0 = 0;
     temprl1 = 0;
@@ -1048,18 +951,18 @@ void FixConp::sincos_b()
       temprl1 += qj[j]*(cs[kx][j]*cs[kz][j]+sn[kx][j]*sn[kz][j]);
       tempim1 += qj[j]*(-cs[kx][j]*sn[kz][j]+sn[kx][j]*cs[kz][j]);
     }
-    sfacrl[kc] = temprl0;
-    sfacim[kc] = tempim0;
-    sfacrl[kc+1] = temprl1;
-    sfacim[kc+1] = tempim1;
-    kc += 2;
+    sfacrl[kf] = temprl0;
+    sfacim[kf] = tempim0;
+    sfacrl[kf+1] = temprl1;
+    sfacim[kf+1] = tempim1;
+    kf += 2;
   }
 
   // (k, l, m); (k, l, -m); (k, -l, m); (k, -l, -m)
 
   for (m = 0; m < kcount_dims[6]; ++m) {
-    kxy = kxy_list[m]+kcount_dims[0]+kcount_dims[1]+kcount_dims[2]+3;
-    kz = kzvecs[kc]+kcount_dims[0]+kcount_dims[1]+2;
+    kxy = kxy_list[m]+kcount_dims[0]+kcount_dims[1]+kcount_dims[2];
+    kz = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
     temprl0 = 0;
     tempim0 = 0;
     temprl1 = 0;
@@ -1082,15 +985,15 @@ void FixConp::sincos_b()
       temprl3 += qj[j]*(cs[kxy+1][j]*cs[kz][j] + sn[kxy+1][j]*sn[kz][j]);
       tempim3 += qj[j]*(sn[kxy+1][j]*cs[kz][j] - cs[kxy+1][j]*sn[kz][j]);
     }
-    sfacrl[kc] = temprl0;
-    sfacim[kc] = tempim0;
-    sfacrl[kc+1] = temprl1;
-    sfacim[kc+1] = tempim1;
-    sfacrl[kc+2] = temprl2;
-    sfacim[kc+2] = tempim2;
-    sfacrl[kc+3] = temprl3;
-    sfacim[kc+3] = tempim3;
-    kc += 4;
+    sfacrl[kf] = temprl0;
+    sfacim[kf] = tempim0;
+    sfacrl[kf+1] = temprl1;
+    sfacim[kf+1] = tempim1;
+    sfacrl[kf+2] = temprl2;
+    sfacim[kf+2] = tempim2;
+    sfacrl[kf+3] = temprl3;
+    sfacim[kf+3] = tempim3;
+    kf += 4;
   }
 
   if (runstage == 1) runstage = 2;
@@ -1791,15 +1694,160 @@ void FixConp::blist_coul_cal_post_force()
   Ctime += Ctime2-Ctime1;
 }
 
-
 /* ---------------------------------------------------------------------- */
 
-double FixConp::compute_scalar()
+void FixConp::kspace_constructor()
 {
-  return addv;
+  csk = snk = nullptr;
+  cs = sn = nullptr;
+  qj_global = nullptr;
+  kxy_list = nullptr;
+  kxvecs = kyvecs = kzvecs = kcount_dims = nullptr;
+  sfacrl = sfacim = sfacrl_all = sfacim_all = nullptr;
+  ug = nullptr;
 }
 
 /* ---------------------------------------------------------------------- */
+
+void FixConp::kspace_setup()
+{
+  g_ewald = force->kspace->g_ewald;
+  slab_volfactor = force->kspace->slab_volfactor;
+  double accuracy = force->kspace->accuracy;
+  
+  int i;
+  double qsqsum = 0.0;
+  for (i = 0; i < atom->nlocal; i++) {
+    qsqsum += atom->q[i]*atom->q[i];
+  }
+  double tmp,q2;
+  MPI_Allreduce(&qsqsum,&tmp,1,MPI_DOUBLE,MPI_SUM,world);
+  qsqsum = tmp;
+  q2 = qsqsum * force->qqrd2e / force->dielectric;
+
+// Copied from ewald.cpp
+  double xprd = domain->xprd;
+  double yprd = domain->yprd;
+  double zprd = domain->zprd;
+  double zprd_slab = zprd*slab_volfactor;
+  volume = xprd * yprd * zprd_slab;
+
+  unitk[0] = 2.0*MY_PI/xprd;
+  unitk[1] = 2.0*MY_PI/yprd;
+  unitk[2] = 2.0*MY_PI/zprd_slab;
+
+  bigint natoms = atom->natoms;
+  double err;
+  kxmax = 1;
+  kymax = 1;
+  kzmax = 1;
+
+  err = rms(kxmax,xprd,natoms,q2);
+  while (err > accuracy) {
+    kxmax++;
+    err = rms(kxmax,xprd,natoms,q2);
+  }
+
+  err = rms(kymax,yprd,natoms,q2);
+  while (err > accuracy) {
+    kymax++;
+    err = rms(kymax,yprd,natoms,q2);
+  }
+
+  err = rms(kzmax,zprd_slab,natoms,q2);
+  while (err > accuracy) {
+    kzmax++;
+    err = rms(kzmax,zprd_slab,natoms,q2);
+  }
+
+  kmax = MAX(kxmax,kymax);
+  kmax = MAX(kmax,kzmax);
+  kmax3d = 4*kmax*kmax*kmax + 6*kmax*kmax + 3*kmax;
+
+
+  double gsqxmx = unitk[0]*unitk[0]*kxmax*kxmax;
+  double gsqymx = unitk[1]*unitk[1]*kymax*kymax;
+  double gsqzmx = unitk[2]*unitk[2]*kzmax*kzmax;
+  gsqmx = MAX(gsqxmx,gsqymx);
+  gsqmx = MAX(gsqmx,gsqzmx);
+
+  gsqmx *= 1.00001;
+
+  kspace_setup_allocate();
+  coeffs();
+  kmax_created = kmax;
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixConp::kspace_setup_allocate()
+{
+  if (kcount_dims == nullptr) kcount_dims = new int[7];
+  if (kxvecs != nullptr) delete [] kxvecs;
+  kxvecs = new int[kmax3d];
+  if (kyvecs != nullptr) delete [] kyvecs;
+  kyvecs = new int[kmax3d];
+  if (kzvecs != nullptr) delete [] kzvecs;
+  kzvecs = new int[kmax3d];
+  if (ug != nullptr) delete [] ug;
+  ug = new double[kmax3d];
+  if (sfacrl != nullptr) delete [] sfacrl;
+  sfacrl = new double[kmax3d];
+  if (sfacim != nullptr) delete [] sfacim;
+  sfacim = new double[kmax3d];
+  if (sfacrl_all != nullptr) delete [] sfacrl_all;
+  sfacrl_all = new double[kmax3d];
+  if (sfacim_all != nullptr) delete [] sfacim_all;
+  sfacim_all = new double[kmax3d];
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixConp::kspace_elyte_allocate()
+{
+    if (cs != nullptr) memory->destroy(cs);
+    memory->create(cs,kcount_flat,elytenum,"fixconp:cs");
+    if (sn != nullptr) memory->destroy(sn);
+    memory->create(sn,kcount_flat,elytenum,"fixconp:sn");
+    memory->grow(qj_global,elytenum,"fixconp:qj_global");
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixConp::kspace_ele_allocate()
+{
+    if (csk != nullptr) memory->destroy(csk);
+    memory->create(csk,elenum_all,kcount,"fixconp:csk");
+    if (snk != nullptr) memory->destroy(snk);
+    memory->create(snk,elenum_all,kcount,"fixconp:snk");
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixConp::kspace_deallocate()
+{
+  // from setup
+  delete [] kcount_dims;
+  delete [] kxy_list;
+  delete [] kxvecs;
+  delete [] kyvecs;
+  delete [] kzvecs;
+  delete [] ug;
+  delete [] sfacrl;
+  delete [] sfacim;
+  delete [] sfacrl_all;
+  delete [] sfacim_all;
+  // from elyte
+  memory->destroy(cs);
+  memory->destroy(sn);
+  memory->destroy(qj_global);
+  // from ele
+  memory->destroy(csk);
+  memory->destroy(snk);
+}
+
+/* ---------------------------------------------------------------------- */
+
 double FixConp::rms(int km, double prd, bigint natoms, double q2)
 {
   double value = 2.0*q2*g_ewald/prd *
@@ -1809,6 +1857,7 @@ double FixConp::rms(int km, double prd, bigint natoms, double q2)
 }
 
 /* ---------------------------------------------------------------------- */
+
 void FixConp::coeffs()
 {
   int k,l,m;
@@ -1884,7 +1933,7 @@ void FixConp::coeffs()
     }
   }
 
-  kcount_flat = kcount_dims[0]+kcount_dims[1]+kcount_dims[2]+3+2*kcount_dims[3];
+  kcount_flat = kcount_dims[0]+kcount_dims[1]+kcount_dims[2]+2*kcount_dims[3];
 
   // 1 = (0,l,m), 2 = (0,l,-m)
 
@@ -1987,101 +2036,159 @@ void FixConp::coeffs()
 }
 
 /* ---------------------------------------------------------------------- */
-void FixConp::kspace_setup()
+
+void FixConp::kspace_sincos_a(double** csk_p, double** snk_p)
 {
-  g_ewald = force->kspace->g_ewald;
-  slab_volfactor = force->kspace->slab_volfactor;
-  double accuracy = force->kspace->accuracy;
-  
-  int i;
-  double qsqsum = 0.0;
-  for (i = 0; i < atom->nlocal; i++) {
-    qsqsum += atom->q[i]*atom->q[i];
-  }
-  double tmp,q2;
-  MPI_Allreduce(&qsqsum,&tmp,1,MPI_DOUBLE,MPI_SUM,world);
-  qsqsum = tmp;
-  q2 = qsqsum * force->qqrd2e / force->dielectric;
+  int i,j,m,k,ic,iele;
+  int kx,ky,kz,kinc,kxy;
+  int kf, kc, k1;
+  double **x = atom->x;
+  double *elex = new double[elenum];
+  double **csk_one,**snk_one;
+  memory->create(csk_one,kcount,elenum,"fixconp:csk_one");
+  memory->create(snk_one,kcount,elenum,"fixconp:snk_one");
 
-// Copied from ewald.cpp
-  double xprd = domain->xprd;
-  double yprd = domain->yprd;
-  double zprd = domain->zprd;
-  double zprd_slab = zprd*slab_volfactor;
-  volume = xprd * yprd * zprd_slab;
+  const int elenum_c = elenum;
 
-  unitk[0] = 2.0*MY_PI/xprd;
-  unitk[1] = 2.0*MY_PI/yprd;
-  unitk[2] = 2.0*MY_PI/zprd_slab;
+  kinc = 0;
 
-  bigint natoms = atom->natoms;
-  double err;
-  kxmax = 1;
-  kymax = 1;
-  kzmax = 1;
-
-  err = rms(kxmax,xprd,natoms,q2);
-  while (err > accuracy) {
-    kxmax++;
-    err = rms(kxmax,xprd,natoms,q2);
-  }
-
-  err = rms(kymax,yprd,natoms,q2);
-  while (err > accuracy) {
-    kymax++;
-    err = rms(kymax,yprd,natoms,q2);
-  }
-
-  err = rms(kzmax,zprd_slab,natoms,q2);
-  while (err > accuracy) {
-    kzmax++;
-    err = rms(kzmax,zprd_slab,natoms,q2);
-  }
-
-  kmax = MAX(kxmax,kymax);
-  kmax = MAX(kmax,kzmax);
-  kmax3d = 4*kmax*kmax*kmax + 6*kmax*kmax + 3*kmax;
-
-  if (kxvecs != nullptr) delete [] kxvecs;
-  kxvecs = new int[kmax3d];
-  if (kyvecs != nullptr) delete [] kyvecs;
-  kyvecs = new int[kmax3d];
-  if (kzvecs != nullptr) delete [] kzvecs;
-  kzvecs = new int[kmax3d];
-  if (ug != nullptr) delete [] ug;
-  ug = new double[kmax3d];
-  if (kcount_dims == nullptr) kcount_dims = new int[7];
-
-  double gsqxmx = unitk[0]*unitk[0]*kxmax*kxmax;
-  double gsqymx = unitk[1]*unitk[1]*kymax*kymax;
-  double gsqzmx = unitk[2]*unitk[2]*kzmax*kzmax;
-  gsqmx = MAX(gsqxmx,gsqymx);
-  gsqmx = MAX(gsqmx,gsqzmx);
-
-  gsqmx *= 1.00001;
-
-  coeffs();
-  kmax_created = kmax;
-  if (sfacrl != nullptr) delete [] sfacrl;
-  sfacrl = new double[kmax3d];
-  if (sfacim != nullptr) delete [] sfacim;
-  sfacim = new double[kmax3d];
-  if (sfacrl_all != nullptr) delete [] sfacrl_all;
-  sfacrl_all = new double[kmax3d];
-  if (sfacim_all != nullptr) delete [] sfacim_all;
-  sfacim_all = new double[kmax3d];
-
-
-}
-
-/* ---------------------------------------------------------------------- */
-void FixConp::end_of_step()
-{
-  if(update->ntimestep % everynum == 0) {
-    if ( !preforceflag ) {
-      post_neighbor();
-      pre_force(0);
+  for (i = 0; i < elenum_c; ++i) {
+    kf = 0;
+    iele = atom->map(ele2tag[i]);
+    for (ic = 0; ic < 3; ++ic) {
+      double xdotk = unitk[ic]*x[iele][ic];
+      csk_one[kf][i] = cos(xdotk);
+      snk_one[kf][i] = sin(xdotk);
+      kf += kcount_dims[ic];
     }
-    else preforceflag = false;
   }
+
+  kf = 0;
+  for (ic = 0; ic < 3; ++ic) {
+    for (m = 1; m < kcount_dims[ic]; ++m) {
+      double* __restrict__ cskf1=csk_one[kf+m];
+      double* __restrict__ snkf1=snk_one[kf+m];
+      for (i = 0; i < elenum_c; ++i) {
+        cskf1[i] = csk_one[kf+m-1][i]*csk_one[kf][i] - snk_one[kf+m-1][i]*snk_one[kf][i];
+        snkf1[i] = snk_one[kf+m-1][i]*csk_one[kf][i] + csk_one[kf+m-1][i]*snk_one[kf][i];
+      }
+    }
+    kf += kcount_dims[ic];
+  }
+
+    // (k, l, 0); (k, -l, 0)
+  
+  for (m = 0; m < kcount_dims[3]; ++m) {
+    kx = kxvecs[kf]-1;
+    ky = kyvecs[kf]+kcount_dims[0]-1;
+    double* __restrict__ cskf0 = csk_one[kf];
+    double* __restrict__ snkf0 = snk_one[kf];
+    double* __restrict__ cskf1 = csk_one[kf+1];
+    double* __restrict__ snkf1 = snk_one[kf+1];
+    for (i = 0; i < elenum_c; ++i) {
+      // todo: tell compiler that kf, kx and ky do not alias
+      cskf0[i] = csk_one[kx][i]*csk_one[ky][i] - snk_one[kx][i]*snk_one[ky][i];
+      snkf0[i] = csk_one[kx][i]*snk_one[ky][i] + snk_one[kx][i]*csk_one[ky][i];
+      cskf1[i] = csk_one[kx][i]*csk_one[ky][i] + snk_one[kx][i]*snk_one[ky][i];
+      snkf1[i] = -csk_one[kx][i]*snk_one[ky][i] + snk_one[kx][i]*csk_one[ky][i];
+    }
+    kf += 2;
+  }
+
+  // (0, l, m); (0, l, -m)
+  
+  for (m = 0; m < kcount_dims[4]; ++m) {
+    ky = kyvecs[kf]+kcount_dims[0]-1;
+    kz = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
+    double* __restrict__ cskf0 = csk_one[kf];
+    double* __restrict__ snkf0 = snk_one[kf];
+    double* __restrict__ cskf1 = csk_one[kf+1];
+    double* __restrict__ snkf1 = snk_one[kf+1];
+    for (i = 0; i < elenum_c; ++i) {
+      cskf0[i] = csk_one[ky][i]*csk_one[kz][i] - snk_one[ky][i]*snk_one[kz][i];
+      snkf0[i] = csk_one[ky][i]*snk_one[kz][i] + snk_one[ky][i]*csk_one[kz][i];
+      cskf1[i] = csk_one[ky][i]*csk_one[kz][i] + snk_one[ky][i]*snk_one[kz][i];
+      snkf1[i] = -csk_one[ky][i]*snk_one[kz][i] + snk_one[ky][i]*csk_one[kz][i];
+    }
+    kf += 2;
+  }
+
+  // (k, 0, m); (k, 0, -m)
+
+  for (m = 0; m < kcount_dims[5]; ++m) {
+    kx = kxvecs[kf]-1;
+    kz = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
+    double* __restrict__ cskf0 = csk_one[kf];
+    double* __restrict__ snkf0 = snk_one[kf];
+    double* __restrict__ cskf1 = csk_one[kf+1];
+    double* __restrict__ snkf1 = snk_one[kf+1];
+    for (i = 0; i < elenum_c; ++i) {
+      cskf0[i] = csk_one[kx][i]*csk_one[kz][i] - snk_one[kx][i]*snk_one[kz][i];
+      snkf0[i] = csk_one[kx][i]*snk_one[kz][i] + snk_one[kx][i]*csk_one[kz][i];
+      cskf1[i] = csk_one[kx][i]*csk_one[kz][i] + snk_one[kx][i]*snk_one[kz][i];
+      snkf1[i] = -csk_one[kx][i]*snk_one[kz][i] + snk_one[kx][i]*csk_one[kz][i];
+    }
+    kf += 2;
+  }
+
+  // (k, l, m); (k, l, -m); (k, -l, m); (k, -l, -m)
+
+  for (m = 0; m < kcount_dims[6]; ++m) {
+    kxy = kxy_list[m]+kcount_dims[0]+kcount_dims[1]+kcount_dims[2];
+    kz = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
+    double* __restrict__ cskf0 = csk_one[kf];
+    double* __restrict__ snkf0 = snk_one[kf];
+    double* __restrict__ cskf1 = csk_one[kf+1];
+    double* __restrict__ snkf1 = snk_one[kf+1];
+    double* __restrict__ cskf2 = csk_one[kf+2];
+    double* __restrict__ snkf2 = snk_one[kf+2];
+    double* __restrict__ cskf3 = csk_one[kf+3];
+    double* __restrict__ snkf3 = snk_one[kf+3];
+    for (i = 0; i < elenum_c; ++i) {
+      cskf0[i] = csk_one[kxy][i]*csk_one[kz][i] - snk_one[kxy][i]*snk_one[kz][i];
+      snkf0[i] = csk_one[kxy][i]*snk_one[kz][i] + snk_one[kxy][i]*csk_one[kz][i];
+      cskf2[i] = csk_one[kxy][i]*csk_one[kz][i] + snk_one[kxy][i]*snk_one[kz][i];
+      snkf2[i] = -csk_one[kxy][i]*snk_one[kz][i] + snk_one[kxy][i]*csk_one[kz][i];
+    }
+    for (i = 0; i < elenum_c; ++i) {
+      cskf1[i] = csk_one[kxy+1][i]*csk_one[kz][i] - snk_one[kxy+1][i]*snk_one[kz][i];
+      snkf1[i] = csk_one[kxy+1][i]*snk_one[kz][i] + snk_one[kxy+1][i]*csk_one[kz][i];
+      cskf3[i] = csk_one[kxy+1][i]*csk_one[kz][i] + snk_one[kxy+1][i]*snk_one[kz][i];
+      snkf3[i] = -csk_one[kxy+1][i]*snk_one[kz][i] + snk_one[kxy+1][i]*csk_one[kz][i];
+    }
+    kf += 4;
+  }
+
+  const int kcount_c = kcount;
+  for (k = 0; k < kcount_c; ++k) {
+    for (i = 0; i < elenum_c; ++i) {
+      csk_one[k][i] *= 2.0 * ug[k];
+      snk_one[k][i] *= 2.0 * ug[k];
+    }
+  }
+
+  const int elenum_all_c = elenum_all;
+  bool transposeflag = true; // will have to transpose to fit csk_p and snk_p
+  if (transposeflag) {
+    double *trigbuf = new double[elenum_all];
+    for (k = 0; k < kcount_c; ++k) {
+      b_comm(csk_one[k],trigbuf);
+      for (i = 0; i < elenum_all_c; ++i) {
+        csk_p[i][k] = trigbuf[i];
+      }
+      b_comm(snk_one[k],trigbuf);
+      for (i = 0; i < elenum_all_c; ++i) {
+        snk_p[i][k] = trigbuf[i];
+      }
+    }
+    delete [] trigbuf;
+  }
+  else {
+    for (k = 0; k < kcount_c; ++k) {
+      b_comm(csk_one[k],csk_p[k]);
+      b_comm(snk_one[k],snk_p[k]);
+    }
+  }
+  memory->destroy(csk_one);
+  memory->destroy(snk_one);
 }
