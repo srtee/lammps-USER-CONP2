@@ -50,8 +50,6 @@ class FixConp : public Fix {
   void equation_solve();
   virtual void update_charge();
   int electrode_check(int);
-  void sincos_a(int, double *);
-  void sincos_b();
   void cg();
   void inv();
   void get_setq();
@@ -109,6 +107,7 @@ class FixConp : public Fix {
   virtual void kspace_ele_allocate();
   virtual void kspace_deallocate();
   virtual void kspace_sincos_a(double **, double **);
+  virtual void kspace_sincos_b();
   double rms(int,double,bigint,double);
   void coeffs();
   double unitk[3];

@@ -599,7 +599,7 @@ void FixConp::update_bk(bool coulyes, double* bbb_all)
 {
   Ktime1 = MPI_Wtime();
   int i,j,k,elei;
-  sincos_b();
+  kspace_sincos_b();
   MPI_Allreduce(sfacrl,sfacrl_all,kcount,MPI_DOUBLE,MPI_SUM,world);
   MPI_Allreduce(sfacim,sfacim_all,kcount,MPI_DOUBLE,MPI_SUM,world);
   double **x = atom->x;
@@ -826,7 +826,7 @@ void FixConp::a_cal()
 }
 
 /*--------------------------------------------------------------*/
-void FixConp::sincos_b()
+void FixConp::kspace_sincos_b()
 {
   int i,j,k,l,m,n,ic,kf;
   int kx,ky,kz,kxy;
