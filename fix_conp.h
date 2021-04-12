@@ -65,9 +65,12 @@ class FixConp : public Fix {
   void end_of_step();
   int elenum,elenum_all;
   int *ele2tag,*ele2eleall;
-  
+  class KspaceModule *kspmod;
+  double eta;
+
  protected:
   class NeighList *list;
+  double volume,g_ewald;
   int ff_flag; 
   int minimizer;
   double qL,qR;
@@ -102,31 +105,8 @@ class FixConp : public Fix {
 
   char *qlstr,*qrstr;
 
-  virtual void kspmod_constructor();
-  virtual void kspmod_setup();
-  virtual void kspmod_setup_allocate();
-  virtual void kspmod_elyte_allocate();
-  virtual void kspmod_ele_allocate();
-  virtual void kspmod_deallocate();
-  virtual void kspmod_sincos_a(double **, double **);
-  virtual void kspmod_sincos_b();
-  virtual void kspmod_bbb_from_sincos_b(double *);
-  double rms(int,double,bigint,double);
-  void coeffs();
-  double unitk[3];
-  double *ug;
-  double g_ewald,eta,gsqmx,volume,slab_volfactor;
-  int *kxvecs,*kyvecs,*kzvecs;
-  double **cs,**sn,**csk,**snk;
-  double *qj_global;
-  int elytenum;
-  int kmax,kmax3d,kmax_created,kcount,kcount_flat;
-  int *kcount_dims;
-  int *kxy_list;
-  int kxmax,kymax,kzmax;
-  double *sfacrl,*sfacrl_all,*sfacim,*sfacim_all;
-
   int everynum;
+  int elytenum;
   Pair *coulpair;
 
   bool zneutrflag,preforceflag,initflag,matoutflag;

@@ -54,6 +54,7 @@ KspaceModule_Ewald2::~KspaceModule_Ewald2()
   setup_deallocate();
   elyte_deallocate();
   ele_deallocate();
+  delete [] kxy_list;
 }
 
 void KspaceModule_Ewald2::setup()
@@ -375,7 +376,7 @@ void KspaceModule_Ewald2::coeffs()
   }
 }
 
-void KspaceModule_Ewald2::sincos_a(double** csk_p, double** snk_p)
+void KspaceModule_Ewald2::sincos_a()
 {
   int i,j,m,k,ic,iele;
   int kx,ky,kz,kinc,kxy;
@@ -513,23 +514,57 @@ void KspaceModule_Ewald2::sincos_a(double** csk_p, double** snk_p)
     for (k = 0; k < kcount_c; ++k) {
       fixconp->b_comm(csk_one[k],trigbuf);
       for (i = 0; i < elenum_all_c; ++i) {
-        csk_p[i][k] = trigbuf[i];
+        csk[i][k] = trigbuf[i];
       }
       fixconp->b_comm(snk_one[k],trigbuf);
       for (i = 0; i < elenum_all_c; ++i) {
-        snk_p[i][k] = trigbuf[i];
+        snk[i][k] = trigbuf[i];
       }
     }
     delete [] trigbuf;
   }
   else {
     for (k = 0; k < kcount_c; ++k) {
-      fixconp->b_comm(csk_one[k],csk_p[k]);
-      fixconp->b_comm(snk_one[k],snk_p[k]);
+      fixconp->b_comm(csk_one[k],csk[k]);
+      fixconp->b_comm(snk_one[k],snk[k]);
     }
   }
   memory->destroy(csk_one);
   memory->destroy(snk_one);
+}
+
+void KspaceModule_Ewald2::aaa_from_sincos_a(double* aaa)
+{
+  int* ele2eleall = fixconp->ele2eleall;
+  int const elenum_c = fixconp->elenum;
+  int const elenum_all_c = fixconp->elenum_all;
+  double CON_s2overPIS = sqrt(2.0)/MY_PIS;
+  double CON_2overPIS = 2.0/MY_PIS;
+  
+  int i,j,k,idx1d;
+  int const kcount_c = kcount;
+  double aaatmp; 
+  for (i = 0; i < elenum_c; ++i) {
+    int const elealli = ele2eleall[i];
+    double* __restrict__ cski = csk[elealli];
+    double* __restrict__ snki = snk[elealli];
+    idx1d = i*elenum_all_c;
+    for (j = 0; j < elealli; ++j) {
+      aaatmp = 0;
+      for (k = 0; k < kcount_c; ++k) {
+        aaatmp += 0.5*(cski[k]*csk[j][k]+snki[k]*snk[j][k])/ug[k];
+      }
+      aaa[idx1d] = aaatmp;
+      idx1d++;
+    }
+    idx1d = i*elenum_all_c + elealli;
+    aaatmp = 0;
+    for (k = 0; k < kcount_c; ++k) {
+      aaatmp += 0.5*(cski[k]*cski[k] + snki[k]*snki[k])/ug[k];
+    }
+    aaatmp+=CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
+    aaa[idx1d] = aaatmp;
+  }
 }
 
 void KspaceModule_Ewald2::sincos_b()

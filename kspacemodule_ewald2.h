@@ -35,7 +35,8 @@ class KspaceModule_Ewald2 : public KspaceModule, Pointers {
   void setup_deallocate();
   void elyte_deallocate();
   void ele_deallocate();
-  void sincos_a(double **, double **);
+  void sincos_a();
+  void aaa_from_sincos_a(double *);
   void sincos_b();
   void bbb_from_sincos_b(double *);
  protected:

@@ -37,7 +37,8 @@ class KspaceModule {
   virtual void setup_deallocate(){}
   virtual void elyte_deallocate(){}
   virtual void ele_deallocate(){}
-  virtual void sincos_a(double **, double **){}
+  virtual void sincos_a(){}
+  virtual void aaa_from_sincos_a(double *){}
   virtual void sincos_b(){}
   virtual void bbb_from_sincos_b(double *){}
  protected:
