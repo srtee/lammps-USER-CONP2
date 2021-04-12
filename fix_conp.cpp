@@ -180,7 +180,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   alist = blist = list = nullptr;
   totsetq = 0;
   gotsetq = 0;  //=1 after getting setq vector
-  kspace_constructor();
+  kspmod_constructor();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -206,7 +206,7 @@ FixConp::~FixConp()
   delete [] qrstr;
   delete [] displs;
   delete [] elenum_list;
-  kspace_deallocate();
+  kspmod_deallocate();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -363,7 +363,7 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
 
 void FixConp::setup(int vflag)
 {
-  kspace_setup();
+  kspmod_setup();
 
   // To-do: encapsulate runstage == 0 into a discrete member function?
   // Especially because we should check that electrode atoms obey the
@@ -381,7 +381,7 @@ void FixConp::setup(int vflag)
     elenum_all = 0;
     elytenum = 0;
     post_neighbor();
-    kspace_ele_allocate();
+    kspmod_ele_allocate();
 
     if (a_matrix_f == 0) {
       if (me == 0) printf("Fix conp is now calculating A matrix ... ");
@@ -423,7 +423,7 @@ void FixConp::post_neighbor()
     }
   }
   elytenum = nlocal - elenum;
-  if (elytenum > elytenum_old) kspace_elyte_allocate();
+  if (elytenum > elytenum_old) kspmod_elyte_allocate();
   if (elenum > elenum_old) {
     memory->grow(ele2tag,elenum,"fixconp:ele2tag");
     memory->grow(ele2eleall,elenum,"fixconp:ele2eleall");
@@ -599,29 +599,14 @@ void FixConp::update_bk(bool coulyes, double* bbb_all)
 {
   Ktime1 = MPI_Wtime();
   int i,j,k,elei;
-  kspace_sincos_b();
-  MPI_Allreduce(sfacrl,sfacrl_all,kcount,MPI_DOUBLE,MPI_SUM,world);
-  MPI_Allreduce(sfacim,sfacim_all,kcount,MPI_DOUBLE,MPI_SUM,world);
-  double **x = atom->x;
-  double *q = atom->q;
-  int *tag = atom->tag;
-  int nlocal = atom->nlocal;
-  int kx,ky,kz;
-  double cypz,sypz,exprl,expim,bbbtmp;
-  int one = 1;
-  for (elei = 0; elei < elenum; ++elei) {
-    i = ele2eleall[elei];
-    //bbb[elei] = -ddot_(&kcount,csk[i],&one,sfacrl_all,&one);
-    //bbb[elei] -= ddot_(&kcount,snk[i],&one,sfacim_all,&one);
-    bbbtmp = 0;
-    for (k = 0; k < kcount; k++) {
-      bbbtmp -= (csk[i][k]*sfacrl_all[k]+snk[i][k]*sfacim_all[k]);
-    } // ddot tested -- slower!
-    bbb[elei] = bbbtmp;
-  }
+  kspmod_sincos_b();
+  kspmod_bbb_from_sincos_b(bbb);
 
   //slabcorrection in current timestep -- skip if ff / noslab
   if (ff_flag == NORMAL) {
+    int nlocal = atom->nlocal;
+    double **x = atom->x;
+    double *q = atom->q;
     double slabcorrtmp = 0.0;
     double slabcorrtmp_all = 0.0;
     #pragma ivdep
@@ -723,7 +708,7 @@ void FixConp::a_read()
   }
   MPI_Allgatherv(ele2eleall,elenum,MPI_INT,elebuf2eleall,elenum_list,displs,MPI_INT,world);
   // sincos_a(ff_flag,nullptr);
-  kspace_sincos_a(csk,snk);
+  kspmod_sincos_a(csk,snk);
 }
 
 /*----------------------------------------------------------------------- */
@@ -742,7 +727,7 @@ void FixConp::a_cal()
   // gather tag,x and q
   double *eleallz = new double[elenum_all];
   int const elenum_c = elenum;
-  kspace_sincos_a(csk,snk);
+  kspmod_sincos_a(csk,snk);
   if (ff_flag == NORMAL) {
     double *elez = new double[elenum];
     double **x = atom->x;
@@ -826,7 +811,7 @@ void FixConp::a_cal()
 }
 
 /*--------------------------------------------------------------*/
-void FixConp::kspace_sincos_b()
+void FixConp::kspmod_sincos_b()
 {
   int i,j,k,l,m,n,ic,kf;
   int kx,ky,kz,kxy;
@@ -995,8 +980,26 @@ void FixConp::kspace_sincos_b()
     sfacim[kf+3] = tempim3;
     kf += 4;
   }
-
-  if (runstage == 1) runstage = 2;
+  MPI_Allreduce(sfacrl,sfacrl_all,kcount,MPI_DOUBLE,MPI_SUM,world);
+  MPI_Allreduce(sfacim,sfacim_all,kcount,MPI_DOUBLE,MPI_SUM,world);
+}
+/* ---------------------------------------------------------------------- */
+void FixConp::kspmod_bbb_from_sincos_b(double* bbb) {
+  int i,k,elei;
+  int const elenum_c = elenum;
+  int const kcount_c = kcount;
+  double bbbtmp;
+  // int one = 1;
+  for (elei = 0; elei < elenum_c; ++elei) {
+    i = ele2eleall[elei];
+    //bbb[elei] = -ddot_(&kcount,csk[i],&one,sfacrl_all,&one);
+    //bbb[elei] -= ddot_(&kcount,snk[i],&one,sfacim_all,&one);
+    bbbtmp = 0;
+    for (k = 0; k < kcount_c; k++) {
+      bbbtmp -= (csk[i][k]*sfacrl_all[k]+snk[i][k]*sfacim_all[k]);
+    } // ddot tested -- slower!
+    bbb[elei] = bbbtmp;
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1696,7 +1699,7 @@ void FixConp::blist_coul_cal_post_force()
 
 /* ---------------------------------------------------------------------- */
 
-void FixConp::kspace_constructor()
+void FixConp::kspmod_constructor()
 {
   csk = snk = nullptr;
   cs = sn = nullptr;
@@ -1709,7 +1712,7 @@ void FixConp::kspace_constructor()
 
 /* ---------------------------------------------------------------------- */
 
-void FixConp::kspace_setup()
+void FixConp::kspmod_setup()
 {
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;
@@ -1773,14 +1776,14 @@ void FixConp::kspace_setup()
 
   gsqmx *= 1.00001;
 
-  kspace_setup_allocate();
+  kspmod_setup_allocate();
   coeffs();
   kmax_created = kmax;
 }
 
 /* ---------------------------------------------------------------------- */
 
-void FixConp::kspace_setup_allocate()
+void FixConp::kspmod_setup_allocate()
 {
   if (kcount_dims == nullptr) kcount_dims = new int[7];
   if (kxvecs != nullptr) delete [] kxvecs;
@@ -1803,7 +1806,7 @@ void FixConp::kspace_setup_allocate()
 
 /* ---------------------------------------------------------------------- */
 
-void FixConp::kspace_elyte_allocate()
+void FixConp::kspmod_elyte_allocate()
 {
     if (cs != nullptr) memory->destroy(cs);
     memory->create(cs,kcount_flat,elytenum,"fixconp:cs");
@@ -1814,7 +1817,7 @@ void FixConp::kspace_elyte_allocate()
 
 /* ---------------------------------------------------------------------- */
 
-void FixConp::kspace_ele_allocate()
+void FixConp::kspmod_ele_allocate()
 {
     if (csk != nullptr) memory->destroy(csk);
     memory->create(csk,elenum_all,kcount,"fixconp:csk");
@@ -1824,7 +1827,7 @@ void FixConp::kspace_ele_allocate()
 
 /* ---------------------------------------------------------------------- */
 
-void FixConp::kspace_deallocate()
+void FixConp::kspmod_deallocate()
 {
   // from setup
   delete [] kcount_dims;
@@ -2037,7 +2040,7 @@ void FixConp::coeffs()
 
 /* ---------------------------------------------------------------------- */
 
-void FixConp::kspace_sincos_a(double** csk_p, double** snk_p)
+void FixConp::kspmod_sincos_a(double** csk_p, double** snk_p)
 {
   int i,j,m,k,ic,iele;
   int kx,ky,kz,kinc,kxy;

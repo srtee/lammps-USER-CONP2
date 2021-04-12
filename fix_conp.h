@@ -100,14 +100,15 @@ class FixConp : public Fix {
 
   char *qlstr,*qrstr;
 
-  virtual void kspace_constructor();
-  virtual void kspace_setup();
-  virtual void kspace_setup_allocate();
-  virtual void kspace_elyte_allocate();
-  virtual void kspace_ele_allocate();
-  virtual void kspace_deallocate();
-  virtual void kspace_sincos_a(double **, double **);
-  virtual void kspace_sincos_b();
+  virtual void kspmod_constructor();
+  virtual void kspmod_setup();
+  virtual void kspmod_setup_allocate();
+  virtual void kspmod_elyte_allocate();
+  virtual void kspmod_ele_allocate();
+  virtual void kspmod_deallocate();
+  virtual void kspmod_sincos_a(double **, double **);
+  virtual void kspmod_sincos_b();
+  virtual void kspmod_bbb_from_sincos_b(double *);
   double rms(int,double,bigint,double);
   void coeffs();
   double unitk[3];
