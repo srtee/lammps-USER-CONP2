@@ -44,6 +44,7 @@ class KspaceModule {
  protected:
   class FixConp * fixconp;
   char *kspmod_name;
+  int slabflag;
 };
 }
 

@@ -47,6 +47,7 @@ KspaceModule_Ewald2::KspaceModule_Ewald2(LAMMPS *lmp, FixConp *in_fix) :
   sfacim(nullptr),sfacim_all(nullptr)
 {
   kspmod_name = "ewald2";
+  slabflag = 0;
 }
 
 KspaceModule_Ewald2::~KspaceModule_Ewald2()
@@ -61,6 +62,7 @@ void KspaceModule_Ewald2::setup()
 {
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;
+  slabflag = force->kspace->slabflag;
   double accuracy = force->kspace->accuracy;
 
   int i;
@@ -73,7 +75,6 @@ void KspaceModule_Ewald2::setup()
   qsqsum = tmp;
   q2 = qsqsum * force->qqrd2e / force->dielectric;
 
-// Copied from ewald.cpp
   double xprd = domain->xprd;
   double yprd = domain->yprd;
   double zprd = domain->zprd;
@@ -378,19 +379,15 @@ void KspaceModule_Ewald2::coeffs()
 
 void KspaceModule_Ewald2::sincos_a()
 {
+  int* ele2tag = fixconp->ele2tag;
   int i,j,m,k,ic,iele;
-  int kx,ky,kz,kinc,kxy;
-  int kf, kc, k1;
+  int kx,ky,kz,kxy,kf;
   double **x = atom->x;
   double **csk_one,**snk_one;
   const int elenum_c = fixconp->elenum;
   double *elex = new double[elenum_c];
   memory->create(csk_one,kcount,elenum_c,"fixconp:csk_one");
   memory->create(snk_one,kcount,elenum_c,"fixconp:snk_one");
-
-  int* ele2tag = fixconp->ele2tag;
-
-  kinc = 0;
 
   for (i = 0; i < elenum_c; ++i) {
     kf = 0;
@@ -536,6 +533,7 @@ void KspaceModule_Ewald2::sincos_a()
 void KspaceModule_Ewald2::aaa_from_sincos_a(double* aaa)
 {
   int* ele2eleall = fixconp->ele2eleall;
+  int* ele2tag = fixconp->ele2tag;
   int const elenum_c = fixconp->elenum;
   int const elenum_all_c = fixconp->elenum_all;
   double CON_s2overPIS = sqrt(2.0)/MY_PIS;
@@ -543,7 +541,8 @@ void KspaceModule_Ewald2::aaa_from_sincos_a(double* aaa)
   
   int i,j,k,idx1d;
   int const kcount_c = kcount;
-  double aaatmp; 
+  double aaatmp;
+
   for (i = 0; i < elenum_c; ++i) {
     int const elealli = ele2eleall[i];
     double* __restrict__ cski = csk[elealli];
@@ -564,6 +563,27 @@ void KspaceModule_Ewald2::aaa_from_sincos_a(double* aaa)
     }
     aaatmp+=CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
     aaa[idx1d] = aaatmp;
+  }
+
+  // implement slab corrections
+  if (slabflag == 1) {
+    double CON_4PIoverV = MY_4PI/volume;
+    double *eleallz = new double[elenum_all_c];
+    double *elez = new double[elenum_c];
+    double **x = atom->x;
+    for (i = 0; i < elenum_c; ++i) {
+      elez[i] = x[atom->map(ele2tag[i])][2];
+    }
+    fixconp->b_comm(elez,eleallz);
+    delete [] elez;
+    for (i = 0; i < elenum_c; ++i) {
+      int const elealli = ele2eleall[i];
+      idx1d = i*elenum_all_c;
+      for (j = 0; j <= elealli; ++j) {
+        aaa[idx1d] += CON_4PIoverV*eleallz[elealli]*eleallz[j];
+        idx1d++;
+      }
+    }  
   }
 }
 
@@ -741,20 +761,42 @@ void KspaceModule_Ewald2::sincos_b()
 }
 
 /* ---------------------------------------------------------------------- */
-void KspaceModule_Ewald2::bbb_from_sincos_b(double* bbb) {
-  int i,k,elei;
+void KspaceModule_Ewald2::bbb_from_sincos_b(double* bbb)
+{
+  int* ele2tag = fixconp->ele2tag;
+  int* ele2eleall = fixconp->ele2eleall;
+  int k,elei,elealli;
   int const elenum_c = fixconp->elenum;
   int const kcount_c = kcount;
   double bbbtmp;
   // int one = 1;
   for (elei = 0; elei < elenum_c; ++elei) {
-    i = fixconp->ele2eleall[elei];
+    elealli = ele2eleall[elei];
     //bbb[elei] = -ddot_(&kcount,csk[i],&one,sfacrl_all,&one);
     //bbb[elei] -= ddot_(&kcount,snk[i],&one,sfacim_all,&one);
     bbbtmp = 0;
     for (k = 0; k < kcount_c; k++) {
-      bbbtmp -= (csk[i][k]*sfacrl_all[k]+snk[i][k]*sfacim_all[k]);
+      bbbtmp -= (csk[elealli][k]*sfacrl_all[k]+snk[elealli][k]*sfacim_all[k]);
     } // ddot tested -- slower!
     bbb[elei] = bbbtmp;
+  }
+
+  if (slabflag == 1) {
+    int i;
+    int nlocal = atom->nlocal;
+    double **x = atom->x;
+    double *q = atom->q;
+    double slabcorr = 0.0;
+    #pragma ivdep
+    for (i = 0; i < nlocal; i++) {
+      if (fixconp->electrode_check(i) == 0) {
+        slabcorr += 4*q[i]*MY_PI*x[i][2]/volume;
+      }
+    }
+    MPI_Allreduce(MPI_IN_PLACE,&slabcorr,1,MPI_DOUBLE,MPI_SUM,world);
+    for (elei = 0; elei < elenum_c; ++elei) {
+      i = atom->map(ele2tag[elei]);
+      bbb[elei] -= x[i][2]*slabcorr;
+    }
   }
 }

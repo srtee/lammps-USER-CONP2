@@ -609,30 +609,8 @@ void FixConp::b_cal() {
 void FixConp::update_bk(bool coulyes, double* bbb_all)
 {
   Ktime1 = MPI_Wtime();
-  int i,j,k,elei;
   kspmod->sincos_b();
   kspmod->bbb_from_sincos_b(bbb);
-
-  //slabcorrection in current timestep -- skip if ff / noslab
-  if (ff_flag == NORMAL) {
-    int nlocal = atom->nlocal;
-    double **x = atom->x;
-    double *q = atom->q;
-    double slabcorrtmp = 0.0;
-    double slabcorrtmp_all = 0.0;
-    #pragma ivdep
-    for (i = 0; i < nlocal; i++) {
-      if (electrode_check(i) == 0) {
-        slabcorrtmp += 4*q[i]*MY_PI*x[i][2]/volume;
-      }
-    }
-    MPI_Allreduce(&slabcorrtmp,&slabcorrtmp_all,1,MPI_DOUBLE,MPI_SUM,world);
-    const int elenum_c = elenum;
-    for (elei = 0; elei < elenum_c; ++elei) {
-      i = atom->map(ele2tag[elei]);
-      bbb[elei] -= x[i][2]*slabcorrtmp_all;
-    }
-  }
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
   
@@ -718,7 +696,6 @@ void FixConp::a_read()
     }
   }
   MPI_Allgatherv(ele2eleall,elenum,MPI_INT,elebuf2eleall,elenum_list,displs,MPI_INT,world);
-  // sincos_a(ff_flag,nullptr);
   kspmod->sincos_a();
 }
 
@@ -728,6 +705,7 @@ void FixConp::a_cal()
 {
   double t1,t2;
   int i,j,k,iele;
+  int const elenum_all_c = elenum_all;
   int nprocs = comm->nprocs;
   t1 = MPI_Wtime();
   Ktime1 = MPI_Wtime();
@@ -739,33 +717,8 @@ void FixConp::a_cal()
   double *eleallz = new double[elenum_all];
   int const elenum_c = elenum;
   kspmod->sincos_a();
-  if (ff_flag == NORMAL) {
-    double *elez = new double[elenum];
-    double **x = atom->x;
-    for (i = 0; i < elenum_c; ++i) elez[i] = x[atom->map(ele2tag[i])][2];
-    b_comm(elez,eleallz);
-    delete [] elez;
-  }
-  int idx1d,tagi;
-  double zi;
-  double CON_4PIoverV = MY_4PI/volume;
-  double CON_s2overPIS = sqrt(2.0)/MY_PIS;
-  double CON_2overPIS = 2.0/MY_PIS;
   double *aaa = new double[elenum*elenum_all];
-  double aaatmp;
-  int const elenum_all_c = elenum_all;
-
   kspmod->aaa_from_sincos_a(aaa);
-  for (i = 0; i < elenum_c; ++i) {
-    int const elealli = ele2eleall[i];
-    idx1d=i*elenum_all;
-    for (j = 0; j <= elealli; ++j) {
-      // slab correction:
-      if (ff_flag == NORMAL) aaa[idx1d] += CON_4PIoverV*eleallz[elealli]*eleallz[j];
-      idx1d++;
-    }
-  }
-  delete [] eleallz;
 
   if (smartlist) alist_coul_cal(aaa);
   else coul_cal(2,aaa);
@@ -779,13 +732,14 @@ void FixConp::a_cal()
   MPI_Allgatherv(aaa,elenum*elenum_all,MPI_DOUBLE,aaa_all,elenum_list3,displs3,MPI_DOUBLE,world);
 
   #pragma ivdep
-  for (i = 0; i < elenum_all-1; ++i) {
-    for (j = i+1; j < elenum_all; ++j) {
-      aaa_all[i*elenum_all+j] = aaa_all[j*elenum_all+i];
+  for (i = 0; i < elenum_all_c-1; ++i) {
+    for (j = i+1; j < elenum_all_c; ++j) {
+      aaa_all[i*elenum_all_c+j] = aaa_all[j*elenum_all_c+i];
     }
   }
 
   if (matoutflag && me == 0) {
+    int idx1d;
     FILE *outa = fopen("amatrix","w");
     fprintf(outa," ");
     for (i = 0; i < elenum_all_c; ++i) fprintf(outa,"%20d",eleall2tag[i]);
