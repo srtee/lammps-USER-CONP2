@@ -63,6 +63,8 @@ class FixConp : public Fix {
   virtual void dyn_setup() {}
   void init_list(int, class NeighList*);
   void end_of_step();
+  int elenum,elenum_all;
+  int *ele2tag,*ele2eleall;
   
  protected:
   class NeighList *list;
@@ -70,14 +72,14 @@ class FixConp : public Fix {
   int minimizer;
   double qL,qR;
   int qlstyle,qrstyle,qlvar,qrvar;
-  int elenum,elenum_old,elenum_all;
+  int elenum_old;
   double *eleallq;
   double *elesetq;
   double *aaa_all,*bbb_all;
-  int *tag2eleall,*eleall2tag,*ele2tag;
+  int *tag2eleall,*eleall2tag;
   int *elecheck_eleall;
   int *elenum_list,*displs,*eleall2ele;
-  int *elebuf2eleall,*ele2eleall;
+  int *elebuf2eleall;
   double totsetq,addv;
   double *bbb,*bbuf;
 
