@@ -16,7 +16,7 @@
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
-#include "kspacemodule_ewald2.h"
+#include "kspacemodule.h"
 #include "force.h"
 #include "atom.h"
 #include "memory.h"
@@ -38,8 +38,8 @@
 using namespace LAMMPS_NS;
 using namespace MathConst;
 
-KspaceModule_Ewald2::KspaceModule_Ewald2(LAMMPS *lmp, FixConp *in_fix) :
-  KspaceModule(lmp,in_fix),Pointers(lmp),ug(nullptr),
+KSpaceModule::KSpaceModule(LAMMPS *lmp) : 
+  Pointers(lmp),ug(nullptr),
   kxvecs(nullptr),kyvecs(nullptr),kzvecs(nullptr),
   cs(nullptr),sn(nullptr),csk(nullptr),snk(nullptr),
   qj_global(nullptr),kcount_dims(nullptr),kxy_list(nullptr),
@@ -50,15 +50,14 @@ KspaceModule_Ewald2::KspaceModule_Ewald2(LAMMPS *lmp, FixConp *in_fix) :
   slabflag = 0;
 }
 
-KspaceModule_Ewald2::~KspaceModule_Ewald2()
+KSpaceModule::~KSpaceModule()
 {
   setup_deallocate();
   elyte_deallocate();
   ele_deallocate();
-  delete [] kxy_list;
 }
 
-void KspaceModule_Ewald2::setup()
+void KSpaceModule::aaa_setup()
 {
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;
@@ -123,19 +122,24 @@ void KspaceModule_Ewald2::setup()
   gsqmx *= 1.00001;
 
   setup_allocate();
-  coeffs();
+  make_kvecs_ewald();
+  make_ug_from_kvecs();
+  make_kxy_list_from_kvecs();
   kmax_created = kmax;
 }
 
-void KspaceModule_Ewald2::setup_allocate()
+void KSpaceModule::setup_allocate()
 {
   if (kcount_dims == nullptr) kcount_dims = new int[7];
   if (kxvecs != nullptr) delete [] kxvecs;
   kxvecs = new int[kmax3d];
+  memset(kxvecs,0,kmax3d*sizeof(int));
   if (kyvecs != nullptr) delete [] kyvecs;
   kyvecs = new int[kmax3d];
+  memset(kyvecs,0,kmax3d*sizeof(int));
   if (kzvecs != nullptr) delete [] kzvecs;
   kzvecs = new int[kmax3d];
+  memset(kzvecs,0,kmax3d*sizeof(int));
   if (ug != nullptr) delete [] ug;
   ug = new double[kmax3d];
   if (sfacrl != nullptr) delete [] sfacrl;
@@ -148,7 +152,7 @@ void KspaceModule_Ewald2::setup_allocate()
   sfacim_all = new double[kmax3d];
 }
 
-void KspaceModule_Ewald2::setup_deallocate()
+void KSpaceModule::setup_deallocate()
 {
   delete [] kcount_dims;
   delete [] kxy_list;
@@ -162,7 +166,7 @@ void KspaceModule_Ewald2::setup_deallocate()
   delete [] sfacim_all;
 }
 
-void KspaceModule_Ewald2::elyte_allocate(int elytenum)
+void KSpaceModule::elyte_allocate(int elytenum)
 {
   if (cs != nullptr) memory->destroy(cs);
   memory->create(cs,kcount_flat,elytenum,"fixconp:cs");
@@ -171,14 +175,14 @@ void KspaceModule_Ewald2::elyte_allocate(int elytenum)
   memory->grow(qj_global,elytenum,"fixconp:qj_global");
 }
 
-void KspaceModule_Ewald2::elyte_deallocate()
+void KSpaceModule::elyte_deallocate()
 {
   memory->destroy(cs);
   memory->destroy(sn);
   memory->destroy(qj_global);
 }
 
-void KspaceModule_Ewald2::ele_allocate(int elenum_all)
+void KSpaceModule::ele_allocate(int elenum_all)
 {
   if (csk != nullptr) memory->destroy(csk);
   memory->create(csk,elenum_all,kcount,"fixconp:csk");
@@ -186,13 +190,13 @@ void KspaceModule_Ewald2::ele_allocate(int elenum_all)
   memory->create(snk,elenum_all,kcount,"fixconp:snk");
 }
 
-void KspaceModule_Ewald2::ele_deallocate()
+void KSpaceModule::ele_deallocate()
 {
   memory->destroy(csk);
   memory->destroy(snk);
 }
 
-double KspaceModule_Ewald2::rms(int km, double prd, bigint natoms, double q2)
+double KSpaceModule::rms(int km, double prd, bigint natoms, double q2)
 {
   double value = 2.0*q2*g_ewald/prd *
     sqrt(1.0/(MY_PI*km*natoms)) *
@@ -200,184 +204,121 @@ double KspaceModule_Ewald2::rms(int km, double prd, bigint natoms, double q2)
   return value;
 }
 
-void KspaceModule_Ewald2::coeffs()
+void KSpaceModule::make_kvecs_ewald()
 {
-  int k,l,m;
-  int kx,ky,kxy,kxy_offset,ktemp;
+  int k,l,m,ic;
   double sqk;
-
-  double g_ewald_sq_inv = 1.0 / (g_ewald*g_ewald);
-  double preu = 4.0*MY_PI/volume;
-
   kcount = 0;
   for (int i = 0; i < 7; ++i) kcount_dims[i] = 0;
 
   int const kmax_c = kmax;
-  int const kxmax_c = kxmax;
-  int const kymax_c = kymax;
-  int const kzmax_c = kzmax;
+  int const kmaxes[3] = {kxmax,kymax,kzmax};
+  double unitksq[3];
 
   // (k,0,0), (0,l,0), (0,0,m)
 
-  for (m = 1; m <= kmax_c; m++) {
-    sqk = (m*unitk[0]) * (m*unitk[0]);
-    if (sqk <= gsqmx) {
-      kxvecs[kcount] = m;
-      kyvecs[kcount] = 0;
-      kzvecs[kcount] = 0;
-      ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-      kcount++;
-      kcount_dims[0]++;
-    }
-  }
-  for (m = 1; m <= kmax_c; m++) {
-    sqk = (m*unitk[1]) * (m*unitk[1]);
-    if (sqk <= gsqmx) {
-      kxvecs[kcount] = 0;
-      kyvecs[kcount] = m;
-      kzvecs[kcount] = 0;
-      ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-      kcount++;
-      kcount_dims[1]++;
-    }
-  }
-  for (m = 1; m <= kmax_c; m++) {
-    sqk = (m*unitk[2]) * (m*unitk[2]);
-    if (sqk <= gsqmx) {
-      kxvecs[kcount] = 0;
-      kyvecs[kcount] = 0;
-      kzvecs[kcount] = m;
-      ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-      kcount++;
-      kcount_dims[2]++;
+  for (ic = 0; ic < 3; ++ic) {
+    unitksq[ic] = unitk[ic]*unitk[ic];
+    for (m = 1; m <= kmaxes[ic]; ++m) {
+      sqk = m*m*unitksq[ic];
+      if (sqk <= gsqmx) {
+        if (ic == 0) kxvecs[kcount] = m;
+        else if (ic == 1) kyvecs[kcount] = m;
+        else if (ic == 2) kzvecs[kcount] = m;
+        ++kcount;
+        ++kcount_dims[ic];
+      }
     }
   }
 
   // 1 = (k,l,0), 2 = (k,-l,0)
+  // 1 = (0,k,l), 2 = (0,k,-l)
+  // 1 = (k,0,l), 2 = (k,0,-l)
+  
+  int icA, icB;
 
-  for (k = 1; k <= kxmax_c; k++) {
-    for (l = 1; l <= kymax_c; l++) {
-      sqk = (unitk[0]*k) * (unitk[0]*k) + (unitk[1]*l) * (unitk[1]*l);
-      if (sqk <= gsqmx) {
-        kxvecs[kcount] = k;
-        kyvecs[kcount] = l;
-        kzvecs[kcount] = 0;
-        ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-        kcount++;
-
-        kxvecs[kcount] = k;
-        kyvecs[kcount] = -l;
-        kzvecs[kcount] = 0;
-        ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-        kcount++;
-        kcount_dims[3]++;
-      }
-    }
-  }
-
-  kcount_flat = kcount_dims[0]+kcount_dims[1]+kcount_dims[2]+2*kcount_dims[3];
-
-  // 1 = (0,l,m), 2 = (0,l,-m)
-
-  for (l = 1; l <= kymax_c; l++) {
-    for (m = 1; m <= kzmax_c; m++) {
-      sqk = (unitk[1]*l) * (unitk[1]*l) + (unitk[2]*m) * (unitk[2]*m);
-      if (sqk <= gsqmx) {
-        kxvecs[kcount] = 0;
-        kyvecs[kcount] = l;
-        kzvecs[kcount] = m;
-        ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-        kcount++;
-
-        kxvecs[kcount] = 0;
-        kyvecs[kcount] = l;
-        kzvecs[kcount] = -m;
-        ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-        kcount++;
-        kcount_dims[4]++;
-      }
-    }
-  }
-
-  // 1 = (k,0,m), 2 = (k,0,-m)
-
-  for (k = 1; k <= kxmax_c; k++) {
-    for (m = 1; m <= kzmax_c; m++) {
-      sqk = (unitk[0]*k) * (unitk[0]*k) + (unitk[2]*m) * (unitk[2]*m);
-      if (sqk <= gsqmx) {
-        kxvecs[kcount] = k;
-        kyvecs[kcount] = 0;
-        kzvecs[kcount] = m;
-        ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-        kcount++;
-
-        kxvecs[kcount] = k;
-        kyvecs[kcount] = 0;
-        kzvecs[kcount] = -m;
-        ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-        kcount++;
-        kcount_dims[5]++;
+  for (ic = 3; ic < 6; ++ic) {
+    if (ic == 3) {icA = 0; icB = 1;}
+    else if (ic == 4) {icA = 1; icB = 2;}
+    else if (ic == 5) {icA = 0; icB = 2;}
+    for (k = 1; k <= kmaxes[icA]; ++k) {
+      for (l = 1; l <= kmaxes[icB]; ++l) {
+        sqk = k*k*unitksq[icA] + l*l*unitksq[icB];
+        if (sqk <= gsqmx) {
+          if (ic == 3) {
+            kxvecs[kcount] = k; kyvecs[kcount] =  l; ++kcount;
+            kxvecs[kcount] = k; kyvecs[kcount] = -l; ++kcount;
+          }
+          else if (ic == 4) {
+            kyvecs[kcount] = k; kzvecs[kcount] =  l; ++kcount;
+            kyvecs[kcount] = k; kzvecs[kcount] = -l; ++kcount;
+          }
+          else if (ic == 5) {
+            kxvecs[kcount] = k; kzvecs[kcount] =  l; ++kcount;
+            kxvecs[kcount] = k; kzvecs[kcount] = -l; ++kcount;
+          }
+          ++kcount_dims[ic];
+        }
       }
     }
   }
 
   // 1 = (k,l,m), 2 = (k,-l,m), 3 = (k,l,-m), 4 = (k,-l,-m)
 
-  for (k = 1; k <= kxmax_c; k++) {
-    for (l = 1; l <= kymax_c; l++) {
-      for (m = 1; m <= kzmax_c; m++) {
-        sqk = (unitk[0]*k) * (unitk[0]*k) + (unitk[1]*l) * (unitk[1]*l) +
-          (unitk[2]*m) * (unitk[2]*m);
+  for (k = 1; k <= kmaxes[0]; ++k) {
+    for (l = 1; l <= kmaxes[1]; ++l) {
+      for (m = 1; m <= kmaxes[2]; ++m) {
+        sqk = k*k*unitksq[0] + l*l*unitksq[1] + m*m*unitksq[2];
         if (sqk <= gsqmx) {
-          kxvecs[kcount] = k;
-          kyvecs[kcount] = l;
-          kzvecs[kcount] = m;
-          ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-          kcount++;
-
-          kxvecs[kcount] = k;
-          kyvecs[kcount] = -l;
-          kzvecs[kcount] = m;
-          ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-          kcount++;
-
-          kxvecs[kcount] = k;
-          kyvecs[kcount] = l;
-          kzvecs[kcount] = -m;
-          ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-          kcount++;
-
-          kxvecs[kcount] = k;
-          kyvecs[kcount] = -l;
-          kzvecs[kcount] = -m;
-          ug[kcount] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
-          kcount++;
-          kcount_dims[6]++;
+          kxvecs[kcount] = k; kyvecs[kcount] =  l; kzvecs[kcount] =  m; ++kcount;
+          kxvecs[kcount] = k; kyvecs[kcount] = -l; kzvecs[kcount] =  m; ++kcount;
+          kxvecs[kcount] = k; kyvecs[kcount] =  l; kzvecs[kcount] = -m; ++kcount;
+          kxvecs[kcount] = k; kyvecs[kcount] = -l; kzvecs[kcount] = -m; ++kcount;
+          ++kcount_dims[6];
         }
       }
     }
   }
+  kcount_flat = kcount_dims[0]+kcount_dims[1]+kcount_dims[2]+2*kcount_dims[3];
+}
 
+void KSpaceModule::make_ug_from_kvecs()
+{
+  int const kcount_c = kcount;
+  double g_ewald_sq_inv = 1.0 / (g_ewald*g_ewald);
+  double preu = 4.0*MY_PI/volume;
+  double sqk;
+  double* __restrict__ ugr = ug;
+
+  for (int k = 0; k < kcount_c; ++k) {
+    sqk  = kxvecs[k]*kxvecs[k]*unitk[0]*unitk[0];
+    sqk += kyvecs[k]*kyvecs[k]*unitk[1]*unitk[1];
+    sqk += kzvecs[k]*kzvecs[k]*unitk[2]*unitk[2];
+    ugr[k] = preu*exp(-0.25*sqk*g_ewald_sq_inv)/sqk;
+  }
+}
+
+void KSpaceModule::make_kxy_list_from_kvecs()
+{
+  int k, kx, ky;
   if (kxy_list != nullptr) delete [] kxy_list;
   kxy_list = new int[kcount_dims[6]];
-  kxy = 0;
-  kxy_offset = kcount_dims[0] + kcount_dims[1] + kcount_dims[2];
-  ktemp = kcount - 4*kcount_dims[6];
+  int kxy = 0;
+  int const kxy_offset = kcount_dims[0] + kcount_dims[1] + kcount_dims[2];
+  int ktemp = kcount - 4*kcount_dims[6];
   int const kcount_dims6_c = kcount_dims[6];
 
   for (k = 0; k < kcount_dims6_c; ++k) {
     kx = kxvecs[ktemp];
     ky = kyvecs[ktemp];
-    while (kxvecs[kxy_offset] != kx || kyvecs[kxy_offset] != ky) {
-      kxy += 1;
-      kxy_offset += 2;
-    }
-    kxy_list[k] = 2*kxy;
+    while (kxvecs[kxy_offset+kxy] != kx ||
+      kyvecs[kxy_offset+kxy] != ky) kxy += 2;
+    kxy_list[k] = kxy;
     ktemp += 4;
   }
 }
 
-void KspaceModule_Ewald2::sincos_a()
+void KSpaceModule::sincos_a()
 {
   int* ele2tag = fixconp->ele2tag;
   int i,j,m,k,ic,iele;
@@ -530,7 +471,7 @@ void KspaceModule_Ewald2::sincos_a()
   memory->destroy(snk_one);
 }
 
-void KspaceModule_Ewald2::aaa_from_sincos_a(double* aaa)
+void KSpaceModule::aaa_from_sincos_a(double* aaa)
 {
   int* ele2eleall = fixconp->ele2eleall;
   int* ele2tag = fixconp->ele2tag;
@@ -587,7 +528,7 @@ void KspaceModule_Ewald2::aaa_from_sincos_a(double* aaa)
   }
 }
 
-void KspaceModule_Ewald2::sincos_b()
+void KSpaceModule::sincos_b()
 {
   int i,j,k,l,m,n,ic,kf;
   int kx,ky,kz,kxy;
@@ -761,7 +702,7 @@ void KspaceModule_Ewald2::sincos_b()
 }
 
 /* ---------------------------------------------------------------------- */
-void KspaceModule_Ewald2::bbb_from_sincos_b(double* bbb)
+void KSpaceModule::bbb_from_sincos_b(double* bbb)
 {
   int* ele2tag = fixconp->ele2tag;
   int* ele2eleall = fixconp->ele2eleall;
@@ -799,4 +740,72 @@ void KspaceModule_Ewald2::bbb_from_sincos_b(double* bbb)
       bbb[elei] -= x[i][2]*slabcorr;
     }
   }
+}
+
+void KSpaceModule::make_kvecs_brick()
+{
+  int k,l,m,ic;
+  kcount = 0;
+  for (int i = 0; i < 7; ++i) kcount_dims[i] = 0;
+
+  int const kmax_c = kmax;
+  int const kmaxes[3] = {kxmax,kymax,kzmax};
+  double unitksq[3];
+
+  // (k,0,0), (0,l,0), (0,0,m)
+
+  for (ic = 0; ic < 3; ++ic) {
+    unitksq[ic] = unitk[ic]*unitk[ic];
+    for (m = 1; m <= kmaxes[ic]; ++m) {
+      if (ic == 0) kxvecs[kcount] = m;
+      else if (ic == 1) kyvecs[kcount] = m;
+      else if (ic == 2) kzvecs[kcount] = m;
+      ++kcount;
+      ++kcount_dims[ic];
+    }
+  }
+
+  // 1 = (k,l,0), 2 = (k,-l,0)
+  // 1 = (0,k,l), 2 = (0,k,-l)
+  // 1 = (k,0,l), 2 = (k,0,-l)
+  
+  int icA, icB;
+
+  for (ic = 3; ic < 6; ++ic) {
+    if (ic == 3) {icA = 0; icB = 1;}
+    else if (ic == 4) {icA = 1; icB = 2;}
+    else if (ic == 5) {icA = 0; icB = 2;}
+    for (k = 0; k <= kmaxes[icA]; ++k) {
+      for (l = 0; l <= kmaxes[icB]; ++l) {
+        if (ic == 3) {
+          kxvecs[kcount] = k; kyvecs[kcount] =  l; ++kcount;
+          kxvecs[kcount] = k; kyvecs[kcount] = -l; ++kcount;
+        }
+        else if (ic == 4) {
+          kyvecs[kcount] = k; kzvecs[kcount] =  l; ++kcount;
+          kyvecs[kcount] = k; kzvecs[kcount] = -l; ++kcount;
+        }
+        else if (ic == 5) {
+          kxvecs[kcount] = k; kzvecs[kcount] =  l; ++kcount;
+          kxvecs[kcount] = k; kzvecs[kcount] = -l; ++kcount;
+        }
+        ++kcount_dims[ic];
+      }
+    }
+  }
+
+  // 1 = (k,l,m), 2 = (k,-l,m), 3 = (k,l,-m), 4 = (k,-l,-m)
+
+  for (k = 0; k <= kmaxes[0]; ++k) {
+    for (l = 0; l <= kmaxes[1]; ++l) {
+      for (m = 0; m <= kmaxes[2]; ++m) {
+        kxvecs[kcount] = k; kyvecs[kcount] =  l; kzvecs[kcount] =  m; ++kcount;
+        kxvecs[kcount] = k; kyvecs[kcount] = -l; kzvecs[kcount] =  m; ++kcount;
+        kxvecs[kcount] = k; kyvecs[kcount] =  l; kzvecs[kcount] = -m; ++kcount;
+        kxvecs[kcount] = k; kyvecs[kcount] = -l; kzvecs[kcount] = -m; ++kcount;
+        ++kcount_dims[6];
+      }
+    }
+  }
+  kcount_flat = kcount_dims[0]+kcount_dims[1]+kcount_dims[2]+2*kcount_dims[3];
 }

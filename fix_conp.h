@@ -65,12 +65,12 @@ class FixConp : public Fix {
   void end_of_step();
   int elenum,elenum_all;
   int *ele2tag,*ele2eleall;
-  class KspaceModule *kspmod;
+  class KSpaceModule *kspmod;
   double eta;
 
  protected:
   class NeighList *list;
-  double volume,g_ewald;
+  double g_ewald;
   int ff_flag; 
   int minimizer;
   double qL,qR;

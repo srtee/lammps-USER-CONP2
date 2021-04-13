@@ -47,7 +47,7 @@
 #include "utils.h"
 #include "iostream"
 
-#include "kspacemodule_ewald2.h"
+#include "kspacemodule.h"
 
 #define EWALD_F   1.12837917
 #define EWALD_P   0.3275911
@@ -183,7 +183,8 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   totsetq = 0;
   gotsetq = 0;  //=1 after getting setq vector
 
-  kspmod = new KspaceModule_Ewald2(lmp,this);
+  kspmod = new KSpaceModule(lmp);
+  kspmod->callback(this);
   //kspmod_constructor();
 }
 
@@ -367,14 +368,8 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
 
 void FixConp::setup(int vflag)
 {
-  kspmod->setup();
+  kspmod->aaa_setup();
   g_ewald = force->kspace->g_ewald;
-  double slab_volfactor = force->kspace->slab_volfactor;
-  double xprd = domain->xprd;
-  double yprd = domain->yprd;
-  double zprd = domain->zprd;
-  double zprd_slab = zprd*slab_volfactor;
-  volume = xprd * yprd * zprd_slab;
 
   // To-do: encapsulate runstage == 0 into a discrete member function?
   // Especially because we should check that electrode atoms obey the

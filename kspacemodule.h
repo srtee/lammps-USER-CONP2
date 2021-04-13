@@ -19,32 +19,48 @@
 #ifndef LMP_FIXCONP_KSPACEMODULE_H
 #define LMP_FIXCONP_KSPACEMODULE_H
 
-#include "lammps.h"
+#include "pointers.h"
 #include "fix_conp.h"
 
 namespace LAMMPS_NS{
 
-class KspaceModule {
+class KSpaceModule : public Pointers {
  public:
-  KspaceModule(class LAMMPS *lmp, class FixConp *fix){
-   fixconp = fix;
-  }
-  ~KspaceModule(){}
-  virtual void setup(){}
-  virtual void setup_allocate(){}
-  virtual void elyte_allocate(int){}
-  virtual void ele_allocate(int){}
-  virtual void setup_deallocate(){}
-  virtual void elyte_deallocate(){}
-  virtual void ele_deallocate(){}
-  virtual void sincos_a(){}
-  virtual void aaa_from_sincos_a(double *){}
-  virtual void sincos_b(){}
-  virtual void bbb_from_sincos_b(double *){}
+  KSpaceModule(class LAMMPS *);
+  ~KSpaceModule();
+  virtual void aaa_setup();
+  virtual void callback(class FixConp * infix) {fixconp = infix;}
+  virtual void setup_allocate();
+  virtual void elyte_allocate(int);
+  virtual void ele_allocate(int);
+  virtual void setup_deallocate();
+  virtual void elyte_deallocate();
+  virtual void ele_deallocate();
+  virtual void sincos_a();
+  virtual void aaa_from_sincos_a(double *);
+  virtual void sincos_b();
+  virtual void bbb_from_sincos_b(double *);
  protected:
   class FixConp * fixconp;
   char *kspmod_name;
   int slabflag;
+  double rms(int,double,bigint,double);
+  void make_kvecs_ewald();
+  void make_kvecs_brick();
+  void make_ug_from_kvecs();
+  void make_kxy_list_from_kvecs();
+  // void coeffs();
+  double unitk[3];
+  double *ug;
+  double g_ewald,gsqmx,volume,slab_volfactor;
+  int *kxvecs,*kyvecs,*kzvecs;
+  double **cs,**sn,**csk,**snk;
+  double *qj_global;
+  int kmax,kmax3d,kmax_created,kcount,kcount_flat;
+  int *kcount_dims;
+  int *kxy_list;
+  int kxmax,kymax,kzmax;
+  double *sfacrl,*sfacrl_all,*sfacim,*sfacim_all;
 };
 }
 
