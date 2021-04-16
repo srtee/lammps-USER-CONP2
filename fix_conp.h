@@ -54,6 +54,7 @@ class FixConp : public Fix {
   void inv();
   void get_setq();
   void b_comm(double *, double *);
+  void b_comm_int(int *, int *);
   void coul_cal(int, double *);
   void alist_coul_cal(double *);
   void blist_coul_cal(double *);
@@ -65,6 +66,7 @@ class FixConp : public Fix {
   void end_of_step();
   int elenum,elenum_all;
   int *ele2tag,*ele2eleall;
+  int *tag2eleall,*eleall2tag;
   class KSpaceModule *kspmod;
   double eta;
 
@@ -79,7 +81,6 @@ class FixConp : public Fix {
   double *eleallq;
   double *elesetq;
   double *aaa_all,*bbb_all;
-  int *tag2eleall,*eleall2tag;
   int *elecheck_eleall;
   int *elenum_list,*displs,*eleall2ele;
   int *elebuf2eleall;

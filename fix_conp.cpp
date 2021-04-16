@@ -594,6 +594,19 @@ void FixConp::b_comm(double* bsend, double* brecv)
 
 /* ----------------------------------------------------------------------*/
 
+void FixConp::b_comm_int(int* bsend, int* brecv)
+{
+  int* bbuf_int = new int[elenum_all];
+  MPI_Allgatherv(bsend,elenum,MPI_INT,bbuf_int,elenum_list,displs,MPI_DOUBLE,world);
+  int iall;
+  for (iall = 0; iall < elenum_all; ++iall) {
+    brecv[elebuf2eleall[iall]] = bbuf_int[iall];
+  }
+  delete [] bbuf_int;
+}
+
+/* ----------------------------------------------------------------------*/
+
 void FixConp::b_cal() {
   bool do_bp=true;
   update_bk(do_bp,bbb_all);
