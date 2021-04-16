@@ -16,8 +16,6 @@
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
-#include "assert.h"
-#include "unistd.h"
 #include "math.h"
 #include "string.h"
 #include "stdlib.h"
@@ -32,6 +30,9 @@
 #include "memory.h"
 #include "error.h"
 #include "compute.h"
+#include "kspacemodule.h"
+#include "km_ewald.h"
+#include "km_pppm.h"
 #include "fix_conp.h"
 #include "pair_hybrid.h"
 
@@ -46,8 +47,6 @@
 #include "domain.h"
 #include "utils.h"
 #include "iostream"
-
-#include "kspacemodule.h"
 
 #define EWALD_F   1.12837917
 #define EWALD_P   0.3275911
@@ -183,8 +182,8 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   totsetq = 0;
   gotsetq = 0;  //=1 after getting setq vector
 
-  kspmod = new KSpaceModule(lmp);
-  kspmod->callback(this);
+  kspmod = new KSpaceModuleEwald(lmp);
+  kspmod->register_fix(this);
   //kspmod_constructor();
 }
 
@@ -211,7 +210,6 @@ FixConp::~FixConp()
   delete [] qrstr;
   delete [] displs;
   delete [] elenum_list;
-  // kspmod_deallocate();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -368,7 +366,7 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
 
 void FixConp::setup(int vflag)
 {
-  kspmod->aaa_setup();
+  kspmod->setup();
   g_ewald = force->kspace->g_ewald;
 
   // To-do: encapsulate runstage == 0 into a discrete member function?
@@ -387,7 +385,6 @@ void FixConp::setup(int vflag)
     elenum_all = 0;
     elytenum = 0;
     post_neighbor();
-    kspmod->ele_allocate(elenum_all);
 
     if (a_matrix_f == 0) {
       if (me == 0) printf("Fix conp is now calculating A matrix ... ");
@@ -429,7 +426,6 @@ void FixConp::post_neighbor()
     }
   }
   elytenum = nlocal - elenum;
-  if (elytenum > elytenum_old) kspmod->elyte_allocate(elytenum);
   if (elenum > elenum_old) {
     memory->grow(ele2tag,elenum,"fixconp:ele2tag");
     memory->grow(ele2eleall,elenum,"fixconp:ele2eleall");
@@ -478,6 +474,9 @@ void FixConp::post_neighbor()
     }
   }
   MPI_Allgatherv(ele2eleall,elenum,MPI_INT,elebuf2eleall,elenum_list,displs,MPI_INT,world);
+  bool do_elyte_alloc = (elytenum > elytenum_old);
+  bool do_ele_alloc = (elenum_all > elenum_all_old);
+  kspmod->post_neighbor(do_elyte_alloc,do_ele_alloc);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -617,8 +616,7 @@ void FixConp::b_cal() {
 void FixConp::update_bk(bool coulyes, double* bbb_all)
 {
   Ktime1 = MPI_Wtime();
-  kspmod->sincos_b();
-  kspmod->bbb_from_sincos_b(bbb);
+  kspmod->b_cal(bbb);
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
   
@@ -704,7 +702,7 @@ void FixConp::a_read()
     }
   }
   MPI_Allgatherv(ele2eleall,elenum,MPI_INT,elebuf2eleall,elenum_list,displs,MPI_INT,world);
-  kspmod->sincos_a();
+  kspmod->a_read();
 }
 
 /*----------------------------------------------------------------------- */
@@ -724,9 +722,8 @@ void FixConp::a_cal()
   // gather tag,x and q
   double *eleallz = new double[elenum_all];
   int const elenum_c = elenum;
-  kspmod->sincos_a();
   double *aaa = new double[elenum*elenum_all];
-  kspmod->aaa_from_sincos_a(aaa);
+  kspmod->a_cal(aaa);
 
   if (smartlist) alist_coul_cal(aaa);
   else coul_cal(2,aaa);

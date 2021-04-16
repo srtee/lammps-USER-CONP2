@@ -16,10 +16,10 @@
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
-#ifndef LMP_FIXCONP_KSPACEMODULE_PPPM_H
-#define LMP_FIXCONP_KSPACEMODULE_PPPM_H
+#ifndef LMP_FIXCONP_KM_PPPM_H
+#define LMP_FIXCONP_KM_PPPM_H
 
-#include "fix_conp.h"
+#include "kspacemodule.h"
 
 #ifdef FFT_SINGLE
 typedef float FFT_SCALAR;
@@ -34,15 +34,20 @@ typedef double FFT_SCALAR;
 
 namespace LAMMPS_NS{
 
-class KSpaceModulePPPM : public Pointers {
- public:
+class KSpaceModulePPPM : protected KSpaceModule {
+ protected:
   KSpaceModulePPPM(class LAMMPS *);
   ~KSpaceModulePPPM();
-  void register_fix(class FixConp * infix) {fixconp = infix;}
-  void aaa_setup();
+
+  void setup() {}
+  void post_neighbor(bool, bool);
+  void a_cal(double*);
+  void a_read();
+  void b_cal(double*);
+
+  void pppm_setup();
   void aaa_make_grid_rho();
   void pppm_b();
-  void bbb_from_pppm_b(double *);
 
   void setup_allocate();
   void ele_allocate(int);
@@ -51,12 +56,9 @@ class KSpaceModulePPPM : public Pointers {
   void setup_deallocate();
   void ele_deallocate();
   void elyte_deallocate();
-  
 
- protected:
-  class FixConp* fixconp;
-  
-  void set_grid_global();
+  class KSpaceModuleEwald* my_ewald;
+  bool first_postneighbor;
   void set_grid_local();
   void elyte_particle_map();
   void elyte_make_rho();

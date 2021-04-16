@@ -31,7 +31,8 @@
 #include "kspace.h"
 #include "domain.h"
 #include "error.h"
-#include "kspacemodule_pppm.h"
+#include "km_ewald.h"
+#include "km_pppm.h"
 
 using namespace LAMMPS_NS;
 using namespace MathConst;
@@ -51,15 +52,57 @@ using namespace MathSpecial;
 enum{REVERSE_RHO_ELYTE};
 
 KSpaceModulePPPM::KSpaceModulePPPM(class LAMMPS * lmp) :
-Pointers(lmp)
+  KSpaceModule(lmp)
 {
   MPI_Comm_rank(world,&me);
   MPI_Comm_size(world,&nprocs);
   collective_flag = 0;
   stagger_flag = 0;
+  first_postneighbor = true;
 }
 
-void KSpaceModulePPPM::aaa_setup()
+KSpaceModulePPPM::~KSpaceModulePPPM()
+{
+  setup_deallocate();
+  elyte_deallocate();
+  ele_deallocate();
+}
+
+void KSpaceModulePPPM::post_neighbor(
+  bool do_elyte_alloc, bool do_ele_alloc
+) 
+{
+  if (first_postneighbor) {
+    first_postneighbor = false;
+    return;
+  }
+  else {
+    if (do_elyte_alloc) {
+      int elytenum = fixconp->elytenum;
+      elyte_allocate(elytenum);
+    }
+    if (do_ele_alloc) {
+      int elenum_all = fixconp->elenum_all;
+      ele_allocate(elenum_all);
+    }
+  }
+}
+
+void KSpaceModulePPPM::a_cal(double * aaa)
+{
+  my_ewald = new KSpaceModuleEwald(lmp);
+  my_ewald->register_fix(fixconp);
+  my_ewald->setup();
+  my_ewald->post_neighbor(false,true); // ele_allocate
+  my_ewald->sincos_a();
+  my_ewald->aaa_from_sincos_a(aaa);
+  delete my_ewald;
+  pppm_setup();
+}
+
+void KSpaceModulePPPM::a_read() {pppm_setup();}
+
+void KSpaceModulePPPM::pppm_setup()
 {
   // let PPPM decide the global grid
   g_ewald = force->kspace->g_ewald;
@@ -88,6 +131,8 @@ void KSpaceModulePPPM::aaa_setup()
   set_grid_local();
   setup_allocate();
   compute_gf_ik();
+  post_neighbor(true,true);
+  aaa_make_grid_rho();
 }
 
 void KSpaceModulePPPM::pppm_b()
@@ -253,8 +298,10 @@ void KSpaceModulePPPM::elyte_poisson_u()
       }
 }
 
-void KSpaceModulePPPM::bbb_from_pppm_b(double * bbb)
+void KSpaceModulePPPM::b_cal(double * bbb)
 {
+  pppm_b(); // fills u_brick
+
   int i,iele,iall;
   int l,m,n,nx,ny,nz,mx,my,mz;
   FFT_SCALAR dx,dy,dz,x0,y0,z0;

@@ -65,6 +65,7 @@ class FixConp : public Fix {
   void init_list(int, class NeighList*);
   void end_of_step();
   int elenum,elenum_all;
+  int elytenum;
   int *ele2tag,*ele2eleall;
   int *tag2eleall,*eleall2tag;
   class KSpaceModule *kspmod;
@@ -107,7 +108,6 @@ class FixConp : public Fix {
   char *qlstr,*qrstr;
 
   int everynum;
-  int elytenum;
   Pair *coulpair;
 
   bool zneutrflag,preforceflag,initflag,matoutflag;
