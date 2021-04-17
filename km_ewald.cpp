@@ -119,15 +119,15 @@ void KSpaceModuleEwald::setup()
   gsqmx = MAX(gsqmx,gsqzmx);
 
   gsqmx *= 1.00001;
-}
-
-void KSpaceModuleEwald::a_read()
-{
   setup_allocate();
   make_kvecs_ewald();
   make_ug_from_kvecs();
   make_kxy_list_from_kvecs();
   kmax_created = kmax;
+}
+
+void KSpaceModuleEwald::a_read()
+{
   sincos_a();
 }
 

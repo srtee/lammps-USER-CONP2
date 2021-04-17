@@ -27,6 +27,7 @@ FixStyle(conp,FixConp)
 
 #include "fix.h"
 #include "pair.h"
+#include "kspacemodule.h"
 
 namespace LAMMPS_NS {
 

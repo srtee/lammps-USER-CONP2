@@ -20,14 +20,11 @@
 #define LMP_FIXCONP_KM_EWALD_H
 
 #include "kspacemodule.h"
-#include "km_pppm.h"
 
 namespace LAMMPS_NS{
 
-class KSpaceModuleEwald : protected KSpaceModule {
- friend class FixConp;
- friend class KSpaceModulePPPM;
- protected:
+class KSpaceModuleEwald : public KSpaceModule {
+ public:
   KSpaceModuleEwald(class LAMMPS *);
   ~KSpaceModuleEwald();
   
@@ -37,6 +34,7 @@ class KSpaceModuleEwald : protected KSpaceModule {
   void a_read();
   void b_cal(double *);
 
+  protected:
   virtual void setup_allocate();
   virtual void elyte_allocate(int);
   virtual void ele_allocate(int);

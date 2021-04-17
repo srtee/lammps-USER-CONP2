@@ -25,8 +25,7 @@
 namespace LAMMPS_NS{
 
 class KSpaceModule: public Pointers {
- friend class FixConp;
- protected:
+ public:
   KSpaceModule(class LAMMPS * lmp) : Pointers(lmp) {}
   virtual ~KSpaceModule() {}
   void register_fix(class FixConp* infix) {fixconp = infix;}

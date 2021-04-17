@@ -94,8 +94,7 @@ void KSpaceModulePPPM::a_cal(double * aaa)
   my_ewald->register_fix(fixconp);
   my_ewald->setup();
   my_ewald->post_neighbor(false,true); // ele_allocate
-  my_ewald->sincos_a();
-  my_ewald->aaa_from_sincos_a(aaa);
+  my_ewald->a_cal(aaa);
   delete my_ewald;
   pppm_setup();
 }
@@ -803,3 +802,33 @@ void KSpaceModulePPPM::compute_gf_denom()
   for (l = 0; l < order; l++) gf_b[l] *= gaminv;
 }
 
+void KSpaceModulePPPM::setup_deallocate()
+{
+  memory->destroy(gf_b);
+  memory->destroy(rho1d);
+  memory->destroy(rho_coeff);
+  memory->destroy(elyte_density_brick);
+  memory->destroy(elyte_density_fft);
+  memory->destroy(work1);
+  memory->destroy(work2);
+  delete gc;
+  memory->destroy(gc_buf1);
+  memory->destroy(gc_buf2);
+  delete fft1;
+  delete fft2;
+  delete remap;
+  memory->destroy(u_brick);
+  memory->destroy(greensfn);
+}
+
+void KSpaceModulePPPM::ele_deallocate()
+{
+  memory->destroy(eleall_grid);
+  memory->destroy(eleall_rho);
+}
+
+void KSpaceModulePPPM::elyte_deallocate()
+{
+  memory->destroy(j2i);
+  memory->destroy(elyte_grid);
+}
