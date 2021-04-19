@@ -39,7 +39,7 @@ using namespace LAMMPS_NS;
 using namespace MathConst;
 
 KSpaceModuleEwald::KSpaceModuleEwald(LAMMPS *lmp) : 
-  KSpaceModule(lmp),ug(nullptr),
+  KSpaceModule(),Pointers(lmp),ug(nullptr),
   kxvecs(nullptr),kyvecs(nullptr),kzvecs(nullptr),
   cs(nullptr),sn(nullptr),csk(nullptr),snk(nullptr),
   qj_global(nullptr),kcount_dims(nullptr),kxy_list(nullptr),
@@ -56,7 +56,7 @@ KSpaceModuleEwald::~KSpaceModuleEwald()
   ele_deallocate();
 }
 
-void KSpaceModuleEwald::setup()
+void KSpaceModuleEwald::conp_setup()
 {
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;
@@ -181,7 +181,7 @@ void KSpaceModuleEwald::setup_deallocate()
   delete [] sfacim_all;
 }
 
-void KSpaceModuleEwald::post_neighbor(
+void KSpaceModuleEwald::conp_post_neighbor(
   bool do_elyte_alloc, bool do_ele_alloc)
 {
   if (do_elyte_alloc) {

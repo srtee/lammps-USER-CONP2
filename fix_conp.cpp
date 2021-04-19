@@ -32,7 +32,6 @@
 #include "compute.h"
 #include "kspacemodule.h"
 #include "km_ewald.h"
-#include "km_pppm.h"
 #include "fix_conp.h"
 #include "pair_hybrid.h"
 
@@ -87,6 +86,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   molidL = utils::inumeric(FLERR,arg[5],false,lmp);
   molidR = utils::inumeric(FLERR,arg[6],false,lmp);
   zneutrflag = false;
+  pppmflag = false;
   if (strstr(arg[7],"v_") == arg[7]) {
     int n = strlen(&arg[7][2]) + 1;
     qlstr = new char[n];
@@ -158,6 +158,9 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
     else if (strcmp(arg[iarg],"matout") == 0) {
       matoutflag = true;
     }
+    else if (strcmp(arg[iarg],"pppm") == 0) {
+      pppmflag = true;
+    }
     else {
       printf(".<%s>.\n",arg[iarg]);
       error->all(FLERR,"Invalid fix conp input command");
@@ -182,7 +185,8 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   totsetq = 0;
   gotsetq = 0;  //=1 after getting setq vector
 
-  kspmod = new KSpaceModuleEwald(lmp);
+  // if (pppmflag) kspmod = new KSpaceModulePPPM(lmp);
+  /* else */  kspmod = new KSpaceModuleEwald(lmp);
   kspmod->register_fix(this);
   //kspmod_constructor();
 }
@@ -366,7 +370,7 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
 
 void FixConp::setup(int vflag)
 {
-  kspmod->setup();
+  kspmod->conp_setup();
   g_ewald = force->kspace->g_ewald;
 
   // To-do: encapsulate runstage == 0 into a discrete member function?
@@ -476,7 +480,7 @@ void FixConp::post_neighbor()
   MPI_Allgatherv(ele2eleall,elenum,MPI_INT,elebuf2eleall,elenum_list,displs,MPI_INT,world);
   bool do_elyte_alloc = (elytenum > elytenum_old);
   bool do_ele_alloc = (elenum_all > elenum_all_old);
-  kspmod->post_neighbor(do_elyte_alloc,do_ele_alloc);
+  kspmod->conp_post_neighbor(do_elyte_alloc,do_ele_alloc);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -596,7 +600,7 @@ void FixConp::b_comm(double* bsend, double* brecv)
 void FixConp::b_comm_int(int* bsend, int* brecv)
 {
   int* bbuf_int = new int[elenum_all];
-  MPI_Allgatherv(bsend,elenum,MPI_INT,bbuf_int,elenum_list,displs,MPI_DOUBLE,world);
+  MPI_Allgatherv(bsend,elenum,MPI_INT,bbuf_int,elenum_list,displs,MPI_INT,world);
   int iall;
   for (iall = 0; iall < elenum_all; ++iall) {
     brecv[elebuf2eleall[iall]] = bbuf_int[iall];

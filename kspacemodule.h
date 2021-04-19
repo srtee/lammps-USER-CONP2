@@ -19,18 +19,17 @@
 #ifndef LMP_FIXCONP_KSPACEMODULE_H
 #define LMP_FIXCONP_KSPACEMODULE_H
 
-#include "pointers.h"
 #include "fix_conp.h"
 
 namespace LAMMPS_NS{
 
-class KSpaceModule: public Pointers {
+class KSpaceModule {
  public:
-  KSpaceModule(class LAMMPS * lmp) : Pointers(lmp) {}
+  KSpaceModule() {}
   virtual ~KSpaceModule() {}
   void register_fix(class FixConp* infix) {fixconp = infix;}
-  virtual void setup() {}
-  virtual void post_neighbor(bool, bool) {}
+  virtual void conp_setup() {}
+  virtual void conp_post_neighbor(bool, bool) {}
   virtual void a_cal(double *) {}
   virtual void a_read() {}
   virtual void b_cal(double *) {}

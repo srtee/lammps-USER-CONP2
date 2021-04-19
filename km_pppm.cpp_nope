@@ -52,7 +52,12 @@ using namespace MathSpecial;
 enum{REVERSE_RHO_ELYTE};
 
 KSpaceModulePPPM::KSpaceModulePPPM(class LAMMPS * lmp) :
-  KSpaceModule(lmp)
+  KSpaceModule(lmp),gf_b(nullptr),rho1d(nullptr),rho_coeff(nullptr),
+  elyte_density_brick(nullptr),elyte_density_fft(nullptr),
+  work1(nullptr),work2(nullptr),gc(nullptr),gc_buf1(nullptr),
+  gc_buf2(nullptr),fft1(nullptr),fft2(nullptr),remap(nullptr),
+  u_brick(nullptr),greensfn(nullptr),j2i(nullptr),
+  elyte_grid(nullptr),eleall_grid(nullptr),eleall_rho(nullptr)
 {
   MPI_Comm_rank(world,&me);
   MPI_Comm_size(world,&nprocs);
@@ -79,10 +84,12 @@ void KSpaceModulePPPM::post_neighbor(
   else {
     if (do_elyte_alloc) {
       int elytenum = fixconp->elytenum;
+      printf("elyte_allocate(%d)\n",elytenum);
       elyte_allocate(elytenum);
     }
     if (do_ele_alloc) {
       int elenum_all = fixconp->elenum_all;
+      printf("elenum_allocate(%d)\n",elenum_all);
       ele_allocate(elenum_all);
     }
   }
@@ -90,16 +97,22 @@ void KSpaceModulePPPM::post_neighbor(
 
 void KSpaceModulePPPM::a_cal(double * aaa)
 {
+  printf("starting my_ewald\n");
   my_ewald = new KSpaceModuleEwald(lmp);
   my_ewald->register_fix(fixconp);
   my_ewald->setup();
   my_ewald->post_neighbor(false,true); // ele_allocate
   my_ewald->a_cal(aaa);
   delete my_ewald;
-  pppm_setup();
+  printf("deleting my_ewald\n");
+  a_read();
 }
 
-void KSpaceModulePPPM::a_read() {pppm_setup();}
+void KSpaceModulePPPM::a_read()
+{
+  printf("pppm_setup\n");
+  pppm_setup();
+}
 
 void KSpaceModulePPPM::pppm_setup()
 {
@@ -127,10 +140,17 @@ void KSpaceModulePPPM::pppm_setup()
   delzinv = nz_pppm/zprd_slab;
   delvolinv = delxinv*delyinv*delzinv;
 
+  printf("set_grid_local\n");
   set_grid_local();
+  printf("setup_allocate\n");
   setup_allocate();
+  printf("compute_gf_ik\n");
   compute_gf_ik();
+  printf("compute_gf_denom\n");
+  compute_gf_denom();
+  printf("pppm_setup_post_neighbor\n");
   post_neighbor(true,true);
+  printf("aaa_make_grid_rho\n");
   aaa_make_grid_rho();
 }
 
@@ -171,9 +191,9 @@ void KSpaceModulePPPM::elyte_particle_map()
       ny = static_cast<int> ((x[i][1]-boxlo[1])*delyinv+shift) - OFFSET;
       nz = static_cast<int> ((x[i][2]-boxlo[2])*delzinv+shift) - OFFSET;
 
-      elyte_grid[i][0] = nx;
-      elyte_grid[i][1] = ny;
-      elyte_grid[i][2] = nz;
+      elyte_grid[j][0] = nx;
+      elyte_grid[j][1] = ny;
+      elyte_grid[j][2] = nz;
 
     // check that entire stencil around nx,ny,nz will fit in my 3d brick
 
@@ -181,10 +201,10 @@ void KSpaceModulePPPM::elyte_particle_map()
           ny+nlower < nylo_out || ny+nupper > nyhi_out ||
           nz+nlower < nzlo_out || nz+nupper > nzhi_out)
         flag = 1;
+      ++j;
     }
 
     if (flag) error->one(FLERR,"Out of range atoms - cannot compute PPPM");
-    ++j;
   }
   jmax = j;
 }
@@ -355,8 +375,8 @@ void KSpaceModulePPPM::aaa_make_grid_rho()
   }
   for (iele = 0; iele < elenum_c; ++iele) {
     for (ic = 0; ic < 3; ++ic) {
-      double xlo = x[i][ic] - boxlo[ic];
       i = atom->map(ele2tag[iele]);
+      double xlo = x[i][ic] - boxlo[ic];
       n = static_cast<int> (xlo*delinv[ic]+shift)-OFFSET;
       ele2grid[ic][iele] = n;
       dxyz[ic] = n+shiftone-xlo*delinv[ic];
@@ -368,7 +388,8 @@ void KSpaceModulePPPM::aaa_make_grid_rho()
       }
     }
   }
-  
+ 
+  printf("starting bcomms\n"); 
   int* eleall2grid_ic = new int[elenum_all_c];
   double* eleall2rho_icl = new double[elenum_all_c];
   for (ic = 0; ic < 3; ++ic) {
@@ -381,6 +402,7 @@ void KSpaceModulePPPM::aaa_make_grid_rho()
         eleall_rho[iele][ic][l] = eleall2rho_icl[iele];
     }
   }
+  printf("ending bcomms\n");
   delete [] eleall2grid_ic;
   delete [] ele2grid;
 }
@@ -430,6 +452,7 @@ void KSpaceModulePPPM::setup_allocate()
                     nxlo_out,nxhi_out,nylo_out,nyhi_out,nzlo_out,nzhi_out);
   
   gc->setup(ngc_buf1,ngc_buf2);
+  printf("ngc_buf1 = %d, ngc_buf2 = %d\n",ngc_buf1,ngc_buf2);
   memory->create(gc_buf1,ngc_buf1,"fixconp:gc_buf1");
   memory->create(gc_buf2,ngc_buf2,"fixconp:gc_buf2");
 
@@ -638,12 +661,15 @@ void KSpaceModulePPPM::elyte_allocate(int elytenum)
 
 void KSpaceModulePPPM::pack_reverse_grid(int flag, void *vbuf, int nlist, int *list)
 {
+  printf("flag = %d, nlist = %d\n",flag,nlist);
   FFT_SCALAR *buf = (FFT_SCALAR *) vbuf;
 
   if (flag == REVERSE_RHO_ELYTE) {
     FFT_SCALAR *src = &elyte_density_brick[nzlo_out][nylo_out][nxlo_out];
-    for (int i = 0; i < nlist; i++)
+    for (int i = 0; i < nlist; i++) {
+      printf("list [%d] = %d\n",i,list[i]);
       buf[i] = src[list[i]];
+    }
   }
 }
 
@@ -653,12 +679,15 @@ void KSpaceModulePPPM::pack_reverse_grid(int flag, void *vbuf, int nlist, int *l
 
 void KSpaceModulePPPM::unpack_reverse_grid(int flag, void *vbuf, int nlist, int *list)
 {
+  printf("flag = %d, nlist = %d\n",flag,nlist);
   FFT_SCALAR *buf = (FFT_SCALAR *) vbuf;
 
   if (flag == REVERSE_RHO_ELYTE) {
     FFT_SCALAR *dest = &elyte_density_brick[nzlo_out][nylo_out][nxlo_out];
-    for (int i = 0; i < nlist; i++)
+    for (int i = 0; i < nlist; i++) {
+      printf("list [%d] = %d\n",i,list[i]);
       dest[list[i]] += buf[i];
+    }
   }
 }
 

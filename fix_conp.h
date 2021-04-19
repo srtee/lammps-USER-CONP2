@@ -112,6 +112,7 @@ class FixConp : public Fix {
   Pair *coulpair;
 
   bool zneutrflag,preforceflag,initflag,matoutflag;
+  bool pppmflag;
 };
 
 }

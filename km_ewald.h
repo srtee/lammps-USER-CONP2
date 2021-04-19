@@ -20,16 +20,17 @@
 #define LMP_FIXCONP_KM_EWALD_H
 
 #include "kspacemodule.h"
+#include "pointers.h"
 
 namespace LAMMPS_NS{
 
-class KSpaceModuleEwald : public KSpaceModule {
+class KSpaceModuleEwald : public KSpaceModule, public Pointers {
  public:
   KSpaceModuleEwald(class LAMMPS *);
   ~KSpaceModuleEwald();
   
-  void setup();
-  void post_neighbor(bool, bool);
+  void conp_setup();
+  void conp_post_neighbor(bool, bool);
   void a_cal(double *);
   void a_read();
   void b_cal(double *);

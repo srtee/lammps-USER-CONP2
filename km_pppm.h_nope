@@ -34,8 +34,8 @@ typedef double FFT_SCALAR;
 
 namespace LAMMPS_NS{
 
-class KSpaceModulePPPM : protected KSpaceModule {
- protected:
+class KSpaceModulePPPM : public KSpaceModule {
+ public:
   KSpaceModulePPPM(class LAMMPS *);
   ~KSpaceModulePPPM();
 
@@ -45,6 +45,7 @@ class KSpaceModulePPPM : protected KSpaceModule {
   void a_read();
   void b_cal(double*);
 
+ protected:
   void pppm_setup();
   void aaa_make_grid_rho();
   void pppm_b();
