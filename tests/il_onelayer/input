@@ -7,7 +7,8 @@ log log.lammps_$n
 # 2 = conp ffield etypes [write traj]
 # 3 = conp noslab zneutr etypes [sym]
 # 4 = conp noslab zneutr etypes [anti]
-# 5 = conp ffield etypes [rerun]
+# 5 = conp ffield etypes pppm
+# 6 = conp ffield etypes [rerun]
 
 units               real    
 dimension           3   
@@ -21,7 +22,7 @@ pair_style          lj/cut/coul/long 16.0
 pair_modify         mix arithmetic
 bond_style          harmonic
 angle_style         harmonic
-kspace_style        pppm 1.0e-7
+if "$n == 5" then "kspace_style pppm/conp 1.0e-7" else "kspace_style pppm 1.0e-7"
 if "$n <= 1" then "kspace_modify slab 3.0"
 #you can try forcing kspace mesh same xy resolution
 #to eliminate spurious differences
@@ -97,12 +98,12 @@ if "$n == 0" then &
 "fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter" &
 elif "$n == 1"  &
 "fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype}" &
-elif "$n == 2"  &
-"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} ffield pppm" &
+elif "$n == 2 || $n == 5"  &
+"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} ffield" &
 "fix efield all efield 0 0 $(-2*v_v/lz) " &
 elif "$n == 3 || $n == 4"  &
 "fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} noslab zneutr" &
-elif "$n == 5"  &
+elif "$n == 6" &
 "fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter ffield"
 
 variable t equal 500
@@ -124,7 +125,7 @@ thermo              20
 if "$n == 1 || $n == 2" then "dump dsol sol atom 20 sol$n.traj"
 
 if "$n <= 4" then "run 500" &
-elif "$n == 5" &
+elif "$n == 6" &
 "rerun sol1.traj dump x y z" &
 "rerun sol1.traj dump x y z" &
 "rerun sol2.traj dump x y z"
