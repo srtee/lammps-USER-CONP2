@@ -42,7 +42,8 @@ class PPPMCONP : public PPPM, public KSpaceModule {
 
  protected:
   void aaa_make_grid_rho();
-  void pppm_b();
+  void elyte_map_fft1();
+  void elyte_fft2_u();
 
   void setup_allocate();
   void ele_allocate(int);
@@ -54,11 +55,12 @@ class PPPMCONP : public PPPM, public KSpaceModule {
 
   class KSpaceModuleEwald* my_ewald;
   bool first_postneighbor;
-  bool elyte_was_done;
+  bool reuseflag;
   void elyte_particle_map();
   void elyte_make_rho();
   void elyte_brick2fft();
-  void elyte_poisson_u();
+  void elyte_poisson1();
+  void elyte_poisson2();
 
   void pack_reverse_grid(int, void*, int, int*); 
   void unpack_reverse_grid(int, void*, int, int*); 
@@ -75,6 +77,7 @@ class PPPMCONP : public PPPM, public KSpaceModule {
   FFT_SCALAR ***elyte_u_brick;
   FFT_SCALAR *elyte_density_fft;
 
+  bool elyte_fft1_done,elyte_fft2_done;
 };
 }
 
