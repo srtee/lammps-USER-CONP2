@@ -25,7 +25,7 @@ namespace LAMMPS_NS{
 
 class KSpaceModule {
  public:
-  KSpaceModule() {}
+  KSpaceModule() {fixconp = nullptr;}
   virtual ~KSpaceModule() {}
   void register_fix(class FixConp* infix) {fixconp = infix;}
   virtual void conp_setup() {}

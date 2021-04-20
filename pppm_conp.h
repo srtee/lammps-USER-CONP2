@@ -25,27 +25,15 @@ KSpaceStyle(pppm/conp,PPPMCONP)
 #ifndef LMP_PPPM_CONP_H
 #define LMP_PPPM_CONP_H
 
-#include "kspacemodule.h"
 #include "pppm.h"
+#include "kspacemodule.h"
 
-#ifdef FFT_SINGLE
-typedef float FFT_SCALAR;
-#define LMP_FFT_PREC "single"
-#define MPI_FFT_SCALAR MPI_FLOAT
-#else
+namespace LAMMPS_NS {
 
-typedef double FFT_SCALAR;
-#define LMP_FFT_PREC "double"
-#define MPI_FFT_SCALAR MPI_DOUBLE
-#endif
-
-namespace LAMMPS_NS{
-
-class PPPMCONP : public PPPM, public KSpaceModule{
+class PPPMCONP : public PPPM, public KSpaceModule {
  public:
   PPPMCONP(class LAMMPS *);
   ~PPPMCONP();
-
   void conp_setup() {}
   void conp_post_neighbor(bool, bool);
   void a_cal(double*);

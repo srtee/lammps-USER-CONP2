@@ -16,28 +16,17 @@
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
-#include <cmath>
-#include <cstring>
-#include "atom.h"
-#include "comm.h"
-#include "remap_wrap.h"
-#include "fft3d_wrap.h"
-#include "gridcomm.h"
-#include "math_const.h"
-#include "math_special.h"
-#include "memory.h"
-#include "neighbor.h"
-#include "force.h"
-#include "kspace.h"
-#include "domain.h"
-#include "error.h"
-#include "km_ewald.h"
 #include "pppm_conp.h"
+#include "km_ewald.h"
 
-using namespace LAMMPS_NS;
-using namespace MathConst;
-using namespace MathSpecial;
+#include "gridcomm.h"
+#include "fft3d_wrap.h"
+#include "remap_wrap.h"
+#include "atom.h"
+#include "memory.h"
+#include "error.h"
 
+#define OFFSET 16384
 #ifdef FFT_SINGLE
 #define ZEROF 0.0f
 #define ONEF  1.0f
@@ -46,19 +35,16 @@ using namespace MathSpecial;
 #define ONEF  1.0
 #endif
 
-#define OFFSET 16384
-#define EPS_HOC 1.0e-7
+using namespace LAMMPS_NS;
 
 enum{REVERSE_RHO,REVERSE_RHO_ELYTE};
 
-PPPMCONP::PPPMCONP(class LAMMPS * lmp) :
+PPPMCONP::PPPMCONP(LAMMPS *lmp) :
   PPPM(lmp),KSpaceModule(),
   elyte_density_brick(nullptr),elyte_density_fft(nullptr),
   elyte_u_brick(nullptr),j2i(nullptr),
   elyte_grid(nullptr),eleall_grid(nullptr),eleall_rho(nullptr)
 {
-  collective_flag = 0;
-  stagger_flag = 0;
   first_postneighbor = true;
 }
 
@@ -80,12 +66,10 @@ void PPPMCONP::conp_post_neighbor(
   else {
     if (do_elyte_alloc) {
       int elytenum = fixconp->elytenum;
-      printf("elyte_allocate(%d)\n",elytenum);
       elyte_allocate(elytenum);
     }
     if (do_ele_alloc) {
       int elenum_all = fixconp->elenum_all;
-      printf("elenum_allocate(%d)\n",elenum_all);
       ele_allocate(elenum_all);
     }
   }
@@ -93,14 +77,12 @@ void PPPMCONP::conp_post_neighbor(
 
 void PPPMCONP::a_cal(double * aaa)
 {
-  printf("starting my_ewald\n");
   my_ewald = new KSpaceModuleEwald(lmp);
   my_ewald->register_fix(fixconp);
   my_ewald->conp_setup();
   my_ewald->conp_post_neighbor(false,true); // ele_allocate
   my_ewald->a_cal(aaa);
   delete my_ewald;
-  printf("deleting my_ewald\n");
   a_read();
 }
 
@@ -347,7 +329,6 @@ void PPPMCONP::aaa_make_grid_rho()
     }
   }
  
-  printf("starting bcomms\n"); 
   int* eleall2grid_ic = new int[elenum_all_c];
   double* eleall2rho_icl = new double[elenum_all_c];
   for (ic = 0; ic < 3; ++ic) {
@@ -360,7 +341,7 @@ void PPPMCONP::aaa_make_grid_rho()
         eleall_rho[iele][ic][l] = eleall2rho_icl[iele];
     }
   }
-  printf("ending bcomms\n");
+  
   delete [] eleall2grid_ic;
   delete [] ele2grid;
 }
@@ -392,20 +373,18 @@ void PPPMCONP::elyte_allocate(int elytenum)
 
 void PPPMCONP::pack_reverse_grid(int flag, void *vbuf, int nlist, int *list)
 {
-  printf("flag = %d, nlist = %d\n",flag,nlist);
+
   FFT_SCALAR *buf = (FFT_SCALAR *) vbuf;
 
   if (flag == REVERSE_RHO_ELYTE) {
     FFT_SCALAR *src = &elyte_density_brick[nzlo_out][nylo_out][nxlo_out];
     for (int i = 0; i < nlist; i++) {
-      printf("list [%d] = %d\n",i,list[i]);
       buf[i] = src[list[i]];
     }
   }
   else if (flag == REVERSE_RHO) {
     FFT_SCALAR *src = &density_brick[nzlo_out][nylo_out][nxlo_out];
     for (int i = 0; i < nlist; i++) {
-      printf("list [%d] = %d\n",i,list[i]);
       buf[i] = src[list[i]];
     }
   }
@@ -417,20 +396,18 @@ void PPPMCONP::pack_reverse_grid(int flag, void *vbuf, int nlist, int *list)
 
 void PPPMCONP::unpack_reverse_grid(int flag, void *vbuf, int nlist, int *list)
 {
-  printf("flag = %d, nlist = %d\n",flag,nlist);
+
   FFT_SCALAR *buf = (FFT_SCALAR *) vbuf;
 
   if (flag == REVERSE_RHO_ELYTE) {
     FFT_SCALAR *dest = &elyte_density_brick[nzlo_out][nylo_out][nxlo_out];
     for (int i = 0; i < nlist; i++) {
-      printf("list [%d] = %d\n",i,list[i]);
       dest[list[i]] += buf[i];
     }
   }
   else if (flag == REVERSE_RHO) {
     FFT_SCALAR *dest = &density_brick[nzlo_out][nylo_out][nxlo_out];
     for (int i = 0; i < nlist; i++) {
-      printf("list [%d] = %d\n",i,list[i]);
       dest[list[i]] += buf[i];
     }
   }
@@ -438,21 +415,9 @@ void PPPMCONP::unpack_reverse_grid(int flag, void *vbuf, int nlist, int *list)
 
 void PPPMCONP::setup_deallocate()
 {
-  memory->destroy(gf_b);
-  memory->destroy(rho1d);
-  memory->destroy(rho_coeff);
   memory->destroy(elyte_density_brick);
   memory->destroy(elyte_density_fft);
-  memory->destroy(work1);
-  memory->destroy(work2);
-  delete gc;
-  memory->destroy(gc_buf1);
-  memory->destroy(gc_buf2);
-  delete fft1;
-  delete fft2;
-  delete remap;
   memory->destroy(elyte_u_brick);
-  memory->destroy(greensfn);
 }
 
 void PPPMCONP::ele_deallocate()

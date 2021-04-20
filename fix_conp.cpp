@@ -182,11 +182,12 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   bbb = bbuf = nullptr;
   Btime = cgtime = Ctime = Ktime = 0;
   alist = blist = list = nullptr;
+  elenum_list = displs = nullptr;
   totsetq = 0;
   gotsetq = 0;  //=1 after getting setq vector
 
-  // if (pppmflag) kspmod = new KSpaceModulePPPM(lmp);
-  /* else */  kspmod = new KSpaceModuleEwald(lmp);
+  if (pppmflag) kspmod = (KSpaceModule *)force->kspace;
+  else kspmod = new KSpaceModuleEwald(lmp);
   kspmod->register_fix(this);
   //kspmod_constructor();
 }
@@ -195,7 +196,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
 
 FixConp::~FixConp()
 {
-  delete kspmod;
+  if (!pppmflag && kspmod!=nullptr) delete kspmod;
   fclose(outf);
   memory->destroy(bbb);
   memory->destroy(ele2tag);
@@ -209,11 +210,11 @@ FixConp::~FixConp()
   memory->destroy(elebuf2eleall);
   memory->destroy(bbuf);
   memory->destroy(elesetq);
-  delete [] tag2eleall;
-  delete [] qlstr;
-  delete [] qrstr;
-  delete [] displs;
-  delete [] elenum_list;
+  if (tag2eleall!=nullptr) delete [] tag2eleall;
+  if (qlstr!=nullptr) delete [] qlstr;
+  if (qrstr!=nullptr) delete [] qrstr;
+  if (displs!=nullptr) delete [] displs;
+  if (elenum_list!=nullptr) delete [] elenum_list;
 }
 
 /* ---------------------------------------------------------------------- */
