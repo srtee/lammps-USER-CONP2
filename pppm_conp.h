@@ -39,11 +39,11 @@ class PPPMCONP : public PPPM, public KSpaceModule {
   void a_cal(double*);
   void a_read();
   void b_cal(double*);
-
+  void conp_pre_force() {elyte_mapped = false;}
+  void update_charge() {ele_make_rho();}
  protected:
-  void aaa_make_grid_rho();
-  void elyte_map_fft1();
-  void elyte_fft2_u();
+  void aaa_map_rho();
+  void elyte_map_rho_pois();
 
   void setup_allocate();
   void ele_allocate(int);
@@ -55,29 +55,22 @@ class PPPMCONP : public PPPM, public KSpaceModule {
 
   class KSpaceModuleEwald* my_ewald;
   bool first_postneighbor;
+  bool first_bcal;
   bool reuseflag;
   void elyte_particle_map();
   void elyte_make_rho();
-  void elyte_brick2fft();
-  void elyte_poisson1();
-  void elyte_poisson2();
+  void elyte_poisson();
 
-  void pack_reverse_grid(int, void*, int, int*); 
-  void unpack_reverse_grid(int, void*, int, int*); 
-  void pack_forward_grid(int, void*, int, int*); 
-  void unpack_forward_grid(int, void*, int, int*); 
-
-  int** eleall_grid;
-  FFT_SCALAR ***eleall_rho;
-
+  FFT_SCALAR ***ele2rho;
+  FFT_SCALAR ***elyte_density_brick;
+  FFT_SCALAR ***ele_density_brick;
   int jmax;
   int* j2i;
-  int** elyte_grid;
-  FFT_SCALAR ***elyte_density_brick;
-  FFT_SCALAR ***elyte_u_brick;
-  FFT_SCALAR *elyte_density_fft;
+  bool elyte_mapped;
 
-  bool elyte_fft1_done,elyte_fft2_done;
+  void ele_make_rho();
+  void particle_map();
+  void make_rho();
 };
 }
 

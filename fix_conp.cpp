@@ -286,7 +286,6 @@ void FixConp::init()
     }
   }
   initflag = true;
-  printf("Init was okay!\n");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -490,6 +489,7 @@ void FixConp::post_neighbor()
 
 void FixConp::pre_force(int /* vflag */)
 {
+  kspmod->conp_pre_force();
   if(update->ntimestep % everynum == 0) {
     preforceflag = true;
     if (strstr(update->integrate_style,"verlet")) { //not respa
@@ -1059,6 +1059,7 @@ void FixConp::update_charge()
   //  hack: we will use addv to store total electrode charge
   addv *= totsetq;
   addv += netcharge_left;
+  kspmod->update_charge();
 }
 /* ---------------------------------------------------------------------- */
 void FixConp::force_cal(int vflag)

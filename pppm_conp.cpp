@@ -45,11 +45,10 @@ enum{FORWARD_IK,FORWARD_AD,FORWARD_IK_PERATOM,FORWARD_AD_PERATOM,FORWARD_ELYTE};
 
 PPPMCONP::PPPMCONP(LAMMPS *lmp) :
   PPPM(lmp),KSpaceModule(),
-  elyte_density_brick(nullptr),elyte_density_fft(nullptr),
-  elyte_u_brick(nullptr),j2i(nullptr),
-  elyte_grid(nullptr),eleall_grid(nullptr),eleall_rho(nullptr)
+  j2i(nullptr),ele2rho(nullptr)
 {
   first_postneighbor = true;
+  first_bcal = true;
   u_brick = nullptr;
 }
 
@@ -77,6 +76,9 @@ void PPPMCONP::conp_post_neighbor(
       int elenum_all = fixconp->elenum_all;
       ele_allocate(elenum_all);
     }
+    int elenum = fixconp->elenum;
+    ele_allocate(elenum);
+    aaa_map_rho();
   }
 }
 
@@ -95,30 +97,23 @@ void PPPMCONP::a_read()
 {
   setup_allocate();
   conp_post_neighbor(true,true);
-  aaa_make_grid_rho();
 }
 
-
-void PPPMCONP::elyte_map_fft1()
+void PPPMCONP::elyte_map_rho_pois()
 {
   elyte_particle_map();
   elyte_make_rho();
-
   // communicate my ghosts to others' grid
   gc->reverse_comm_kspace(dynamic_cast<KSpace*>(this),1,sizeof(FFT_SCALAR),REVERSE_RHO,
       gc_buf1,gc_buf2,MPI_FFT_SCALAR);
+  elyte_mapped = true;
+  //printf("comm:  %e\n",density_brick[9][10][10]);
+
   
   brick2fft();
-  elyte_poisson1();
-  elyte_fft1_done = true;
-}
-
-void PPPMCONP::elyte_fft2_u()
-{
-  elyte_poisson2();
+  elyte_poisson();
   gc->forward_comm_kspace(dynamic_cast<KSpace*>(this),1,sizeof(FFT_SCALAR),FORWARD_AD,
       gc_buf1,gc_buf2,MPI_FFT_SCALAR);
-  elyte_fft2_done = true;
 }
 
 void PPPMCONP::elyte_particle_map()
@@ -146,9 +141,9 @@ void PPPMCONP::elyte_particle_map()
       ny = static_cast<int> ((x[i][1]-boxlo[1])*delyinv+shift) - OFFSET;
       nz = static_cast<int> ((x[i][2]-boxlo[2])*delzinv+shift) - OFFSET;
 
-      elyte_grid[j][0] = nx;
-      elyte_grid[j][1] = ny;
-      elyte_grid[j][2] = nz;
+      part2grid[i][0] = nx;
+      part2grid[i][1] = ny;
+      part2grid[i][2] = nz;
 
     // check that entire stencil around nx,ny,nz will fit in my 3d brick
 
@@ -171,6 +166,8 @@ void PPPMCONP::elyte_make_rho()
 
   // clear 3d density array
 
+  memset(&(elyte_density_brick[nzlo_out][nylo_out][nxlo_out]),0,
+         ngrid*sizeof(FFT_SCALAR));
   memset(&(density_brick[nzlo_out][nylo_out][nxlo_out]),0,
          ngrid*sizeof(FFT_SCALAR));
 
@@ -186,9 +183,9 @@ void PPPMCONP::elyte_make_rho()
   for (int j = 0; j < jmax; ++j) {
     i = j2i[j];
 
-    nx = elyte_grid[j][0];
-    ny = elyte_grid[j][1];
-    nz = elyte_grid[j][2];
+    nx = part2grid[i][0];
+    ny = part2grid[i][1];
+    nz = part2grid[i][2];
     dx = nx+shiftone - (x[i][0]-boxlo[0])*delxinv;
     dy = ny+shiftone - (x[i][1]-boxlo[1])*delyinv;
     dz = nz+shiftone - (x[i][2]-boxlo[2])*delzinv;
@@ -204,35 +201,20 @@ void PPPMCONP::elyte_make_rho()
         x0 = y0*rho1d[1][m+nlower];
         for (l = 0; l < order; l++) {
           mx = l + nlower + nx;
-          density_brick[mz][my][mx] += x0*rho1d[0][l+nlower];
+          elyte_density_brick[mz][my][mx] += x0*rho1d[0][l+nlower];
         }
       }
     }
   }
+  for (int nz = nzlo_out; nz <= nzhi_out; ++nz)
+    for (int ny = nylo_out; ny <= nyhi_out; ++ny)
+      for (int nx = nxlo_out; nx <= nxhi_out; ++nx) {
+        density_brick[nz][ny][nx] = elyte_density_brick[nz][ny][nx];
+  }
+  //printf("elyte: %e\n",elyte_density_brick[9][10][10]);
 }
 
-/* ----------------------------------------------------------------------
-   remap density from 3d brick decomposition to FFT decomposition
-------------------------------------------------------------------------- */
-
-void PPPMCONP::elyte_brick2fft()
-{
-  int n,ix,iy,iz;
-
-  // copy grabs inner portion of density from 3d brick
-  // remap could be done as pre-stage of FFT,
-  //   but this works optimally on only double values, not complex values
-
-  n = 0;
-  for (iz = nzlo_in; iz <= nzhi_in; iz++)
-    for (iy = nylo_in; iy <= nyhi_in; iy++)
-      for (ix = nxlo_in; ix <= nxhi_in; ix++)
-        elyte_density_fft[n++] = density_brick[iz][iy][ix];
-
-  remap->perform(elyte_density_fft,elyte_density_fft,work1);
-}
-
-void PPPMCONP::elyte_poisson1()
+void PPPMCONP::elyte_poisson()
 {
   int i,j,k,n;
   int const nfft_c = nfft;
@@ -244,12 +226,6 @@ void PPPMCONP::elyte_poisson1()
   }
 
   fft1->compute(work1,work1,1);
-}
-
-void PPPMCONP::elyte_poisson2()
-{
-  int i,j,k,n;
-  int const nfft_c = nfft;
   double scaleinv = 1.0/(nx_pppm*ny_pppm*nz_pppm);
   // scale by 1/total-grid-pts to get rho(k)
   // multiply by Green's function to get V(k)
@@ -279,31 +255,29 @@ void PPPMCONP::elyte_poisson2()
 
 void PPPMCONP::b_cal(double * bbb)
 {
-  elyte_map_fft1(); // FFT rho to kspace
-  elyte_fft2_u();   // FFT kspace to u
+  elyte_map_rho_pois(); // FFT rho to kspace
   int i,iele,iall;
   int l,m,n,nx,ny,nz,mx,my,mz;
   FFT_SCALAR dx,dy,dz,x0,y0,z0;
   FFT_SCALAR u;
   int const elenum_c = fixconp->elenum;
   int* ele2tag = fixconp->ele2tag;
-  int* tag2eleall = fixconp->tag2eleall;
   for (iele = 0; iele < elenum_c; ++iele) {
     double bbbtmp = 0;
-    iall = tag2eleall[ele2tag[iele]];
-    nx = eleall_grid[iall][0];
-    ny = eleall_grid[iall][1];
-    nz = eleall_grid[iall][2];
+    i = atom->map(ele2tag[iele]);
+    nx = part2grid[i][0];
+    ny = part2grid[i][1];
+    nz = part2grid[i][2];
 
     for (n = 0; n < order; ++n) {
       mz = n + nlower + nz;
-      z0 = eleall_rho[iall][2][n];
+      z0 = ele2rho[iele][2][n];
       for (m = 0; m < order; ++m) {
         my = m + nlower + ny;
-        y0 = z0*eleall_rho[iall][1][m];
+        y0 = z0*ele2rho[iele][1][m];
         for (l = 0; l < order; ++l) {
           mx = l + nlower + nx;
-          x0 = y0*eleall_rho[iall][0][l];
+          x0 = y0*ele2rho[iele][0][l];
           bbbtmp -= x0*u_brick[mz][my][mx];
         }
       }
@@ -325,14 +299,10 @@ void PPPMCONP::b_cal(double * bbb)
       bbb[iele] -= x[i][2]*slabcorr;
     }
   }
-
-  //double const qscale = force->qqrd2e*scale;
-  //for (iele = 0; iele < elenum_c; ++iele) bbb[iele] *= qscale;
-  //int* eleall2ele = fixconp->eleall2ele;
-  //printf("%g\t%d\n",bbb[eleall2ele[0]],ele2tag[eleall2ele[0]]);
+  first_bcal = false;
 }
 
-void PPPMCONP::aaa_make_grid_rho()
+void PPPMCONP::aaa_map_rho()
 {
   // fixconp picks up ele_allocate call
   int i,iele,ic,n,l;
@@ -342,268 +312,123 @@ void PPPMCONP::aaa_make_grid_rho()
   int const elenum_all_c = fixconp->elenum_all;
   double const delinv[3] = {delxinv,delyinv,delzinv};
 
-  int** ele2grid = new int*[3];
-  double*** ele2rho = new double**[3];
   double dxyz[3];
-  for (ic = 0; ic < 3; ++ic) {
-    ele2grid[ic] = new int[elenum_c];
-    ele2rho[ic] = new double*[order];
-    for (l = 0; l < order; ++l) {
-      ele2rho[ic][l] = new double[elenum_c];
-    }
-  }
   for (iele = 0; iele < elenum_c; ++iele) {
     for (ic = 0; ic < 3; ++ic) {
       i = atom->map(ele2tag[iele]);
       double xlo = x[i][ic] - boxlo[ic];
       n = static_cast<int> (xlo*delinv[ic]+shift)-OFFSET;
-      ele2grid[ic][iele] = n;
+      part2grid[i][ic] = n;
       dxyz[ic] = n+shiftone-xlo*delinv[ic];
     }
     compute_rho1d(dxyz[0],dxyz[1],dxyz[2]);
     for (ic = 0; ic < 3; ++ic) {
       for (l = 0; l < order; ++l) {
-        ele2rho[ic][l][iele] = rho1d[ic][l+nlower];
+        ele2rho[iele][ic][l] = rho1d[ic][l+nlower];
       }
     }
   }
- 
-  int* eleall2grid_ic = new int[elenum_all_c];
-  double* eleall2rho_icl = new double[elenum_all_c];
-  for (ic = 0; ic < 3; ++ic) {
-    fixconp->b_comm_int(ele2grid[ic],eleall2grid_ic);
-    for (iele = 0; iele < elenum_all_c; ++iele)
-      eleall_grid[iele][ic] = eleall2grid_ic[iele];
-    for (l = 0; l < order; ++l) {
-      fixconp->b_comm(ele2rho[ic][l],eleall2rho_icl);
-      for (iele = 0; iele < elenum_all_c; ++iele)
-        eleall_rho[iele][ic][l] = eleall2rho_icl[iele];
-    }
-  }
-  
-  delete [] eleall2grid_ic;
-  delete [] ele2grid;
 }
 
 void PPPMCONP::setup_allocate()
 {
-  //memory->create3d_offset(elyte_density_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
-  //                        nxlo_out,nxhi_out,"fixconp:elyte_density_brick");
+  memory->create3d_offset(ele_density_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
+                            nxlo_out,nxhi_out,"fixconp:ele_density_brick");
+  memory->create3d_offset(elyte_density_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
+                            nxlo_out,nxhi_out,"fixconp:elyte_density_brick");
   if (differentiation_flag == 0) {
   memory->create3d_offset(u_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
                             nxlo_out,nxhi_out,"fixconp:u_brick");
   }
-  //memory->create(elyte_density_fft,nfft_both,"fixconp:elyte_density_fft");
 }
 
-void PPPMCONP::ele_allocate(int elenum_all)
+void PPPMCONP::ele_allocate(int elenum)
 {
-  memory->grow(eleall_grid,elenum_all,3,"fixconp:eleall_grid");
-  memory->grow(eleall_rho,elenum_all,3,order,"fixconp:eleall_rho");
+  memory->grow(ele2rho,elenum,3,order,"fixconp:eleall_rho");
 }
 
 void PPPMCONP::elyte_allocate(int elytenum)
 {
   memory->grow(j2i,elytenum,"fixconp:j2i");
-  memory->grow(elyte_grid,elytenum,3,"fixconp:elyte_grid");
 }
 
 void PPPMCONP::setup_deallocate()
 {
+  memory->destroy3d_offset(ele_density_brick,nzlo_out,nylo_out,nxlo_out);
+  memory->destroy3d_offset(elyte_density_brick,nzlo_out,nylo_out,nxlo_out);
   if (differentiation_flag == 0) memory->destroy3d_offset(u_brick,nzlo_out,nylo_out,nxlo_out);
-  //memory->destroy3d_offset(elyte_density_brick,nzlo_out,nylo_out,nxlo_out);
-  //memory->destroy(elyte_density_fft);
 }
 
 void PPPMCONP::ele_deallocate()
 {
-  memory->destroy(eleall_grid);
-  memory->destroy(eleall_rho);
+  memory->destroy(ele2rho);
 }
 
 void PPPMCONP::elyte_deallocate()
 {
   memory->destroy(j2i);
-  memory->destroy(elyte_grid);
 }
 
-/* ----------------------------------------------------------------------
-   pack ghost values into buf to send to another proc
-------------------------------------------------------------------------- */
-
-void PPPMCONP::pack_reverse_grid(int flag, void *vbuf, int nlist, int *list)
+void PPPMCONP::ele_make_rho()
 {
+  int i,l,m,n,nx,ny,nz,mx,my,mz;
+  FFT_SCALAR dx,dy,dz,x0,y0,z0;
 
-  FFT_SCALAR *buf = (FFT_SCALAR *) vbuf;
+  // clear 3d density array
 
-  // if (flag == REVERSE_RHO_ELYTE) {
-  //   FFT_SCALAR *src = &elyte_density_brick[nzlo_out][nylo_out][nxlo_out];
-  //   for (int i = 0; i < nlist; i++) {
-  //     buf[i] = src[list[i]];
-  //   }
-  // }
-  /* else */ if (flag == REVERSE_RHO) {
-    FFT_SCALAR *src = &density_brick[nzlo_out][nylo_out][nxlo_out];
-    for (int i = 0; i < nlist; i++) {
-      buf[i] = src[list[i]];
+  memset(&(ele_density_brick[nzlo_out][nylo_out][nxlo_out]),0,
+         ngrid*sizeof(FFT_SCALAR));
+
+  // loop over my charges, add their contribution to nearby grid points
+  // (nx,ny,nz) = global coords of grid pt to "lower left" of charge
+  // (dx,dy,dz) = distance to "lower left" grid pt
+  // (mx,my,mz) = global coords of moving stencil pt
+
+  const int elenum_c = fixconp->elenum;
+  int* ele2tag = fixconp->ele2tag;
+  double *q = atom->q;
+  ////printf("%d\n",part2grid[atom->map(ele2tag[0])][2]);
+  for (int iele = 0; iele < elenum_c; ++iele) {
+    i = atom->map(ele2tag[iele]);
+
+    nx = part2grid[i][0];
+    ny = part2grid[i][1];
+    nz = part2grid[i][2];
+
+    z0 = delvolinv * q[i];
+    for (n = 0; n < order; n++) {
+      mz = n + nlower + nz;
+      y0 = z0*ele2rho[iele][2][n];
+      for (m = 0; m < order; m++) {
+        my = m + nlower + ny;
+        x0 = y0*ele2rho[iele][1][m];
+        for (l = 0; l < order; l++) {
+          mx = l + nlower + nx;
+          ele_density_brick[mz][my][mx] += x0*ele2rho[iele][0][l];
+        }
+      }
+    }
+  }
+  //printf("ele:   %e\n",ele_density_brick[9][10][10]);
+}
+
+void PPPMCONP::particle_map(){
+  if (first_bcal) PPPM::particle_map();
+  else if (!elyte_mapped) elyte_particle_map();
+  else return;
+}
+
+void PPPMCONP::make_rho(){
+  if (first_bcal) PPPM::make_rho();
+  else {
+    if (!elyte_mapped) {
+      elyte_make_rho();
+    }
+    for (int nz = nzlo_out; nz <= nzhi_out; ++nz)
+      for (int ny = nylo_out; ny <= nyhi_out; ++ny)
+        for (int nx = nxlo_out; nx <= nxhi_out; ++nx) {
+          density_brick[nz][ny][nx] = elyte_density_brick[nz][ny][nx];
+          density_brick[nz][ny][nx] += ele_density_brick[nz][ny][nx];
     }
   }
 }
-
-/* ----------------------------------------------------------------------
-   unpack another proc's ghost values from buf and add to own values
-------------------------------------------------------------------------- */
-
-void PPPMCONP::unpack_reverse_grid(int flag, void *vbuf, int nlist, int *list)
-{
-
-  FFT_SCALAR *buf = (FFT_SCALAR *) vbuf;
-
-  // if (flag == REVERSE_RHO_ELYTE) {
-  //  FFT_SCALAR *dest = &elyte_density_brick[nzlo_out][nylo_out][nxlo_out];
-  //  for (int i = 0; i < nlist; i++) {
-  //    dest[list[i]] += buf[i];
-  //  }
-  //}
-  /* else */ if (flag == REVERSE_RHO) {
-    FFT_SCALAR *dest = &density_brick[nzlo_out][nylo_out][nxlo_out];
-    for (int i = 0; i < nlist; i++) {
-      dest[list[i]] += buf[i];
-    }
-  }
-}
-
-/* ----------------------------------------------------------------------
-   pack own values to buf to send to another proc
-------------------------------------------------------------------------- */
-
-void PPPMCONP::pack_forward_grid(int flag, void *vbuf, int nlist, int *list)
-{
-  FFT_SCALAR *buf = (FFT_SCALAR *) vbuf;
-
-  int n = 0;
-
-  if (flag == FORWARD_IK) {
-    FFT_SCALAR *xsrc = &vdx_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *ysrc = &vdy_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *zsrc = &vdz_brick[nzlo_out][nylo_out][nxlo_out];
-    for (int i = 0; i < nlist; i++) {
-      buf[n++] = xsrc[list[i]];
-      buf[n++] = ysrc[list[i]];
-      buf[n++] = zsrc[list[i]];
-    }
-  } else if (flag == FORWARD_AD) {
-    FFT_SCALAR *src = &u_brick[nzlo_out][nylo_out][nxlo_out];
-    for (int i = 0; i < nlist; i++)
-      buf[i] = src[list[i]];
-  } else if (flag == FORWARD_IK_PERATOM) {
-    FFT_SCALAR *esrc = &u_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v0src = &v0_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v1src = &v1_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v2src = &v2_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v3src = &v3_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v4src = &v4_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v5src = &v5_brick[nzlo_out][nylo_out][nxlo_out];
-    for (int i = 0; i < nlist; i++) {
-      if (eflag_atom) buf[n++] = esrc[list[i]];
-      if (vflag_atom) {
-        buf[n++] = v0src[list[i]];
-        buf[n++] = v1src[list[i]];
-        buf[n++] = v2src[list[i]];
-        buf[n++] = v3src[list[i]];
-        buf[n++] = v4src[list[i]];
-        buf[n++] = v5src[list[i]];
-      }
-    }
-  } else if (flag == FORWARD_AD_PERATOM) {
-    FFT_SCALAR *v0src = &v0_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v1src = &v1_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v2src = &v2_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v3src = &v3_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v4src = &v4_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v5src = &v5_brick[nzlo_out][nylo_out][nxlo_out];
-    for (int i = 0; i < nlist; i++) {
-      buf[n++] = v0src[list[i]];
-      buf[n++] = v1src[list[i]];
-      buf[n++] = v2src[list[i]];
-      buf[n++] = v3src[list[i]];
-      buf[n++] = v4src[list[i]];
-      buf[n++] = v5src[list[i]];
-    }
-  } // else if (flag == FORWARD_ELYTE) {
-    // FFT_SCALAR *esrc = &elyte_u_brick[nzlo_out][nylo_out][nxlo_out];
-    // for (int i = 0; i < nlist; i++) {
-    //  buf[n++] = esrc[list[i]];
-    // }
-  // }
-}
-
-/* ----------------------------------------------------------------------
-   unpack another proc's own values from buf and set own ghost values
-------------------------------------------------------------------------- */
-
-void PPPMCONP::unpack_forward_grid(int flag, void *vbuf, int nlist, int *list)
-{
-  FFT_SCALAR *buf = (FFT_SCALAR *) vbuf;
-
-  int n = 0;
-
-  if (flag == FORWARD_IK) {
-    FFT_SCALAR *xdest = &vdx_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *ydest = &vdy_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *zdest = &vdz_brick[nzlo_out][nylo_out][nxlo_out];
-    for (int i = 0; i < nlist; i++) {
-      xdest[list[i]] = buf[n++];
-      ydest[list[i]] = buf[n++];
-      zdest[list[i]] = buf[n++];
-    }
-  } else if (flag == FORWARD_AD) {
-    FFT_SCALAR *dest = &u_brick[nzlo_out][nylo_out][nxlo_out];
-    for (int i = 0; i < nlist; i++)
-      dest[list[i]] = buf[i];
-  } else if (flag == FORWARD_IK_PERATOM) {
-    FFT_SCALAR *esrc = &u_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v0src = &v0_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v1src = &v1_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v2src = &v2_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v3src = &v3_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v4src = &v4_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v5src = &v5_brick[nzlo_out][nylo_out][nxlo_out];
-    for (int i = 0; i < nlist; i++) {
-      if (eflag_atom) esrc[list[i]] = buf[n++];
-      if (vflag_atom) {
-        v0src[list[i]] = buf[n++];
-        v1src[list[i]] = buf[n++];
-        v2src[list[i]] = buf[n++];
-        v3src[list[i]] = buf[n++];
-        v4src[list[i]] = buf[n++];
-        v5src[list[i]] = buf[n++];
-      }
-    }
-  } else if (flag == FORWARD_AD_PERATOM) {
-    FFT_SCALAR *v0src = &v0_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v1src = &v1_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v2src = &v2_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v3src = &v3_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v4src = &v4_brick[nzlo_out][nylo_out][nxlo_out];
-    FFT_SCALAR *v5src = &v5_brick[nzlo_out][nylo_out][nxlo_out];
-    for (int i = 0; i < nlist; i++) {
-      v0src[list[i]] = buf[n++];
-      v1src[list[i]] = buf[n++];
-      v2src[list[i]] = buf[n++];
-      v3src[list[i]] = buf[n++];
-      v4src[list[i]] = buf[n++];
-      v5src[list[i]] = buf[n++];
-    }
-  } // else if (flag == FORWARD_ELYTE) {
-    // FFT_SCALAR *esrc = &elyte_u_brick[nzlo_out][nylo_out][nxlo_out];
-    // for (int i = 0; i < nlist; i++) {
-    //  esrc[list[i]] = buf[n++];
-    // }
-  //}
-}
-
-/* ----------------------------------------------------------------------
-   pack ghost values into buf to send to another proc
-------------------------------------------------------------------------- */
-
