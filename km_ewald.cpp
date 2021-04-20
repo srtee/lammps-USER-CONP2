@@ -768,6 +768,8 @@ void KSpaceModuleEwald::bbb_from_sincos_b(double* bbb)
       bbb[elei] -= x[i][2]*slabcorr;
     }
   }
+  //int* eleall2ele = fixconp->eleall2ele;
+  //printf("%g\t%d\n",bbb[eleall2ele[0]],ele2tag[eleall2ele[0]]);
 }
 
 void KSpaceModuleEwald::make_kvecs_brick()

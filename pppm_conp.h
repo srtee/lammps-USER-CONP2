@@ -54,6 +54,7 @@ class PPPMCONP : public PPPM, public KSpaceModule {
 
   class KSpaceModuleEwald* my_ewald;
   bool first_postneighbor;
+  bool elyte_was_done;
   void elyte_particle_map();
   void elyte_make_rho();
   void elyte_brick2fft();
@@ -61,6 +62,8 @@ class PPPMCONP : public PPPM, public KSpaceModule {
 
   void pack_reverse_grid(int, void*, int, int*); 
   void unpack_reverse_grid(int, void*, int, int*); 
+  void pack_forward_grid(int, void*, int, int*); 
+  void unpack_forward_grid(int, void*, int, int*); 
 
   int** eleall_grid;
   FFT_SCALAR ***eleall_rho;

@@ -71,6 +71,7 @@ class FixConp : public Fix {
   int *tag2eleall,*eleall2tag;
   class KSpaceModule *kspmod;
   double eta;
+  int *elenum_list,*displs,*eleall2ele;
 
  protected:
   class NeighList *list;
@@ -84,7 +85,6 @@ class FixConp : public Fix {
   double *elesetq;
   double *aaa_all,*bbb_all;
   int *elecheck_eleall;
-  int *elenum_list,*displs,*eleall2ele;
   int *elebuf2eleall;
   double totsetq,addv;
   double *bbb,*bbuf;
@@ -94,7 +94,7 @@ class FixConp : public Fix {
   int *eletypes;
   class NeighList *alist,*blist;
 
-  int me,runstage,gotsetq;
+  int me,runstage,gotsetq,nprocs;
   int ilevel_respa;
   double Btime,Btime1,Btime2;
   double Ctime,Ctime1,Ctime2;

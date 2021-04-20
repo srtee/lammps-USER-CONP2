@@ -76,6 +76,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),coulpair(NULL),qlstr(NULL),qrstr(NULL)
 {
   MPI_Comm_rank(world,&me);
+  MPI_Comm_size(world,&nprocs);
   if (narg < 11) error->all(FLERR,"Illegal fix conp command");
   qlstyle = qrstyle = CONSTANT;
   ilevel_respa = 0;
@@ -186,9 +187,6 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   totsetq = 0;
   gotsetq = 0;  //=1 after getting setq vector
 
-  if (pppmflag) kspmod = (KSpaceModule *)force->kspace;
-  else kspmod = new KSpaceModuleEwald(lmp);
-  kspmod->register_fix(this);
   //kspmod_constructor();
 }
 
@@ -288,6 +286,7 @@ void FixConp::init()
     }
   }
   initflag = true;
+  printf("Init was okay!\n");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -371,6 +370,9 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
 
 void FixConp::setup(int vflag)
 {
+  if (pppmflag) kspmod = dynamic_cast<KSpaceModule *>(force->kspace);
+  else kspmod = new KSpaceModuleEwald(lmp);
+  kspmod->register_fix(this);
   kspmod->conp_setup();
   g_ewald = force->kspace->g_ewald;
 
