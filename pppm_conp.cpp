@@ -40,8 +40,8 @@
 using namespace LAMMPS_NS;
 using namespace MathConst;
 
-enum{REVERSE_RHO,REVERSE_RHO_ELYTE};
-enum{FORWARD_IK,FORWARD_AD,FORWARD_IK_PERATOM,FORWARD_AD_PERATOM,FORWARD_ELYTE};
+enum{REVERSE_RHO};
+enum{FORWARD_IK,FORWARD_AD,FORWARD_IK_PERATOM,FORWARD_AD_PERATOM};
 
 PPPMCONP::PPPMCONP(LAMMPS *lmp) :
   PPPM(lmp),KSpaceModule(),
@@ -71,10 +71,6 @@ void PPPMCONP::conp_post_neighbor(
     if (do_elyte_alloc) {
       int elytenum = fixconp->elytenum;
       elyte_allocate(elytenum);
-    }
-    if (do_ele_alloc) {
-      int elenum_all = fixconp->elenum_all;
-      ele_allocate(elenum_all);
     }
     int elenum = fixconp->elenum;
     ele_allocate(elenum);
@@ -201,16 +197,19 @@ void PPPMCONP::elyte_make_rho()
         x0 = y0*rho1d[1][m+nlower];
         for (l = 0; l < order; l++) {
           mx = l + nlower + nx;
-          elyte_density_brick[mz][my][mx] += x0*rho1d[0][l+nlower];
+          density_brick[mz][my][mx] += x0*rho1d[0][l+nlower];
         }
       }
     }
   }
-  for (int nz = nzlo_out; nz <= nzhi_out; ++nz)
-    for (int ny = nylo_out; ny <= nyhi_out; ++ny)
-      for (int nx = nxlo_out; nx <= nxhi_out; ++nx) {
-        density_brick[nz][ny][nx] = elyte_density_brick[nz][ny][nx];
-  }
+  memcpy(&(elyte_density_brick[nzlo_out][nylo_out][nxlo_out]),
+         &(density_brick[nzlo_out][nylo_out][nxlo_out]),
+         ngrid*sizeof(FFT_SCALAR));
+  //for (int nz = nzlo_out; nz <= nzhi_out; ++nz)
+  //  for (int ny = nylo_out; ny <= nyhi_out; ++ny)
+  //    for (int nx = nxlo_out; nx <= nxhi_out; ++nx) {
+  //      density_brick[nz][ny][nx] = elyte_density_brick[nz][ny][nx];
+  //}
   //printf("elyte: %e\n",elyte_density_brick[9][10][10]);
 }
 
@@ -336,7 +335,7 @@ void PPPMCONP::setup_allocate()
                             nxlo_out,nxhi_out,"fixconp:ele_density_brick");
   memory->create3d_offset(elyte_density_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
                             nxlo_out,nxhi_out,"fixconp:elyte_density_brick");
-  if (differentiation_flag == 0) {
+  if (differentiation_flag == 0) { // to-do: handle peratom allocate interactions
   memory->create3d_offset(u_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
                             nxlo_out,nxhi_out,"fixconp:u_brick");
   }
@@ -424,10 +423,13 @@ void PPPMCONP::make_rho(){
     if (!elyte_mapped) {
       elyte_make_rho();
     }
+    memcpy(&(density_brick[nzlo_out][nylo_out][nxlo_out]),
+         &(elyte_density_brick[nzlo_out][nylo_out][nxlo_out]),
+         ngrid*sizeof(FFT_SCALAR));
     for (int nz = nzlo_out; nz <= nzhi_out; ++nz)
       for (int ny = nylo_out; ny <= nyhi_out; ++ny)
         for (int nx = nxlo_out; nx <= nxhi_out; ++nx) {
-          density_brick[nz][ny][nx] = elyte_density_brick[nz][ny][nx];
+          // density_brick[nz][ny][nx] = elyte_density_brick[nz][ny][nx];
           density_brick[nz][ny][nx] += ele_density_brick[nz][ny][nx];
     }
   }
