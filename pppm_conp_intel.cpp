@@ -566,7 +566,7 @@ void PPPMCONPIntel::ele_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
 
 void PPPMCONPIntel::ele_allocate(int elenum)
 {
-  memory->grow(ele2rho,elenum,3,order,"fixconp:ele2rho");
+  memory->grow(ele2rho,elenum,3,INTEL_P3M_ALIGNED_MAXORDER,"fixconp:ele2rho");
 }
 
 void PPPMCONPIntel::elyte_allocate(int elytenum)
