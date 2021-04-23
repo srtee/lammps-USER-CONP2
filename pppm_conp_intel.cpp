@@ -165,6 +165,22 @@ void PPPMCONPIntel::b_cal(double *bbb)
     }
     bbb[iele] = bbbtmp;
   }
+  
+  if (slabflag == 1) {
+    double **x = atom->x;
+    double *q = atom->q;
+    double slabcorr = 0.0;
+    #pragma ivdep
+    for (int j = 0; j < jmax; ++j) {
+      slabcorr += 4*q[j2i[j]]*MY_PI*x[j2i[j]][2]/volume;
+    }
+    MPI_Allreduce(MPI_IN_PLACE,&slabcorr,1,MPI_DOUBLE,MPI_SUM,world);
+    for (iele = 0; iele < elenum_c; ++iele) {
+      i = atom->map(ele2tag[iele]);
+      bbb[iele] -= x[i][2]*slabcorr;
+    }
+  }
+  first_bcal = false;
 }
 
 void PPPMCONPIntel::elyte_map_rho_pois()
@@ -226,7 +242,7 @@ void PPPMCONPIntel::aaa_map_rho(IntelBuffers<flt_t,acc_t> *buffers)
 
     int ifrom,ito,tid;
     IP_PRE_omp_range_id(ifrom,ito,tid,elenum_c,nthr);
-
+    //printf("ifrom %d \t ito %d \t tid %d \t elenum %d \t nthr %d \n",ifrom,ito,tid,elenum_c,nthr);
     for (int iele = ifrom; iele < ito; ++iele) {
 
       int i = atom->map(ele2tag[iele]);
@@ -236,8 +252,8 @@ void PPPMCONPIntel::aaa_map_rho(IntelBuffers<flt_t,acc_t> *buffers)
       int nz = part2grid[i][2];
 
       FFT_SCALAR dx = nx+fshiftone - (x[i].x-lo0)*xi;
-      FFT_SCALAR dy = ny+fshiftone - (x[i].y-lo0)*yi;
-      FFT_SCALAR dz = nz+fshiftone - (x[i].z-lo0)*zi;
+      FFT_SCALAR dy = ny+fshiftone - (x[i].y-lo1)*yi;
+      FFT_SCALAR dz = nz+fshiftone - (x[i].z-lo2)*zi;
 
       if (use_table) {
         dx = dx*half_rho_scale + half_rho_scale_plus;
@@ -250,6 +266,7 @@ void PPPMCONPIntel::aaa_map_rho(IntelBuffers<flt_t,acc_t> *buffers)
         #pragma simd
         #endif
         for (int k = 0; k < INTEL_P3M_ALIGNED_MAXORDER; ++k) {
+          //printf("iele %d \t k %d \t idx %d \t idy %d \t idz %d \n",iele,k,idx,idy,idz);
           ele2rho[iele][0][k] = rho_lookup[idx][k];
           ele2rho[iele][1][k] = rho_lookup[idy][k];
           ele2rho[iele][2][k] = rho_lookup[idz][k];
@@ -327,8 +344,8 @@ void PPPMCONPIntel::elyte_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
       int nzsum = (nlower + nz - nzlo_out)*nix*niy + nysum*nix + nxsum;
       
       FFT_SCALAR dx = nx+fshiftone - (x[i].x-lo0)*xi;
-      FFT_SCALAR dy = ny+fshiftone - (x[i].y-lo0)*yi;
-      FFT_SCALAR dz = nz+fshiftone - (x[i].z-lo0)*zi;
+      FFT_SCALAR dy = ny+fshiftone - (x[i].y-lo1)*yi;
+      FFT_SCALAR dz = nz+fshiftone - (x[i].z-lo2)*zi;
 
       _alignvar(flt_t rho[3][INTEL_P3M_ALIGNED_MAXORDER], 64) = {0};
       if (use_table) {
@@ -567,6 +584,7 @@ void PPPMCONPIntel::ele_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
 void PPPMCONPIntel::ele_allocate(int elenum)
 {
   memory->grow(ele2rho,elenum,3,INTEL_P3M_ALIGNED_MAXORDER,"fixconp:ele2rho");
+  //create3d_offset(ele2rho,0,elenum-1,0,2,0,INTEL_P3M_ALIGNED_MAXORDER-1,"fixconp:ele2rho");
 }
 
 void PPPMCONPIntel::elyte_allocate(int elytenum)
@@ -577,6 +595,7 @@ void PPPMCONPIntel::elyte_allocate(int elytenum)
 void PPPMCONPIntel::ele_deallocate()
 {
   memory->destroy(ele2rho);
+  //memory->destroy3d_offset(ele2rho,0,0,0);
 }
 
 void PPPMCONPIntel::elyte_deallocate()
@@ -617,12 +636,13 @@ void PPPMCONPIntel::conp_make_rho()
   } else {
     if (!elyte_mapped) {
       if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-        make_rho<float,double>(fix->get_mixed_buffers());
+        elyte_make_rho<float,double>(fix->get_mixed_buffers());
       } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-        make_rho<double,double>(fix->get_double_buffers());
+        elyte_make_rho<double,double>(fix->get_double_buffers());
       } else if (fix->precision() == FixIntel::PREC_MODE_SINGLE) {
-        make_rho<float,float>(fix->get_single_buffers());
+        elyte_make_rho<float,float>(fix->get_single_buffers());
       }
+      elyte_mapped = true;
     } memcpy(&(density_brick[nzlo_out][nylo_out][nxlo_out]),
          &(elyte_density_brick[nzlo_out][nylo_out][nxlo_out]),
          ngrid*sizeof(FFT_SCALAR));
@@ -702,7 +722,7 @@ void PPPMCONPIntel::conp_compute_first(int eflag, int vflag)
   if (triclinic) {
     PPPM::particle_map();
     PPPM::make_rho();
-  } else {
+  } else if (!particles_mapped) {
     if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
       particle_map<float,double>(fix->get_mixed_buffers());
     } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
@@ -710,6 +730,7 @@ void PPPMCONPIntel::conp_compute_first(int eflag, int vflag)
     } else {
       particle_map<float,float>(fix->get_single_buffers());
     }
+    particles_mapped = true;
   }
   conp_make_rho();
   // all procs communicate density values from their ghost cells
@@ -748,4 +769,5 @@ void PPPMCONPIntel::conp_compute_first(int eflag, int vflag)
       gc->forward_comm_kspace(this,7,sizeof(FFT_SCALAR),FORWARD_IK_PERATOM,
 			      gc_buf1,gc_buf2,MPI_FFT_SCALAR);
   }
+  particles_mapped = false;
 }
