@@ -25,6 +25,7 @@
 #include "domain.h"
 #include "math_const.h"
 
+
 #define EWALD_F   1.12837917
 #define EWALD_P   0.3275911
 #define A1        0.254829592
@@ -127,7 +128,13 @@ void KSpaceModuleEwald::conp_setup()
 
 void KSpaceModuleEwald::a_read()
 {
-  sincos_a_ele(csk,snk);
+  memory->create(csk_one,kcount,elenum_c,"fixconp:csk_one");
+  memory->create(snk_one,kcount,elenum_c,"fixconp:snk_one");
+  sincos_a_ele(csk_one,snk_one);
+  sincos_a_comm_eleall(csk_one,csk);
+  sincos_a_comm_eleall(snk_one,snk);
+  memory->destroy(csk_one);
+  memory->destroy(snk_one);
 }
 
 void KSpaceModuleEwald::a_cal(double* aaa)
@@ -187,13 +194,10 @@ void KSpaceModuleEwald::conp_post_neighbor(
     int elytenum = fixconp->elytenum;
     elyte_allocate(elytenum);
   }
-  //if (do_ele_alloc) {
-  //  int elenum_all = fixconp->elenum_all;
-  //  ele_allocate(elenum_all);
-  //}
-  int elenum = fixconp->elenum;
-  ele_allocate(elenum);
-  sincos_a_ele(csk,snk)
+  if (do_ele_alloc) {
+    int elenum_all = fixconp->elenum_all;
+    ele_allocate(elenum_all);
+  }
 }
 
 void KSpaceModuleEwald::elyte_allocate(int elytenum)
@@ -212,12 +216,12 @@ void KSpaceModuleEwald::elyte_deallocate()
   memory->destroy(qj_global);
 }
 
-void KSpaceModuleEwald::ele_allocate(int elenum)
+void KSpaceModuleEwald::ele_allocate(int elenum_all)
 {
   if (csk != nullptr) memory->destroy(csk);
-  memory->create(csk,elenum,kcount,"fixconp:csk");
+  memory->create(csk,elenum_all,kcount,"fixconp:csk");
   if (snk != nullptr) memory->destroy(snk);
-  memory->create(snk,elenum,kcount,"fixconp:snk");
+  memory->create(snk,elenum_all,kcount,"fixconp:snk");
 }
 
 void KSpaceModuleEwald::ele_deallocate()
@@ -506,83 +510,32 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
   double CON_s2overPIS = sqrt(2.0)/MY_PIS;
   double CON_2overPIS = 2.0/MY_PIS;
   
-  int i,j,k,idx1d,n;
+  int i,j,k,idx1d;
   int const kcount_c = kcount;
   double aaatmp;
 
-  // do self entries -- self-other entries done with b_bcast
-
-  // diagonal entries
   for (i = 0; i < elenum_c; ++i) {
     int const elealli = ele2eleall[i];
+    double* __restrict__ cski = csk[elealli];
+    double* __restrict__ snki = snk[elealli];
+    idx1d = i*elenum_all_c;
+    for (j = 0; j < elealli; ++j) {
+      aaatmp = 0;
+      for (k = 0; k < kcount_c; ++k) {
+        aaatmp += 0.5*(cski[k]*csk[j][k]+snki[k]*snk[j][k])/ug[k];
+      }
+      aaa[idx1d] = aaatmp;
+      idx1d++;
+    }
     idx1d = i*elenum_all_c + elealli;
     aaatmp = 0;
     for (k = 0; k < kcount_c; ++k) {
-      aaatmp += 0.5*(csk[k]*csk[k]+snk[k]*snk[k])/ug[k];
+      aaatmp += 0.5*(cski[k]*cski[k] + snki[k]*snki[k])/ug[k];
     }
     aaatmp+=CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
     aaa[idx1d] = aaatmp;
   }
-  // off-diagonal entries
-  for (i = 0; i < elenum_c; ++i) {
-    int const elealli = ele2eleall[i];
-    double* __restrict__ cski = csk[i];
-    double* __restrict__ snki = snk[i];
-    for (j = 0; j < elenum_c; ++j) {
-      int const eleallj = ele2eleall[j];
-      if (eleallj < elealli) {
-        aaatmp = 0;
-        idx1d = i*elenum_all_c+eleallj;
-        for (k = 0; k < kcount_c; ++k) {
-          aaatmp += 0.5*(cski[k]*csk[j][k]+snki[k]*snk[j][k])/ug[k];
-        }
-        aaa[idx1d] = aaatmp;
-      }
-    }
-  }
-  // comm stuff
 
-  int me,nprocs;
-  MPI_Comm_rank(world,&me);
-  MPI_Comm_size(world,&nprocs);
-
-  for (n = 0; n < nprocs; ++n) {
-    int const elenum_n_c = fixconp->elenum_list[n];
-    int* eleall_n_list;
-    double** cskbuf,snkbuf;
-    if (me == n) {
-      eleall_n_list = fixconp->ele2eleall;
-      cskbuf = csk;
-      snkbuf = snk;
-    }
-    else {
-      eleall_n_list = new int[elenum_n_c];
-      memory->create(cskbuf,elenum_n_c,kcount_c,"fixconp:cskbuf");
-      memory->create(snkbuf,elenum_n_c,kcount_c,"fixconp:cskbuf");
-    }
-    MPI_Barrier();
-    fixconp->b_bcast(n,kcount_c,eleall_n_list,cskbuf);
-    fixconp->b_bcast(n,kcount_c,eleall_n_list,snkbuf);
-    if (me != n) {
-      for (i = 0; i < elenum_c; ++i) {
-        int const elealli = ele2eleall[i];
-        double* __restrict__ cski = csk[i];
-        double* __restrict__ snki = snk[i];
-        for (j = 0; j < elenum_n_c; ++j) {
-          int const eleallj = eleall_n_list[j];
-          if (eleallj < elealli) {
-            aaatmp = 0;
-            idx1d = i*elenum_all_c+eleallj;
-            for (k = 0; k < kcount_c; ++k) {
-              aaatmp += 0.5*(cski[k]*cskbuf[j][k]+snki[k]*snkbuf[j][k])/ug[k];
-            }
-            aaa[idx1d] = aaatmp;
-          }
-        }
-      }
-    }
-  }
-  
   // implement slab corrections
   if (slabflag == 1) {
     double CON_4PIoverV = MY_4PI/volume;
@@ -789,12 +742,12 @@ void KSpaceModuleEwald::bbb_from_sincos_b(double* bbb)
   double bbbtmp;
   // int one = 1;
   for (elei = 0; elei < elenum_c; ++elei) {
-    //elealli = ele2eleall[elei];
+    elealli = ele2eleall[elei];
     //bbb[elei] = -ddot_(&kcount,csk[i],&one,sfacrl_all,&one);
     //bbb[elei] -= ddot_(&kcount,snk[i],&one,sfacim_all,&one);
     bbbtmp = 0;
     for (k = 0; k < kcount_c; k++) {
-      bbbtmp -= (csk[elei][k]*sfacrl_all[k]+snk[elei][k]*sfacim_all[k]);
+      bbbtmp -= (csk[elealli][k]*sfacrl_all[k]+snk[elealli][k]*sfacim_all[k]);
     } // ddot tested -- slower!
     bbb[elei] = bbbtmp;
   }
