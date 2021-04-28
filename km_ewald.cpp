@@ -46,6 +46,7 @@ KSpaceModuleEwald::KSpaceModuleEwald(LAMMPS *lmp) :
   sfacim(nullptr),sfacim_all(nullptr)
 {
   slabflag = 0;
+  aread_sincos_a = false;
 }
 
 KSpaceModuleEwald::~KSpaceModuleEwald()
@@ -128,6 +129,7 @@ void KSpaceModuleEwald::conp_setup()
 void KSpaceModuleEwald::a_read()
 {
   sincos_a_ele(csk,snk);
+  aread_sincos_a = true;
 }
 
 void KSpaceModuleEwald::a_cal(double* aaa)
@@ -193,7 +195,7 @@ void KSpaceModuleEwald::conp_post_neighbor(
   //}
   int elenum = fixconp->elenum;
   ele_allocate(elenum);
-  sincos_a_ele(csk,snk)
+  if (aread_sincos_a) sincos_a_ele(csk,snk);
 }
 
 void KSpaceModuleEwald::elyte_allocate(int elytenum)
@@ -348,7 +350,7 @@ void KSpaceModuleEwald::make_kxy_list_from_kvecs()
   }
 }
 
-void KSpaceModuleEwald::sincos_a_ele(double ** csk_one, double ** snk_one)
+void KSpaceModuleEwald::sincos_a_ele(double ** csk_p, double ** snk_p)
 {
   int* ele2tag = fixconp->ele2tag;
   int i,j,m,k,ic,iele;
@@ -356,6 +358,8 @@ void KSpaceModuleEwald::sincos_a_ele(double ** csk_one, double ** snk_one)
   double **x = atom->x;
   double **csk_one,**snk_one;
   const int elenum_c = fixconp->elenum;
+  memory->create(csk_one,kcount,elenum_c,"fixconp:csk_one");
+  memory->create(snk_one,kcount,elenum_c,"fixconp:snk_one");
   double *elex = new double[elenum_c];
 
   for (i = 0; i < elenum_c; ++i) {
@@ -468,10 +472,12 @@ void KSpaceModuleEwald::sincos_a_ele(double ** csk_one, double ** snk_one)
   const int kcount_c = kcount;
   for (k = 0; k < kcount_c; ++k) {
     for (i = 0; i < elenum_c; ++i) {
-      csk_one[k][i] *= 2.0 * ug[k];
-      snk_one[k][i] *= 2.0 * ug[k];
+      csk_p[i][k] = csk_one[k][i] * 2.0 * ug[k];
+      snk_p[i][k] = snk_one[k][i] * 2.0 * ug[k];
     }
   }
+  memory->destroy(csk_one);
+  memory->destroy(snk_one);
 }
 
 void KSpaceModuleEwald::sincos_a_comm_eleall(double ** k_one, double ** k_all)
@@ -516,9 +522,11 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
   for (i = 0; i < elenum_c; ++i) {
     int const elealli = ele2eleall[i];
     idx1d = i*elenum_all_c + elealli;
+    double* __restrict__ cski = csk[i];
+    double* __restrict__ snki = snk[i];
     aaatmp = 0;
     for (k = 0; k < kcount_c; ++k) {
-      aaatmp += 0.5*(csk[k]*csk[k]+snk[k]*snk[k])/ug[k];
+      aaatmp += 0.5*(cski[k]*cski[k]+snki[k]*snki[k])/ug[k];
     }
     aaatmp+=CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
     aaa[idx1d] = aaatmp;
@@ -546,37 +554,39 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
   MPI_Comm_rank(world,&me);
   MPI_Comm_size(world,&nprocs);
 
-  for (n = 0; n < nprocs; ++n) {
-    int const elenum_n_c = fixconp->elenum_list[n];
-    int* eleall_n_list;
-    double** cskbuf,snkbuf;
-    if (me == n) {
-      eleall_n_list = fixconp->ele2eleall;
-      cskbuf = csk;
-      snkbuf = snk;
-    }
-    else {
-      eleall_n_list = new int[elenum_n_c];
-      memory->create(cskbuf,elenum_n_c,kcount_c,"fixconp:cskbuf");
-      memory->create(snkbuf,elenum_n_c,kcount_c,"fixconp:cskbuf");
-    }
-    MPI_Barrier();
-    fixconp->b_bcast(n,kcount_c,eleall_n_list,cskbuf);
-    fixconp->b_bcast(n,kcount_c,eleall_n_list,snkbuf);
-    if (me != n) {
-      for (i = 0; i < elenum_c; ++i) {
-        int const elealli = ele2eleall[i];
-        double* __restrict__ cski = csk[i];
-        double* __restrict__ snki = snk[i];
-        for (j = 0; j < elenum_n_c; ++j) {
-          int const eleallj = eleall_n_list[j];
-          if (eleallj < elealli) {
-            aaatmp = 0;
-            idx1d = i*elenum_all_c+eleallj;
-            for (k = 0; k < kcount_c; ++k) {
-              aaatmp += 0.5*(cski[k]*cskbuf[j][k]+snki[k]*snkbuf[j][k])/ug[k];
+  if (nprocs > 1) {
+    for (n = 0; n < nprocs; ++n) {
+      int const elenum_n_c = fixconp->elenum_list[n];
+      int* eleall_n_list;
+      double **cskbuf,**snkbuf;
+      if (me == n) {
+        eleall_n_list = fixconp->ele2eleall;
+        cskbuf = csk;
+        snkbuf = snk;
+      }
+      else {
+        eleall_n_list = new int[elenum_n_c];
+        memory->create(cskbuf,elenum_n_c,kcount_c,"fixconp:cskbuf");
+        memory->create(snkbuf,elenum_n_c,kcount_c,"fixconp:cskbuf");
+      }
+      MPI_Barrier(world);
+      fixconp->b_bcast(n,kcount_c,eleall_n_list,cskbuf);
+      fixconp->b_bcast(n,kcount_c,eleall_n_list,snkbuf);
+      if (me != n) {
+        for (i = 0; i < elenum_c; ++i) {
+          int const elealli = ele2eleall[i];
+          double* __restrict__ cski = csk[i];
+          double* __restrict__ snki = snk[i];
+          for (j = 0; j < elenum_n_c; ++j) {
+            int const eleallj = eleall_n_list[j];
+            if (eleallj < elealli) {
+              aaatmp = 0;
+              idx1d = i*elenum_all_c+eleallj;
+              for (k = 0; k < kcount_c; ++k) {
+                aaatmp += 0.5*(cski[k]*cskbuf[j][k]+snki[k]*snkbuf[j][k])/ug[k];
+              }
+              aaa[idx1d] = aaatmp;
             }
-            aaa[idx1d] = aaatmp;
           }
         }
       }

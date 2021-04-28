@@ -16,7 +16,7 @@
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
-#include "km_ewald.h"
+#include "km_ewald_himem.h"
 #include "force.h"
 #include "atom.h"
 #include "memory.h"
@@ -38,7 +38,7 @@
 using namespace LAMMPS_NS;
 using namespace MathConst;
 
-KSpaceModuleEwald::KSpaceModuleEwald(LAMMPS *lmp) : 
+KSpaceModuleEwaldHimem::KSpaceModuleEwaldHimem(LAMMPS *lmp) : 
   KSpaceModule(),Pointers(lmp),ug(nullptr),
   kxvecs(nullptr),kyvecs(nullptr),kzvecs(nullptr),
   cs(nullptr),sn(nullptr),csk(nullptr),snk(nullptr),
@@ -49,14 +49,14 @@ KSpaceModuleEwald::KSpaceModuleEwald(LAMMPS *lmp) :
   slabflag = 0;
 }
 
-KSpaceModuleEwald::~KSpaceModuleEwald()
+KSpaceModuleEwaldHimem::~KSpaceModuleEwaldHimem()
 {
   setup_deallocate();
   elyte_deallocate();
   ele_deallocate();
 }
 
-void KSpaceModuleEwald::conp_setup()
+void KSpaceModuleEwaldHimem::conp_setup()
 {
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;
@@ -126,8 +126,10 @@ void KSpaceModuleEwald::conp_setup()
   kmax_created = kmax;
 }
 
-void KSpaceModuleEwald::a_read()
+void KSpaceModuleEwaldHimem::a_read()
 {
+  int const elenum_c = fixconp->elenum;
+  double **csk_one,**snk_one;
   memory->create(csk_one,kcount,elenum_c,"fixconp:csk_one");
   memory->create(snk_one,kcount,elenum_c,"fixconp:snk_one");
   sincos_a_ele(csk_one,snk_one);
@@ -137,19 +139,19 @@ void KSpaceModuleEwald::a_read()
   memory->destroy(snk_one);
 }
 
-void KSpaceModuleEwald::a_cal(double* aaa)
+void KSpaceModuleEwaldHimem::a_cal(double* aaa)
 {
   a_read();
   aaa_from_sincos_a(aaa);
 }
 
-void KSpaceModuleEwald::b_cal(double* bbb)
+void KSpaceModuleEwaldHimem::b_cal(double* bbb)
 {
   sincos_b();
   bbb_from_sincos_b(bbb);
 }
 
-void KSpaceModuleEwald::setup_allocate()
+void KSpaceModuleEwaldHimem::setup_allocate()
 {
   if (kcount_dims == nullptr) kcount_dims = new int[7];
   if (kxvecs != nullptr) delete [] kxvecs;
@@ -173,7 +175,7 @@ void KSpaceModuleEwald::setup_allocate()
   sfacim_all = new double[kmax3d];
 }
 
-void KSpaceModuleEwald::setup_deallocate()
+void KSpaceModuleEwaldHimem::setup_deallocate()
 {
   delete [] kcount_dims;
   delete [] kxy_list;
@@ -187,7 +189,7 @@ void KSpaceModuleEwald::setup_deallocate()
   delete [] sfacim_all;
 }
 
-void KSpaceModuleEwald::conp_post_neighbor(
+void KSpaceModuleEwaldHimem::conp_post_neighbor(
   bool do_elyte_alloc, bool do_ele_alloc)
 {
   if (do_elyte_alloc) {
@@ -200,7 +202,7 @@ void KSpaceModuleEwald::conp_post_neighbor(
   }
 }
 
-void KSpaceModuleEwald::elyte_allocate(int elytenum)
+void KSpaceModuleEwaldHimem::elyte_allocate(int elytenum)
 {
   if (cs != nullptr) memory->destroy(cs);
   memory->create(cs,kcount_flat,elytenum,"fixconp:cs");
@@ -209,14 +211,14 @@ void KSpaceModuleEwald::elyte_allocate(int elytenum)
   memory->grow(qj_global,elytenum,"fixconp:qj_global");
 }
 
-void KSpaceModuleEwald::elyte_deallocate()
+void KSpaceModuleEwaldHimem::elyte_deallocate()
 {
   memory->destroy(cs);
   memory->destroy(sn);
   memory->destroy(qj_global);
 }
 
-void KSpaceModuleEwald::ele_allocate(int elenum_all)
+void KSpaceModuleEwaldHimem::ele_allocate(int elenum_all)
 {
   if (csk != nullptr) memory->destroy(csk);
   memory->create(csk,elenum_all,kcount,"fixconp:csk");
@@ -224,13 +226,13 @@ void KSpaceModuleEwald::ele_allocate(int elenum_all)
   memory->create(snk,elenum_all,kcount,"fixconp:snk");
 }
 
-void KSpaceModuleEwald::ele_deallocate()
+void KSpaceModuleEwaldHimem::ele_deallocate()
 {
   memory->destroy(csk);
   memory->destroy(snk);
 }
 
-double KSpaceModuleEwald::rms(int km, double prd, bigint natoms, double q2)
+double KSpaceModuleEwaldHimem::rms(int km, double prd, bigint natoms, double q2)
 {
   double value = 2.0*q2*g_ewald/prd *
     sqrt(1.0/(MY_PI*km*natoms)) *
@@ -238,7 +240,7 @@ double KSpaceModuleEwald::rms(int km, double prd, bigint natoms, double q2)
   return value;
 }
 
-void KSpaceModuleEwald::make_kvecs_ewald()
+void KSpaceModuleEwaldHimem::make_kvecs_ewald()
 {
   int k,l,m,ic;
   double sqk;
@@ -316,7 +318,7 @@ void KSpaceModuleEwald::make_kvecs_ewald()
   kcount_flat = kcount_dims[0]+kcount_dims[1]+kcount_dims[2]+2*kcount_dims[3];
 }
 
-void KSpaceModuleEwald::make_ug_from_kvecs()
+void KSpaceModuleEwaldHimem::make_ug_from_kvecs()
 {
   int const kcount_c = kcount;
   double g_ewald_sq_inv = 1.0 / (g_ewald*g_ewald);
@@ -332,7 +334,7 @@ void KSpaceModuleEwald::make_ug_from_kvecs()
   }
 }
 
-void KSpaceModuleEwald::make_kxy_list_from_kvecs()
+void KSpaceModuleEwaldHimem::make_kxy_list_from_kvecs()
 {
   int k, kx, ky;
   if (kxy_list != nullptr) delete [] kxy_list;
@@ -352,13 +354,12 @@ void KSpaceModuleEwald::make_kxy_list_from_kvecs()
   }
 }
 
-void KSpaceModuleEwald::sincos_a_ele(double ** csk_one, double ** snk_one)
+void KSpaceModuleEwaldHimem::sincos_a_ele(double ** csk_one, double ** snk_one)
 {
   int* ele2tag = fixconp->ele2tag;
   int i,j,m,k,ic,iele;
   int kx,ky,kz,kxy,kf;
   double **x = atom->x;
-  double **csk_one,**snk_one;
   const int elenum_c = fixconp->elenum;
   double *elex = new double[elenum_c];
 
@@ -478,7 +479,7 @@ void KSpaceModuleEwald::sincos_a_ele(double ** csk_one, double ** snk_one)
   }
 }
 
-void KSpaceModuleEwald::sincos_a_comm_eleall(double ** k_one, double ** k_all)
+void KSpaceModuleEwaldHimem::sincos_a_comm_eleall(double ** k_one, double ** k_all)
 {
   int i,k;
   const int kcount_c = kcount;
@@ -501,7 +502,7 @@ void KSpaceModuleEwald::sincos_a_comm_eleall(double ** k_one, double ** k_all)
   }
 }
 
-void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
+void KSpaceModuleEwaldHimem::aaa_from_sincos_a(double* aaa)
 {
   int* ele2eleall = fixconp->ele2eleall;
   int* ele2tag = fixconp->ele2tag;
@@ -558,7 +559,7 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
   }
 }
 
-void KSpaceModuleEwald::sincos_b()
+void KSpaceModuleEwaldHimem::sincos_b()
 {
   int i,j,k,l,m,n,ic,kf;
   int kx,ky,kz,kxy;
@@ -732,7 +733,7 @@ void KSpaceModuleEwald::sincos_b()
 }
 
 /* ---------------------------------------------------------------------- */
-void KSpaceModuleEwald::bbb_from_sincos_b(double* bbb)
+void KSpaceModuleEwaldHimem::bbb_from_sincos_b(double* bbb)
 {
   int* ele2tag = fixconp->ele2tag;
   int* ele2eleall = fixconp->ele2eleall;
@@ -774,7 +775,7 @@ void KSpaceModuleEwald::bbb_from_sincos_b(double* bbb)
   //printf("%g\t%d\n",bbb[eleall2ele[0]],ele2tag[eleall2ele[0]]);
 }
 
-void KSpaceModuleEwald::make_kvecs_brick()
+void KSpaceModuleEwaldHimem::make_kvecs_brick()
 {
   int k,l,m,ic;
   kcount = 0;

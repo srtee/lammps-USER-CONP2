@@ -27,15 +27,16 @@ namespace LAMMPS_NS{
 class KSpaceModuleEwald : public KSpaceModule, public Pointers {
  public:
   KSpaceModuleEwald(class LAMMPS *);
-  ~KSpaceModuleEwald();
+  virtual ~KSpaceModuleEwald();
   
   void conp_setup();
-  void conp_post_neighbor(bool, bool);
+  virtual void conp_post_neighbor(bool, bool);
   void a_cal(double *);
   void a_read();
   void b_cal(double *);
 
   protected:
+  bool aread_sincos_a;
   virtual void setup_allocate();
   virtual void elyte_allocate(int);
   virtual void ele_allocate(int);

@@ -32,6 +32,7 @@
 #include "compute.h"
 #include "kspacemodule.h"
 #include "km_ewald.h"
+#include "km_ewald_himem.h"
 #include "fix_conp.h"
 #include "pair_hybrid.h"
 
@@ -370,7 +371,7 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
 void FixConp::setup(int vflag)
 {
   if (pppmflag) kspmod = dynamic_cast<KSpaceModule *>(force->kspace);
-  else kspmod = new KSpaceModuleEwald(lmp);
+  else kspmod = new KSpaceModuleEwaldHimem(lmp);
   kspmod->register_fix(this);
   kspmod->conp_setup();
   g_ewald = force->kspace->g_ewald;
