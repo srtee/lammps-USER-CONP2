@@ -16,27 +16,26 @@
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
-#ifndef LMP_FIXCONP_KM_EWALD_H
-#define LMP_FIXCONP_KM_EWALD_H
+#ifndef LMP_FIXCONP_KM_EWALD_HIMEM_H
+#define LMP_FIXCONP_KM_EWALD_HIMEM_H
 
 #include "kspacemodule.h"
 #include "pointers.h"
 
 namespace LAMMPS_NS{
 
-class KSpaceModuleEwald : public KSpaceModule, public Pointers {
+class KSpaceModuleEwaldHimem : public KSpaceModule, public Pointers {
  public:
-  KSpaceModuleEwald(class LAMMPS *);
-  virtual ~KSpaceModuleEwald();
+  KSpaceModuleEwaldHimem(class LAMMPS * lmp);
+  ~KSpaceModuleEwaldHimem();
   
   void conp_setup();
-  virtual void conp_post_neighbor(bool, bool);
+  void conp_post_neighbor(bool, bool);
   void a_cal(double *);
   void a_read();
   void b_cal(double *);
 
   protected:
-  bool aread_sincos_a;
   virtual void setup_allocate();
   virtual void elyte_allocate(int);
   virtual void ele_allocate(int);

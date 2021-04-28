@@ -56,6 +56,7 @@ class FixConp : public Fix {
   void get_setq();
   void b_comm(double *, double *);
   void b_comm_int(int *, int *);
+  void b_bcast(int, int, int*, double**);
   void coul_cal(int, double *);
   void alist_coul_cal(double *);
   void blist_coul_cal(double *);

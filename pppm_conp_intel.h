@@ -41,7 +41,7 @@ class PPPMCONPIntel : public PPPMIntel, public KSpaceModule {
   void a_cal(double*);
   void a_read();
   void b_cal(double*);
-  void conp_pre_force() {elyte_mapped = false;}
+  void conp_pre_force() {elyte_mapped = false;particles_mapped = false;}
   void update_charge();
  protected:
   class KSpaceModuleEwald * my_ewald;

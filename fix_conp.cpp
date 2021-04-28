@@ -32,6 +32,7 @@
 #include "compute.h"
 #include "kspacemodule.h"
 #include "km_ewald.h"
+#include "km_ewald_himem.h"
 #include "fix_conp.h"
 #include "pair_hybrid.h"
 
@@ -370,7 +371,7 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
 void FixConp::setup(int vflag)
 {
   if (pppmflag) kspmod = dynamic_cast<KSpaceModule *>(force->kspace);
-  else kspmod = new KSpaceModuleEwald(lmp);
+  else kspmod = new KSpaceModuleEwaldHimem(lmp);
   kspmod->register_fix(this);
   kspmod->conp_setup();
   g_ewald = force->kspace->g_ewald;
@@ -596,6 +597,19 @@ void FixConp::b_comm(double* bsend, double* brecv)
   for (iall = 0; iall < elenum_all; ++iall) {
     brecv[elebuf2eleall[iall]] = bbuf[iall];
   }
+}
+
+/* ----------------------------------------------------------------------*/
+
+void FixConp::b_bcast(int nproc, int ncount, int* eleall_list, double** bcastbuf)
+{
+  int const elenum_n=elenum_list[nproc];
+  int* eleall_list_buf;
+  if (me == nproc) eleall_list_buf = ele2eleall;
+  else eleall_list_buf = eleall_list;
+  MPI_Bcast(eleall_list_buf,elenum_n,MPI_INT,nproc,world);
+
+  MPI_Bcast(bcastbuf,elenum_n*ncount,MPI_DOUBLE,nproc,world);
 }
 
 /* ----------------------------------------------------------------------*/
