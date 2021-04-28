@@ -558,16 +558,18 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
     for (n = 0; n < nprocs; ++n) {
       int const elenum_n_c = fixconp->elenum_list[n];
       int* eleall_n_list;
-      double **cskbuf,**snkbuf;
+      double *cskbuf,*snkbuf;
       if (me == n) {
         eleall_n_list = fixconp->ele2eleall;
-        cskbuf = csk;
-        snkbuf = snk;
+        cskbuf = &csk[0][0];
+        snkbuf = &snk[0][0];
       }
       else {
         eleall_n_list = new int[elenum_n_c];
-        memory->create(cskbuf,elenum_n_c,kcount_c,"fixconp:cskbuf");
-        memory->create(snkbuf,elenum_n_c,kcount_c,"fixconp:cskbuf");
+        cskbuf = new double[elenum_n_c*kcount_c];
+        snkbuf = new double[elenum_n_c*kcount_c];
+        //memory->create(cskbuf,elenum_n_c,kcount_c,"fixconp:cskbuf");
+        //memory->create(snkbuf,elenum_n_c,kcount_c,"fixconp:snkbuf");
       }
       MPI_Barrier(world);
       fixconp->b_bcast(n,kcount_c,eleall_n_list,cskbuf);
@@ -583,12 +585,15 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
               aaatmp = 0;
               idx1d = i*elenum_all_c+eleallj;
               for (k = 0; k < kcount_c; ++k) {
-                aaatmp += 0.5*(cski[k]*cskbuf[j][k]+snki[k]*snkbuf[j][k])/ug[k];
+                aaatmp += 0.5*(cski[k]*cskbuf[j*kcount_c+k]+snki[k]*snkbuf[j*kcount_c+k])/ug[k];
               }
               aaa[idx1d] = aaatmp;
             }
           }
         }
+        delete [] eleall_n_list;
+        delete [] cskbuf;
+        delete [] snkbuf;
       }
     }
   }

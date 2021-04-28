@@ -601,14 +601,13 @@ void FixConp::b_comm(double* bsend, double* brecv)
 
 /* ----------------------------------------------------------------------*/
 
-void FixConp::b_bcast(int nproc, int ncount, int* eleall_list, double** bcastbuf)
+void FixConp::b_bcast(int nproc, int ncount, int* eleall_list, double* bcastbuf)
 {
   int const elenum_n=elenum_list[nproc];
   int* eleall_list_buf;
   if (me == nproc) eleall_list_buf = ele2eleall;
   else eleall_list_buf = eleall_list;
   MPI_Bcast(eleall_list_buf,elenum_n,MPI_INT,nproc,world);
-
   MPI_Bcast(bcastbuf,elenum_n*ncount,MPI_DOUBLE,nproc,world);
 }
 
