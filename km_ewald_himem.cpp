@@ -316,6 +316,7 @@ void KSpaceModuleEwaldHimem::make_kvecs_ewald()
     }
   }
   kcount_flat = kcount_dims[0]+kcount_dims[1]+kcount_dims[2]+2*kcount_dims[3];
+  kcount_expand = kcount_dims[4]+kcount_dims[5]+2*kcount_dims[6];
 }
 
 void KSpaceModuleEwaldHimem::make_ug_from_kvecs()
@@ -336,21 +337,46 @@ void KSpaceModuleEwaldHimem::make_ug_from_kvecs()
 
 void KSpaceModuleEwaldHimem::make_kxy_list_from_kvecs()
 {
-  int k, kx, ky;
+  int k, kx, ky, kf;
   if (kxy_list != nullptr) delete [] kxy_list;
-  kxy_list = new int[kcount_dims[6]];
+  kxy_list = new int[kcount_expand];
+  if (kz_list != nullptr) delete [] kz_list;
+  kz_list = new int[kcount_expand];
+
+  kf = kcount_flat;
+
+  int const kcount_dims4_c = kcount_dims[4];
+  for (k = 0; k < kcount_dims4_c; ++k) {
+    kxy_list[k] = kyvecs[kf]+kcount_dims[0]-1;
+    kz_list[k]  = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
+    kf += 2;
+  }
+
+  int const kcount_dims5_c = kcount_dims[5];
+  for (k = kcount_dims4_c;
+       k < kcount_dims4_c+kcount_dims5_c; ++k) {
+    kxy_list[k] = kxvecs[kf]-1;
+    kz_list[k]  = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
+    kf += 2;
+  }
+
   int kxy = 0;
   int const kxy_offset = kcount_dims[0] + kcount_dims[1] + kcount_dims[2];
-  int ktemp = kcount - 4*kcount_dims[6];
   int const kcount_dims6_c = kcount_dims[6];
-
+  
+  int kloc = kcount_dims4_c+kcount_dims5_c;
+  
   for (k = 0; k < kcount_dims6_c; ++k) {
-    kx = kxvecs[ktemp];
-    ky = kyvecs[ktemp];
+    kx = kxvecs[kf];
+    ky = kyvecs[kf];
     while (kxvecs[kxy_offset+kxy] != kx ||
       kyvecs[kxy_offset+kxy] != ky) kxy += 2;
-    kxy_list[k] = kxy;
-    ktemp += 4;
+    kxy_list[kloc] = kxy;
+    kxy_list[kloc+1] = kxy+1;
+    kz_list[kloc] = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
+    kz_list[kloc+1] = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
+    kf += 4;
+    kloc += 2;
   }
 }
 
@@ -407,67 +433,24 @@ void KSpaceModuleEwaldHimem::sincos_a_ele(double ** csk_one, double ** snk_one)
   }
 
   // (0, l, m); (0, l, -m)
-  
-  for (m = 0; m < kcount_dims[4]; ++m) {
-    ky = kyvecs[kf]+kcount_dims[0]-1;
-    kz = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
-    double* __restrict__ cskf0 = csk_one[kf];
-    double* __restrict__ snkf0 = snk_one[kf];
-    double* __restrict__ cskf1 = csk_one[kf+1];
-    double* __restrict__ snkf1 = snk_one[kf+1];
-    for (i = 0; i < elenum_c; ++i) {
-      cskf0[i] = csk_one[ky][i]*csk_one[kz][i] - snk_one[ky][i]*snk_one[kz][i];
-      snkf0[i] = csk_one[ky][i]*snk_one[kz][i] + snk_one[ky][i]*csk_one[kz][i];
-      cskf1[i] = csk_one[ky][i]*csk_one[kz][i] + snk_one[ky][i]*snk_one[kz][i];
-      snkf1[i] = -csk_one[ky][i]*snk_one[kz][i] + snk_one[ky][i]*csk_one[kz][i];
-    }
-    kf += 2;
-  }
-
   // (k, 0, m); (k, 0, -m)
-
-  for (m = 0; m < kcount_dims[5]; ++m) {
-    kx = kxvecs[kf]-1;
-    kz = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
+  // (k, l, m); (k, l, -m)
+  // (k, -l, m); (k, -l, -m)
+  
+  for (m = 0; m < kcount_expand; ++m) {
+    kxy = kxy_list[m];
+    kz = kz_list[m];
     double* __restrict__ cskf0 = csk_one[kf];
     double* __restrict__ snkf0 = snk_one[kf];
     double* __restrict__ cskf1 = csk_one[kf+1];
     double* __restrict__ snkf1 = snk_one[kf+1];
-    for (i = 0; i < elenum_c; ++i) {
-      cskf0[i] = csk_one[kx][i]*csk_one[kz][i] - snk_one[kx][i]*snk_one[kz][i];
-      snkf0[i] = csk_one[kx][i]*snk_one[kz][i] + snk_one[kx][i]*csk_one[kz][i];
-      cskf1[i] = csk_one[kx][i]*csk_one[kz][i] + snk_one[kx][i]*snk_one[kz][i];
-      snkf1[i] = -csk_one[kx][i]*snk_one[kz][i] + snk_one[kx][i]*csk_one[kz][i];
-    }
-    kf += 2;
-  }
-
-  // (k, l, m); (k, l, -m); (k, -l, m); (k, -l, -m)
-
-  for (m = 0; m < kcount_dims[6]; ++m) {
-    kxy = kxy_list[m]+kcount_dims[0]+kcount_dims[1]+kcount_dims[2];
-    kz = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
-    double* __restrict__ cskf0 = csk_one[kf];
-    double* __restrict__ snkf0 = snk_one[kf];
-    double* __restrict__ cskf1 = csk_one[kf+1];
-    double* __restrict__ snkf1 = snk_one[kf+1];
-    double* __restrict__ cskf2 = csk_one[kf+2];
-    double* __restrict__ snkf2 = snk_one[kf+2];
-    double* __restrict__ cskf3 = csk_one[kf+3];
-    double* __restrict__ snkf3 = snk_one[kf+3];
     for (i = 0; i < elenum_c; ++i) {
       cskf0[i] = csk_one[kxy][i]*csk_one[kz][i] - snk_one[kxy][i]*snk_one[kz][i];
       snkf0[i] = csk_one[kxy][i]*snk_one[kz][i] + snk_one[kxy][i]*csk_one[kz][i];
       cskf1[i] = csk_one[kxy][i]*csk_one[kz][i] + snk_one[kxy][i]*snk_one[kz][i];
       snkf1[i] = -csk_one[kxy][i]*snk_one[kz][i] + snk_one[kxy][i]*csk_one[kz][i];
     }
-    for (i = 0; i < elenum_c; ++i) {
-      cskf2[i] = csk_one[kxy+1][i]*csk_one[kz][i] - snk_one[kxy+1][i]*snk_one[kz][i];
-      snkf2[i] = csk_one[kxy+1][i]*snk_one[kz][i] + snk_one[kxy+1][i]*csk_one[kz][i];
-      cskf3[i] = csk_one[kxy+1][i]*csk_one[kz][i] + snk_one[kxy+1][i]*snk_one[kz][i];
-      snkf3[i] = -csk_one[kxy+1][i]*snk_one[kz][i] + snk_one[kxy+1][i]*csk_one[kz][i];
-    }
-    kf += 4;
+    kf += 2;
   }
 
   const int kcount_c = kcount;
@@ -648,41 +631,22 @@ void KSpaceModuleEwaldHimem::sincos_b()
   }
 
   // (0, l, m); (0, l, -m)
-
-  for (m = 0; m < kcount_dims[4]; ++m) {
-    ky = kyvecs[kf]+kcount_dims[0]-1;
-    kz = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
-    temprl0 = 0;
-    tempim0 = 0;
-    temprl1 = 0;
-    tempim1 = 0;
-    for (j = 0; j < jmax; ++j) {
-      temprl0 += qj[j]*(cs[ky][j]*cs[kz][j]-sn[ky][j]*sn[kz][j]);
-      tempim0 += qj[j]*(cs[ky][j]*sn[kz][j]+sn[ky][j]*cs[kz][j]);
-      temprl1 += qj[j]*(cs[ky][j]*cs[kz][j]+sn[ky][j]*sn[kz][j]);
-      tempim1 += qj[j]*(-cs[ky][j]*sn[kz][j]+sn[ky][j]*cs[kz][j]);
-    }
-    sfacrl[kf] = temprl0;
-    sfacim[kf] = tempim0;
-    sfacrl[kf+1] = temprl1;
-    sfacim[kf+1] = tempim1;
-    kf += 2;
-  }
-
   // (k, 0, m); (k, 0, -m)
+  // (k, l, m); (k, l, -m)
+  // (k, -l, m); (k, -l, -m)
 
-  for (m = 0; m < kcount_dims[5]; ++m) {
-    kx = kxvecs[kf]-1;
-    kz = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
+  for (m = 0; m < kcount_expand; ++m) {
+    kxy = kxy_list[m];
+    kz = kz_list[m];
     temprl0 = 0;
     tempim0 = 0;
     temprl1 = 0;
     tempim1 = 0;
     for (j = 0; j < jmax; ++j) {
-      temprl0 += qj[j]*(cs[kx][j]*cs[kz][j]-sn[kx][j]*sn[kz][j]);
-      tempim0 += qj[j]*(cs[kx][j]*sn[kz][j]+sn[kx][j]*cs[kz][j]);
-      temprl1 += qj[j]*(cs[kx][j]*cs[kz][j]+sn[kx][j]*sn[kz][j]);
-      tempim1 += qj[j]*(-cs[kx][j]*sn[kz][j]+sn[kx][j]*cs[kz][j]);
+      temprl0 += qj[j]*(cs[kxy][j]*cs[kz][j]-sn[kxy][j]*sn[kz][j]);
+      tempim0 += qj[j]*(cs[kxy][j]*sn[kz][j]+sn[kxy][j]*cs[kz][j]);
+      temprl1 += qj[j]*(cs[kxy][j]*cs[kz][j]+sn[kxy][j]*sn[kz][j]);
+      tempim1 += qj[j]*(-cs[kxy][j]*sn[kz][j]+sn[kxy][j]*cs[kz][j]);
     }
     sfacrl[kf] = temprl0;
     sfacim[kf] = tempim0;
@@ -691,43 +655,6 @@ void KSpaceModuleEwaldHimem::sincos_b()
     kf += 2;
   }
 
-  // (k, l, m); (k, l, -m); (k, -l, m); (k, -l, -m)
-
-  for (m = 0; m < kcount_dims[6]; ++m) {
-    kxy = kxy_list[m]+kcount_dims[0]+kcount_dims[1]+kcount_dims[2];
-    kz = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
-    temprl0 = 0;
-    tempim0 = 0;
-    temprl1 = 0;
-    tempim1 = 0;
-    temprl2 = 0;
-    tempim2 = 0;
-    temprl3 = 0;
-    tempim3 = 0;
-    for (j = 0; j < jmax; ++j) {
-      temprl0 += qj[j]*(cs[kxy][j]*cs[kz][j] - sn[kxy][j]*sn[kz][j]);
-      tempim0 += qj[j]*(sn[kxy][j]*cs[kz][j] + cs[kxy][j]*sn[kz][j]);
-
-      temprl1 += qj[j]*(cs[kxy][j]*cs[kz][j] + sn[kxy][j]*sn[kz][j]);
-      tempim1 += qj[j]*(sn[kxy][j]*cs[kz][j] - cs[kxy][j]*sn[kz][j]);
-    }
-    for (j = 0; j < jmax; ++j) {
-      temprl2 += qj[j]*(cs[kxy+1][j]*cs[kz][j] - sn[kxy+1][j]*sn[kz][j]);
-      tempim2 += qj[j]*(sn[kxy+1][j]*cs[kz][j] + cs[kxy+1][j]*sn[kz][j]);
-
-      temprl3 += qj[j]*(cs[kxy+1][j]*cs[kz][j] + sn[kxy+1][j]*sn[kz][j]);
-      tempim3 += qj[j]*(sn[kxy+1][j]*cs[kz][j] - cs[kxy+1][j]*sn[kz][j]);
-    }
-    sfacrl[kf] = temprl0;
-    sfacim[kf] = tempim0;
-    sfacrl[kf+1] = temprl1;
-    sfacim[kf+1] = tempim1;
-    sfacrl[kf+2] = temprl2;
-    sfacim[kf+2] = tempim2;
-    sfacrl[kf+3] = temprl3;
-    sfacim[kf+3] = tempim3;
-    kf += 4;
-  }
   MPI_Allreduce(sfacrl,sfacrl_all,kcount,MPI_DOUBLE,MPI_SUM,world);
   MPI_Allreduce(sfacim,sfacim_all,kcount,MPI_DOUBLE,MPI_SUM,world);
 }
