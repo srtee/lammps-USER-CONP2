@@ -458,12 +458,12 @@ void KSpaceModuleEwaldHimem::sincos_a_ele(double ** csk_one, double ** snk_one)
     for (i = 0; i < elenum_c; ++i) {
       cskf0[i] = csk_one[kxy][i]*csk_one[kz][i] - snk_one[kxy][i]*snk_one[kz][i];
       snkf0[i] = csk_one[kxy][i]*snk_one[kz][i] + snk_one[kxy][i]*csk_one[kz][i];
-      cskf2[i] = csk_one[kxy][i]*csk_one[kz][i] + snk_one[kxy][i]*snk_one[kz][i];
-      snkf2[i] = -csk_one[kxy][i]*snk_one[kz][i] + snk_one[kxy][i]*csk_one[kz][i];
+      cskf1[i] = csk_one[kxy][i]*csk_one[kz][i] + snk_one[kxy][i]*snk_one[kz][i];
+      snkf1[i] = -csk_one[kxy][i]*snk_one[kz][i] + snk_one[kxy][i]*csk_one[kz][i];
     }
     for (i = 0; i < elenum_c; ++i) {
-      cskf1[i] = csk_one[kxy+1][i]*csk_one[kz][i] - snk_one[kxy+1][i]*snk_one[kz][i];
-      snkf1[i] = csk_one[kxy+1][i]*snk_one[kz][i] + snk_one[kxy+1][i]*csk_one[kz][i];
+      cskf2[i] = csk_one[kxy+1][i]*csk_one[kz][i] - snk_one[kxy+1][i]*snk_one[kz][i];
+      snkf2[i] = csk_one[kxy+1][i]*snk_one[kz][i] + snk_one[kxy+1][i]*csk_one[kz][i];
       cskf3[i] = csk_one[kxy+1][i]*csk_one[kz][i] + snk_one[kxy+1][i]*snk_one[kz][i];
       snkf3[i] = -csk_one[kxy+1][i]*snk_one[kz][i] + snk_one[kxy+1][i]*csk_one[kz][i];
     }
@@ -708,12 +708,12 @@ void KSpaceModuleEwaldHimem::sincos_b()
       temprl0 += qj[j]*(cs[kxy][j]*cs[kz][j] - sn[kxy][j]*sn[kz][j]);
       tempim0 += qj[j]*(sn[kxy][j]*cs[kz][j] + cs[kxy][j]*sn[kz][j]);
 
-      temprl2 += qj[j]*(cs[kxy][j]*cs[kz][j] + sn[kxy][j]*sn[kz][j]);
-      tempim2 += qj[j]*(sn[kxy][j]*cs[kz][j] - cs[kxy][j]*sn[kz][j]);
+      temprl1 += qj[j]*(cs[kxy][j]*cs[kz][j] + sn[kxy][j]*sn[kz][j]);
+      tempim1 += qj[j]*(sn[kxy][j]*cs[kz][j] - cs[kxy][j]*sn[kz][j]);
     }
     for (j = 0; j < jmax; ++j) {
-      temprl1 += qj[j]*(cs[kxy+1][j]*cs[kz][j] - sn[kxy+1][j]*sn[kz][j]);
-      tempim1 += qj[j]*(sn[kxy+1][j]*cs[kz][j] + cs[kxy+1][j]*sn[kz][j]);
+      temprl2 += qj[j]*(cs[kxy+1][j]*cs[kz][j] - sn[kxy+1][j]*sn[kz][j]);
+      tempim2 += qj[j]*(sn[kxy+1][j]*cs[kz][j] + cs[kxy+1][j]*sn[kz][j]);
 
       temprl3 += qj[j]*(cs[kxy+1][j]*cs[kz][j] + sn[kxy+1][j]*sn[kz][j]);
       tempim3 += qj[j]*(sn[kxy+1][j]*cs[kz][j] - cs[kxy+1][j]*sn[kz][j]);
@@ -827,14 +827,14 @@ void KSpaceModuleEwaldHimem::make_kvecs_brick()
     }
   }
 
-  // 1 = (k,l,m), 2 = (k,-l,m), 3 = (k,l,-m), 4 = (k,-l,-m)
+  // 1 = (k,l,m), 2 = (k,l,-m), 3 = (k,-l,m), 4 = (k,-l,-m)
 
   for (k = 0; k <= kmaxes[0]; ++k) {
     for (l = 0; l <= kmaxes[1]; ++l) {
       for (m = 0; m <= kmaxes[2]; ++m) {
         kxvecs[kcount] = k; kyvecs[kcount] =  l; kzvecs[kcount] =  m; ++kcount;
-        kxvecs[kcount] = k; kyvecs[kcount] = -l; kzvecs[kcount] =  m; ++kcount;
         kxvecs[kcount] = k; kyvecs[kcount] =  l; kzvecs[kcount] = -m; ++kcount;
+        kxvecs[kcount] = k; kyvecs[kcount] = -l; kzvecs[kcount] =  m; ++kcount;
         kxvecs[kcount] = k; kyvecs[kcount] = -l; kzvecs[kcount] = -m; ++kcount;
         ++kcount_dims[6];
       }
