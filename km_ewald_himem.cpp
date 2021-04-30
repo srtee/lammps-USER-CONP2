@@ -42,7 +42,8 @@ KSpaceModuleEwaldHimem::KSpaceModuleEwaldHimem(LAMMPS *lmp) :
   KSpaceModule(),Pointers(lmp),ug(nullptr),
   kxvecs(nullptr),kyvecs(nullptr),kzvecs(nullptr),
   cs(nullptr),sn(nullptr),csk(nullptr),snk(nullptr),
-  qj_global(nullptr),kcount_dims(nullptr),kxy_list(nullptr),
+  qj_global(nullptr),kcount_dims(nullptr),
+  kxy_list(nullptr),kz_list(nullptr),
   sfacrl(nullptr),sfacrl_all(nullptr),
   sfacim(nullptr),sfacim_all(nullptr)
 {
@@ -179,6 +180,7 @@ void KSpaceModuleEwaldHimem::setup_deallocate()
 {
   delete [] kcount_dims;
   delete [] kxy_list;
+  delete [] kz_list;
   delete [] kxvecs;
   delete [] kyvecs;
   delete [] kzvecs;
@@ -299,7 +301,7 @@ void KSpaceModuleEwaldHimem::make_kvecs_ewald()
     }
   }
 
-  // 1 = (k,l,m), 2 = (k,-l,m), 3 = (k,l,-m), 4 = (k,-l,-m)
+  // 1 = (k,l,m), 2 = (k,l,-m), 3 = (k,-l,m), 4 = (k,-l,-m)
 
   for (k = 1; k <= kmaxes[0]; ++k) {
     for (l = 1; l <= kmaxes[1]; ++l) {
@@ -307,8 +309,8 @@ void KSpaceModuleEwaldHimem::make_kvecs_ewald()
         sqk = k*k*unitksq[0] + l*l*unitksq[1] + m*m*unitksq[2];
         if (sqk <= gsqmx) {
           kxvecs[kcount] = k; kyvecs[kcount] =  l; kzvecs[kcount] =  m; ++kcount;
-          kxvecs[kcount] = k; kyvecs[kcount] = -l; kzvecs[kcount] =  m; ++kcount;
           kxvecs[kcount] = k; kyvecs[kcount] =  l; kzvecs[kcount] = -m; ++kcount;
+          kxvecs[kcount] = k; kyvecs[kcount] = -l; kzvecs[kcount] =  m; ++kcount;
           kxvecs[kcount] = k; kyvecs[kcount] = -l; kzvecs[kcount] = -m; ++kcount;
           ++kcount_dims[6];
         }
@@ -360,8 +362,7 @@ void KSpaceModuleEwaldHimem::make_kxy_list_from_kvecs()
     kf += 2;
   }
 
-  int kxy = 0;
-  int const kxy_offset = kcount_dims[0] + kcount_dims[1] + kcount_dims[2];
+  int kxy = kcount_dims[0] + kcount_dims[1] + kcount_dims[2];
   int const kcount_dims6_c = kcount_dims[6];
   
   int kloc = kcount_dims4_c+kcount_dims5_c;
@@ -369,8 +370,7 @@ void KSpaceModuleEwaldHimem::make_kxy_list_from_kvecs()
   for (k = 0; k < kcount_dims6_c; ++k) {
     kx = kxvecs[kf];
     ky = kyvecs[kf];
-    while (kxvecs[kxy_offset+kxy] != kx ||
-      kyvecs[kxy_offset+kxy] != ky) kxy += 2;
+    while (kxvecs[kxy] != kx || kyvecs[kxy] != ky) kxy += 2;
     kxy_list[kloc] = kxy;
     kxy_list[kloc+1] = kxy+1;
     kz_list[kloc] = kzvecs[kf]+kcount_dims[0]+kcount_dims[1]-1;
@@ -768,4 +768,5 @@ void KSpaceModuleEwaldHimem::make_kvecs_brick()
     }
   }
   kcount_flat = kcount_dims[0]+kcount_dims[1]+kcount_dims[2]+2*kcount_dims[3];
+  kcount_expand = kcount_dims[4]+kcount_dims[5]+2*kcount_dims[6];
 }

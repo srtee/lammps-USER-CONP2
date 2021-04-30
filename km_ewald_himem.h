@@ -64,7 +64,7 @@ class KSpaceModuleEwaldHimem : public KSpaceModule, public Pointers {
   double *qj_global;
   int kmax,kmax3d,kmax_created,kcount,kcount_flat,kcount_expand;
   int *kcount_dims;
-  int *kxy_list;
+  int *kxy_list,*kz_list;
   int kxmax,kymax,kzmax;
   double *sfacrl,*sfacrl_all,*sfacim,*sfacim_all;
 };
