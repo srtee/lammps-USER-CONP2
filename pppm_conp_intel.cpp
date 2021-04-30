@@ -17,6 +17,7 @@
 ------------------------------------------------------------------------- */
 
 #include "pppm_conp_intel.h"
+#include "pppm_intel.cpp"
 #include "km_ewald.h"
 
 #include "atom.h"
@@ -40,9 +41,6 @@ using namespace MathConst;
 #define ZEROF 0.0
 #define ONEF  1.0
 #endif
-
-enum{REVERSE_RHO};
-enum{FORWARD_IK,FORWARD_AD,FORWARD_IK_PERATOM,FORWARD_AD_PERATOM};
 
 PPPMCONPIntel::PPPMCONPIntel(class LAMMPS* lmp) :
   PPPMIntel(lmp),KSpaceModule(),
