@@ -571,7 +571,6 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
         }
       }
     }
-    //printf("line 574 proc %d\n",me);
     for (n = 0; n < nprocs; ++n) {
       int const elenum_n_c = fixconp->elenum_list[n];
       if (elenum_n_c > 0) {
@@ -581,13 +580,10 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
           eleall_n_list = fixconp->ele2eleall;
           cskbuf = cskmy;
           snkbuf = snkmy;
-        }
-        else {
+        } else {
           eleall_n_list = new int[elenum_n_c];
           cskbuf = new double[elenum_n_c*kcount_flat];
           snkbuf = new double[elenum_n_c*kcount_flat];
-          //memory->create(cskbuf,elenum_n_c,kcount_c,"fixconp:cskbuf");
-          //memory->create(snkbuf,elenum_n_c,kcount_c,"fixconp:snkbuf");
         }
         MPI_Barrier(world);
         fixconp->b_bcast(n,kcount_flat,eleall_n_list,cskbuf);
@@ -604,12 +600,9 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
                 aaatmp = 0;
                 idx1d = i*elenum_all_c+eleallj;
                 jkf = j*kcount_flat;
-                printf("line 605 j = %d kf = %d jkf = %d enc = %d\n",j,kcount_flat,jkf, elenum_n_c);  // iterate over kcount_flat
                 for (k = 0; k < kcount_flat; ++k) {
-                  printf("k = %d\t",k);
-                  aaatmp += 0.5*(cski[k]*cskbuf[jkf+k]+snki[k]*snkbuf[j*jkf+k])/ug[k];
+                  aaatmp += cski[k]*cskbuf[jkf+k]+snki[k]*snkbuf[jkf+k];
                 }
-                printf("line 610\n");
                 // fill kbuffers and calculate z-vectors
                 for (kj = 0; kj < kcount_expand; ++kj) {
                   csxyj[kj] = cskbuf[jkf+kxy_list[kj]];
@@ -617,43 +610,34 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
                   cszj[kj] = cskbuf[jkf+kz_list[kj]];
                   cszj[kj] = cskbuf[jkf+kz_list[kj]];
                 }
-                printf("line 618\n");
                 for (kj = 0; kj < kcount_expand; ++kj) {
                   cskj0[kj] = csxyj[kj]*cszj[kj] - snxyj[kj]*snzj[kj];
                   snkj0[kj] = snxyj[kj]*cszj[kj] + csxyj[kj]*snzj[kj];
                   cskj1[kj] = csxyj[kj]*cszj[kj] + snxyj[kj]*snzj[kj];
                   snkj0[kj] = snxyj[kj]*cszj[kj] - csxyj[kj]*snzj[kj];
                 }
-                printf("line 625\n");
                 // iterate over kcount_expand
                 ki = kcount_flat;
                 for (kj = 0; kj < kcount_expand; ++kj) {
-                  //if (me == 1) printf("ki = %d, kj = %d, kcount = %d\n",ki,kj,kcount_c);
                   aaatmp += cski[ki]*cskj0[kj]+snki[ki]*snkj0[kj];
                   ++ki;
                   aaatmp += cski[ki]*cskj1[kj]+snki[ki]*snkj1[kj];
                   ++ki;
                 }
-                printf("line 635, elealli = %d, eleallj = %d, idx1d = %d\n",elealli, eleallj, idx1d);
                 aaa[idx1d] = aaatmp;
               }
             }
           }
         }
         MPI_Barrier(world);
-        if (me == n)
-        {
+        if (me == n) {
           eleall_n_list = nullptr;
           cskbuf = nullptr;
           snkbuf = nullptr;
-        }
-        if (me != n)
-        {
-                printf("line 640\n");
+        } else {
           delete [] eleall_n_list;
           delete [] cskbuf;
           delete [] snkbuf;
-                printf("line 644\n");
         }
       }
     }
@@ -849,8 +833,6 @@ void KSpaceModuleEwald::bbb_from_sincos_b(double* bbb)
       bbb[elei] -= x[i][2]*slabcorr;
     }
   }
-  //int* eleall2ele = fixconp->eleall2ele;
-  //printf("%g\t%d\n",bbb[eleall2ele[0]],ele2tag[eleall2ele[0]]);
 }
 
 void KSpaceModuleEwald::make_kvecs_brick()
