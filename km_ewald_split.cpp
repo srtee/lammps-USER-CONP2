@@ -16,7 +16,7 @@
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
-#include "km_ewald_himem.h"
+#include "km_ewald_split.h"
 #include "force.h"
 #include "atom.h"
 #include "memory.h"
@@ -24,7 +24,6 @@
 #include "kspace.h"
 #include "domain.h"
 #include "math_const.h"
-
 
 #define EWALD_F   1.12837917
 #define EWALD_P   0.3275911
@@ -38,7 +37,7 @@
 using namespace LAMMPS_NS;
 using namespace MathConst;
 
-KSpaceModuleEwaldHimem::KSpaceModuleEwaldHimem(LAMMPS *lmp) : 
+KSpaceModuleEwaldSplit::KSpaceModuleEwaldSplit(LAMMPS *lmp) : 
   KSpaceModule(),Pointers(lmp),ug(nullptr),
   kxvecs(nullptr),kyvecs(nullptr),kzvecs(nullptr),
   cs(nullptr),sn(nullptr),csk(nullptr),snk(nullptr),
@@ -48,16 +47,17 @@ KSpaceModuleEwaldHimem::KSpaceModuleEwaldHimem(LAMMPS *lmp) :
   sfacim(nullptr),sfacim_all(nullptr)
 {
   slabflag = 0;
+  aread_sincos_a = false;
 }
 
-KSpaceModuleEwaldHimem::~KSpaceModuleEwaldHimem()
+KSpaceModuleEwaldSplit::~KSpaceModuleEwaldSplit()
 {
   setup_deallocate();
   elyte_deallocate();
   ele_deallocate();
 }
 
-void KSpaceModuleEwaldHimem::conp_setup()
+void KSpaceModuleEwaldSplit::conp_setup()
 {
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;
@@ -127,32 +127,25 @@ void KSpaceModuleEwaldHimem::conp_setup()
   kmax_created = kmax;
 }
 
-void KSpaceModuleEwaldHimem::a_read()
+void KSpaceModuleEwaldSplit::a_read()
 {
-  int const elenum_c = fixconp->elenum;
-  double **csk_one,**snk_one;
-  memory->create(csk_one,kcount,elenum_c,"fixconp:csk_one");
-  memory->create(snk_one,kcount,elenum_c,"fixconp:snk_one");
-  sincos_a_ele(csk_one,snk_one);
-  sincos_a_comm_eleall(csk_one,csk);
-  sincos_a_comm_eleall(snk_one,snk);
-  memory->destroy(csk_one);
-  memory->destroy(snk_one);
+  sincos_a_ele(csk,snk);
+  aread_sincos_a = true;
 }
 
-void KSpaceModuleEwaldHimem::a_cal(double* aaa)
+void KSpaceModuleEwaldSplit::a_cal(double* aaa)
 {
   a_read();
   aaa_from_sincos_a(aaa);
 }
 
-void KSpaceModuleEwaldHimem::b_cal(double* bbb)
+void KSpaceModuleEwaldSplit::b_cal(double* bbb)
 {
   sincos_b();
   bbb_from_sincos_b(bbb);
 }
 
-void KSpaceModuleEwaldHimem::setup_allocate()
+void KSpaceModuleEwaldSplit::setup_allocate()
 {
   if (kcount_dims == nullptr) kcount_dims = new int[7];
   if (kxvecs != nullptr) delete [] kxvecs;
@@ -176,7 +169,7 @@ void KSpaceModuleEwaldHimem::setup_allocate()
   sfacim_all = new double[kmax3d];
 }
 
-void KSpaceModuleEwaldHimem::setup_deallocate()
+void KSpaceModuleEwaldSplit::setup_deallocate()
 {
   delete [] kcount_dims;
   delete [] kxy_list;
@@ -191,20 +184,23 @@ void KSpaceModuleEwaldHimem::setup_deallocate()
   delete [] sfacim_all;
 }
 
-void KSpaceModuleEwaldHimem::conp_post_neighbor(
+void KSpaceModuleEwaldSplit::conp_post_neighbor(
   bool do_elyte_alloc, bool do_ele_alloc)
 {
   if (do_elyte_alloc) {
     int elytenum = fixconp->elytenum;
     elyte_allocate(elytenum);
   }
-  if (do_ele_alloc) {
-    int elenum_all = fixconp->elenum_all;
-    ele_allocate(elenum_all);
-  }
+  //if (do_ele_alloc) {
+  //  int elenum_all = fixconp->elenum_all;
+  //  ele_allocate(elenum_all);
+  //}
+  int elenum = fixconp->elenum;
+  ele_allocate(elenum);
+  if (aread_sincos_a) sincos_a_ele(csk,snk);
 }
 
-void KSpaceModuleEwaldHimem::elyte_allocate(int elytenum)
+void KSpaceModuleEwaldSplit::elyte_allocate(int elytenum)
 {
   if (cs != nullptr) memory->destroy(cs);
   memory->create(cs,kcount_flat,elytenum,"fixconp:cs");
@@ -213,28 +209,28 @@ void KSpaceModuleEwaldHimem::elyte_allocate(int elytenum)
   memory->grow(qj_global,elytenum,"fixconp:qj_global");
 }
 
-void KSpaceModuleEwaldHimem::elyte_deallocate()
+void KSpaceModuleEwaldSplit::elyte_deallocate()
 {
   memory->destroy(cs);
   memory->destroy(sn);
   memory->destroy(qj_global);
 }
 
-void KSpaceModuleEwaldHimem::ele_allocate(int elenum_all)
+void KSpaceModuleEwaldSplit::ele_allocate(int elenum)
 {
   if (csk != nullptr) memory->destroy(csk);
-  memory->create(csk,elenum_all,kcount,"fixconp:csk");
+  memory->create(csk,elenum,kcount,"fixconp:csk");
   if (snk != nullptr) memory->destroy(snk);
-  memory->create(snk,elenum_all,kcount,"fixconp:snk");
+  memory->create(snk,elenum,kcount,"fixconp:snk");
 }
 
-void KSpaceModuleEwaldHimem::ele_deallocate()
+void KSpaceModuleEwaldSplit::ele_deallocate()
 {
   memory->destroy(csk);
   memory->destroy(snk);
 }
 
-double KSpaceModuleEwaldHimem::rms(int km, double prd, bigint natoms, double q2)
+double KSpaceModuleEwaldSplit::rms(int km, double prd, bigint natoms, double q2)
 {
   double value = 2.0*q2*g_ewald/prd *
     sqrt(1.0/(MY_PI*km*natoms)) *
@@ -242,7 +238,7 @@ double KSpaceModuleEwaldHimem::rms(int km, double prd, bigint natoms, double q2)
   return value;
 }
 
-void KSpaceModuleEwaldHimem::make_kvecs_ewald()
+void KSpaceModuleEwaldSplit::make_kvecs_ewald()
 {
   int k,l,m,ic;
   double sqk;
@@ -301,7 +297,7 @@ void KSpaceModuleEwaldHimem::make_kvecs_ewald()
     }
   }
 
-  // 1 = (k,l,m), 2 = (k,l,-m), 3 = (k,-l,m), 4 = (k,-l,-m)
+  // 1 = (k,l,m), 2 = (k,-l,m), 3 = (k,l,-m), 4 = (k,-l,-m)
 
   for (k = 1; k <= kmaxes[0]; ++k) {
     for (l = 1; l <= kmaxes[1]; ++l) {
@@ -321,7 +317,7 @@ void KSpaceModuleEwaldHimem::make_kvecs_ewald()
   kcount_expand = kcount_dims[4]+kcount_dims[5]+2*kcount_dims[6];
 }
 
-void KSpaceModuleEwaldHimem::make_ug_from_kvecs()
+void KSpaceModuleEwaldSplit::make_ug_from_kvecs()
 {
   int const kcount_c = kcount;
   double g_ewald_sq_inv = 1.0 / (g_ewald*g_ewald);
@@ -337,7 +333,7 @@ void KSpaceModuleEwaldHimem::make_ug_from_kvecs()
   }
 }
 
-void KSpaceModuleEwaldHimem::make_kxy_list_from_kvecs()
+void KSpaceModuleEwaldSplit::make_kxy_list_from_kvecs()
 {
   int k, kx, ky, kf;
   if (kxy_list != nullptr) delete [] kxy_list;
@@ -380,13 +376,16 @@ void KSpaceModuleEwaldHimem::make_kxy_list_from_kvecs()
   }
 }
 
-void KSpaceModuleEwaldHimem::sincos_a_ele(double ** csk_one, double ** snk_one)
+void KSpaceModuleEwaldSplit::sincos_a_ele(double ** csk_p, double ** snk_p)
 {
   int* ele2tag = fixconp->ele2tag;
   int i,j,m,k,ic,iele;
   int kx,ky,kz,kxy,kf;
   double **x = atom->x;
+  double **csk_one,**snk_one;
   const int elenum_c = fixconp->elenum;
+  memory->create(csk_one,kcount,elenum_c,"fixconp:csk_one");
+  memory->create(snk_one,kcount,elenum_c,"fixconp:snk_one");
   double *elex = new double[elenum_c];
 
   for (i = 0; i < elenum_c; ++i) {
@@ -456,13 +455,15 @@ void KSpaceModuleEwaldHimem::sincos_a_ele(double ** csk_one, double ** snk_one)
   const int kcount_c = kcount;
   for (k = 0; k < kcount_c; ++k) {
     for (i = 0; i < elenum_c; ++i) {
-      csk_one[k][i] *= 2.0 * ug[k];
-      snk_one[k][i] *= 2.0 * ug[k];
+      csk_p[i][k] = csk_one[k][i] * 2.0 * ug[k];
+      snk_p[i][k] = snk_one[k][i] * 2.0 * ug[k];
     }
   }
+  memory->destroy(csk_one);
+  memory->destroy(snk_one);
 }
 
-void KSpaceModuleEwaldHimem::sincos_a_comm_eleall(double ** k_one, double ** k_all)
+void KSpaceModuleEwaldSplit::sincos_a_comm_eleall(double ** k_one, double ** k_all)
 {
   int i,k;
   const int kcount_c = kcount;
@@ -485,7 +486,7 @@ void KSpaceModuleEwaldHimem::sincos_a_comm_eleall(double ** k_one, double ** k_a
   }
 }
 
-void KSpaceModuleEwaldHimem::aaa_from_sincos_a(double* aaa)
+void KSpaceModuleEwaldSplit::aaa_from_sincos_a(double* aaa)
 {
   int* ele2eleall = fixconp->ele2eleall;
   int* ele2tag = fixconp->ele2tag;
@@ -494,32 +495,166 @@ void KSpaceModuleEwaldHimem::aaa_from_sincos_a(double* aaa)
   double CON_s2overPIS = sqrt(2.0)/MY_PIS;
   double CON_2overPIS = 2.0/MY_PIS;
   
-  int i,j,k,idx1d;
+  int i,j,k,idx1d,n;
   int const kcount_c = kcount;
   double aaatmp;
 
+  // do self entries -- self-other entries done with b_bcast
+
+  // diagonal entries
   for (i = 0; i < elenum_c; ++i) {
     int const elealli = ele2eleall[i];
-    double* __restrict__ cski = csk[elealli];
-    double* __restrict__ snki = snk[elealli];
-    idx1d = i*elenum_all_c;
-    for (j = 0; j < elealli; ++j) {
-      aaatmp = 0;
-      for (k = 0; k < kcount_c; ++k) {
-        aaatmp += 0.5*(cski[k]*csk[j][k]+snki[k]*snk[j][k])/ug[k];
-      }
-      aaa[idx1d] = aaatmp;
-      idx1d++;
-    }
     idx1d = i*elenum_all_c + elealli;
+    double* __restrict__ cski = csk[i];
+    double* __restrict__ snki = snk[i];
     aaatmp = 0;
     for (k = 0; k < kcount_c; ++k) {
-      aaatmp += 0.5*(cski[k]*cski[k] + snki[k]*snki[k])/ug[k];
+      aaatmp += 0.5*(cski[k]*cski[k]+snki[k]*snki[k])/ug[k];
     }
     aaatmp+=CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
     aaa[idx1d] = aaatmp;
   }
+  // off-diagonal entries
+  for (i = 0; i < elenum_c; ++i) {
+    int const elealli = ele2eleall[i];
+    double* __restrict__ cski = csk[i];
+    double* __restrict__ snki = snk[i];
+    for (j = 0; j < elenum_c; ++j) {
+      int const eleallj = ele2eleall[j];
+      if (eleallj < elealli) {
+        aaatmp = 0;
+        idx1d = i*elenum_all_c+eleallj;
+        for (k = 0; k < kcount_c; ++k) {
+          aaatmp += 0.5*(cski[k]*csk[j][k]+snki[k]*snk[j][k])/ug[k];
+        }
+        aaa[idx1d] = aaatmp;
+      }
+    }
+  }
+  // comm stuff
 
+  int me,nprocs;
+  MPI_Comm_rank(world,&me);
+  MPI_Comm_size(world,&nprocs);
+  if (nprocs > 1) {
+    int ki,kj,jkf;
+    double *cskmy, *snkmy;
+    double *__restrict__ csxyj, *__restrict__ snxyj;
+    double *__restrict__ cszj, *__restrict__ snzj;
+    double *__restrict__ cskj0, *__restrict__ snkj0;
+    double *__restrict__ cskj1, *__restrict__ snkj1;
+    if (elenum_c > 0) {
+      // build and pack buffers
+      cskmy = new double [elenum_c*kcount_flat];
+      snkmy = new double [elenum_c*kcount_flat];
+  
+      csxyj = new double [kcount_expand];
+      snxyj = new double [kcount_expand];
+      cszj = new double [kcount_expand];
+      snzj = new double [kcount_expand];
+  
+      cskj0 = new double [kcount_expand];
+      snkj0 = new double [kcount_expand];
+      cskj1 = new double [kcount_expand];
+      snkj1 = new double [kcount_expand];
+  
+      double* __restrict__ ugk = ug;
+      int kpack = 0;
+  
+      for (i = 0; i < elenum_c; ++i) {
+        double* __restrict__ cski = csk[i];
+        double* __restrict__ snki = snk[i];
+        for (k = 0; k < kcount_flat; ++k) {
+          cskmy[kpack] = cski[k] / (2*ugk[k]);
+          snkmy[kpack] = snki[k] / (2*ugk[k]);
+          ++kpack;
+        }
+      }
+    }
+    for (n = 0; n < nprocs; ++n) {
+      int const elenum_n_c = fixconp->elenum_list[n];
+      if (elenum_n_c > 0) {
+        int* eleall_n_list;
+        double *cskbuf,*snkbuf;
+        if (me == n) {
+          eleall_n_list = fixconp->ele2eleall;
+          cskbuf = cskmy;
+          snkbuf = snkmy;
+        } else {
+          eleall_n_list = new int[elenum_n_c];
+          cskbuf = new double[elenum_n_c*kcount_flat];
+          snkbuf = new double[elenum_n_c*kcount_flat];
+        }
+        MPI_Barrier(world);
+        fixconp->b_bcast(n,kcount_flat,eleall_n_list,cskbuf);
+        fixconp->b_bcast(n,kcount_flat,eleall_n_list,snkbuf);
+        MPI_Barrier(world);
+        if (me != n) {
+          for (i = 0; i < elenum_c; ++i) {
+            int const elealli = ele2eleall[i];
+            double* __restrict__ cski = csk[i];
+            double* __restrict__ snki = snk[i];
+            for (j = 0; j < elenum_n_c; ++j) {
+              int const eleallj = eleall_n_list[j];
+              if (eleallj < elealli) {
+                aaatmp = 0;
+                idx1d = i*elenum_all_c+eleallj;
+                jkf = j*kcount_flat;
+                for (k = 0; k < kcount_flat; ++k) {
+                  aaatmp += cski[k]*cskbuf[jkf+k]+snki[k]*snkbuf[jkf+k];
+                }
+                // fill kbuffers and calculate z-vectors
+                for (kj = 0; kj < kcount_expand; ++kj) {
+                  csxyj[kj] = cskbuf[jkf+kxy_list[kj]];
+                  snxyj[kj] = snkbuf[jkf+kxy_list[kj]];
+                  cszj[kj] = cskbuf[jkf+kz_list[kj]];
+                  cszj[kj] = cskbuf[jkf+kz_list[kj]];
+                }
+                for (kj = 0; kj < kcount_expand; ++kj) {
+                  cskj0[kj] = csxyj[kj]*cszj[kj] - snxyj[kj]*snzj[kj];
+                  snkj0[kj] = snxyj[kj]*cszj[kj] + csxyj[kj]*snzj[kj];
+                  cskj1[kj] = csxyj[kj]*cszj[kj] + snxyj[kj]*snzj[kj];
+                  snkj1[kj] = snxyj[kj]*cszj[kj] - csxyj[kj]*snzj[kj];
+                }
+                // iterate over kcount_expand
+                ki = kcount_flat;
+                for (kj = 0; kj < kcount_expand; ++kj) {
+                  aaatmp += cski[ki]*cskj0[kj]+snki[ki]*snkj0[kj];
+                  ++ki;
+                  aaatmp += cski[ki]*cskj1[kj]+snki[ki]*snkj1[kj];
+                  ++ki;
+                }
+                aaa[idx1d] = aaatmp;
+              }
+            }
+          }
+        }
+        MPI_Barrier(world);
+        if (me == n) {
+          eleall_n_list = nullptr;
+          cskbuf = nullptr;
+          snkbuf = nullptr;
+        } else {
+          delete [] eleall_n_list;
+          delete [] cskbuf;
+          delete [] snkbuf;
+        }
+      }
+    }
+    if (elenum_c > 0) {
+      delete [] cskmy; 
+      delete [] snkmy;
+      delete [] csxyj;
+      delete [] snxyj;
+      delete [] cszj;
+      delete [] snzj;
+      delete [] cskj0;
+      delete [] snkj0;
+      delete [] cskj1;
+      delete [] snkj1;
+    }
+  }
+  
   // implement slab corrections
   if (slabflag == 1) {
     double CON_4PIoverV = MY_4PI/volume;
@@ -542,7 +677,7 @@ void KSpaceModuleEwaldHimem::aaa_from_sincos_a(double* aaa)
   }
 }
 
-void KSpaceModuleEwaldHimem::sincos_b()
+void KSpaceModuleEwaldSplit::sincos_b()
 {
   int i,j,k,l,m,n,ic,kf;
   int kx,ky,kz,kxy;
@@ -660,7 +795,7 @@ void KSpaceModuleEwaldHimem::sincos_b()
 }
 
 /* ---------------------------------------------------------------------- */
-void KSpaceModuleEwaldHimem::bbb_from_sincos_b(double* bbb)
+void KSpaceModuleEwaldSplit::bbb_from_sincos_b(double* bbb)
 {
   int* ele2tag = fixconp->ele2tag;
   int* ele2eleall = fixconp->ele2eleall;
@@ -670,12 +805,12 @@ void KSpaceModuleEwaldHimem::bbb_from_sincos_b(double* bbb)
   double bbbtmp;
   // int one = 1;
   for (elei = 0; elei < elenum_c; ++elei) {
-    elealli = ele2eleall[elei];
+    //elealli = ele2eleall[elei];
     //bbb[elei] = -ddot_(&kcount,csk[i],&one,sfacrl_all,&one);
     //bbb[elei] -= ddot_(&kcount,snk[i],&one,sfacim_all,&one);
     bbbtmp = 0;
     for (k = 0; k < kcount_c; k++) {
-      bbbtmp -= (csk[elealli][k]*sfacrl_all[k]+snk[elealli][k]*sfacim_all[k]);
+      bbbtmp -= (csk[elei][k]*sfacrl_all[k]+snk[elei][k]*sfacim_all[k]);
     } // ddot tested -- slower!
     bbb[elei] = bbbtmp;
   }
@@ -698,11 +833,9 @@ void KSpaceModuleEwaldHimem::bbb_from_sincos_b(double* bbb)
       bbb[elei] -= x[i][2]*slabcorr;
     }
   }
-  //int* eleall2ele = fixconp->eleall2ele;
-  //printf("%g\t%d\n",bbb[eleall2ele[0]],ele2tag[eleall2ele[0]]);
 }
 
-void KSpaceModuleEwaldHimem::make_kvecs_brick()
+void KSpaceModuleEwaldSplit::make_kvecs_brick()
 {
   int k,l,m,ic;
   kcount = 0;

@@ -25,6 +25,7 @@
 #include "domain.h"
 #include "math_const.h"
 
+
 #define EWALD_F   1.12837917
 #define EWALD_P   0.3275911
 #define A1        0.254829592
@@ -47,7 +48,7 @@ KSpaceModuleEwald::KSpaceModuleEwald(LAMMPS *lmp) :
   sfacim(nullptr),sfacim_all(nullptr)
 {
   slabflag = 0;
-  aread_sincos_a = false;
+  lowmemflag = true;
 }
 
 KSpaceModuleEwald::~KSpaceModuleEwald()
@@ -129,8 +130,15 @@ void KSpaceModuleEwald::conp_setup()
 
 void KSpaceModuleEwald::a_read()
 {
-  sincos_a_ele(csk,snk);
-  aread_sincos_a = true;
+  int const elenum_c = fixconp->elenum;
+  double **csk_one,**snk_one;
+  memory->create(csk_one,kcount_a,elenum_c,"fixconp:csk_one");
+  memory->create(snk_one,kcount_a,elenum_c,"fixconp:snk_one");
+  sincos_a_ele(csk_one,snk_one);
+  sincos_a_comm_eleall(csk_one,csk);
+  sincos_a_comm_eleall(snk_one,snk);
+  memory->destroy(csk_one);
+  memory->destroy(snk_one);
 }
 
 void KSpaceModuleEwald::a_cal(double* aaa)
@@ -191,13 +199,10 @@ void KSpaceModuleEwald::conp_post_neighbor(
     int elytenum = fixconp->elytenum;
     elyte_allocate(elytenum);
   }
-  //if (do_ele_alloc) {
-  //  int elenum_all = fixconp->elenum_all;
-  //  ele_allocate(elenum_all);
-  //}
-  int elenum = fixconp->elenum;
-  ele_allocate(elenum);
-  if (aread_sincos_a) sincos_a_ele(csk,snk);
+  if (do_ele_alloc) {
+    int elenum_all = fixconp->elenum_all;
+    ele_allocate(elenum_all);
+  }
 }
 
 void KSpaceModuleEwald::elyte_allocate(int elytenum)
@@ -216,12 +221,14 @@ void KSpaceModuleEwald::elyte_deallocate()
   memory->destroy(qj_global);
 }
 
-void KSpaceModuleEwald::ele_allocate(int elenum)
+void KSpaceModuleEwald::ele_allocate(int elenum_all)
 {
+  if (!lowmemflag) kcount_a = kcount; // eventually this will be try-catch for mem-create below
+  else kcount_a = kcount_flat;
   if (csk != nullptr) memory->destroy(csk);
-  memory->create(csk,elenum,kcount,"fixconp:csk");
+  memory->create(csk,elenum_all,kcount_a,"fixconp:csk");
   if (snk != nullptr) memory->destroy(snk);
-  memory->create(snk,elenum,kcount,"fixconp:snk");
+  memory->create(snk,elenum_all,kcount_a,"fixconp:snk");
 }
 
 void KSpaceModuleEwald::ele_deallocate()
@@ -297,7 +304,7 @@ void KSpaceModuleEwald::make_kvecs_ewald()
     }
   }
 
-  // 1 = (k,l,m), 2 = (k,-l,m), 3 = (k,l,-m), 4 = (k,-l,-m)
+  // 1 = (k,l,m), 2 = (k,l,-m), 3 = (k,-l,m), 4 = (k,-l,-m)
 
   for (k = 1; k <= kmaxes[0]; ++k) {
     for (l = 1; l <= kmaxes[1]; ++l) {
@@ -376,16 +383,13 @@ void KSpaceModuleEwald::make_kxy_list_from_kvecs()
   }
 }
 
-void KSpaceModuleEwald::sincos_a_ele(double ** csk_p, double ** snk_p)
+void KSpaceModuleEwald::sincos_a_ele(double ** csk_one, double ** snk_one)
 {
   int* ele2tag = fixconp->ele2tag;
   int i,j,m,k,ic,iele;
   int kx,ky,kz,kxy,kf;
   double **x = atom->x;
-  double **csk_one,**snk_one;
   const int elenum_c = fixconp->elenum;
-  memory->create(csk_one,kcount,elenum_c,"fixconp:csk_one");
-  memory->create(snk_one,kcount,elenum_c,"fixconp:snk_one");
   double *elex = new double[elenum_c];
 
   for (i = 0; i < elenum_c; ++i) {
@@ -435,43 +439,43 @@ void KSpaceModuleEwald::sincos_a_ele(double ** csk_p, double ** snk_p)
   // (k, 0, m); (k, 0, -m)
   // (k, l, m); (k, l, -m)
   // (k, -l, m); (k, -l, -m)
-  
-  for (m = 0; m < kcount_expand; ++m) {
-    kxy = kxy_list[m];
-    kz = kz_list[m];
-    double* __restrict__ cskf0 = csk_one[kf];
-    double* __restrict__ snkf0 = snk_one[kf];
-    double* __restrict__ cskf1 = csk_one[kf+1];
-    double* __restrict__ snkf1 = snk_one[kf+1];
-    for (i = 0; i < elenum_c; ++i) {
-      cskf0[i] = csk_one[kxy][i]*csk_one[kz][i] - snk_one[kxy][i]*snk_one[kz][i];
-      snkf0[i] = csk_one[kxy][i]*snk_one[kz][i] + snk_one[kxy][i]*csk_one[kz][i];
-      cskf1[i] = csk_one[kxy][i]*csk_one[kz][i] + snk_one[kxy][i]*snk_one[kz][i];
-      snkf1[i] = -csk_one[kxy][i]*snk_one[kz][i] + snk_one[kxy][i]*csk_one[kz][i];
+  if (!lowmemflag) {
+    for (m = 0; m < kcount_expand; ++m) {
+      kxy = kxy_list[m];
+      kz = kz_list[m];
+      double* __restrict__ cskf0 = csk_one[kf];
+      double* __restrict__ snkf0 = snk_one[kf];
+      double* __restrict__ cskf1 = csk_one[kf+1];
+      double* __restrict__ snkf1 = snk_one[kf+1];
+      for (i = 0; i < elenum_c; ++i) {
+        cskf0[i] = csk_one[kxy][i]*csk_one[kz][i] - snk_one[kxy][i]*snk_one[kz][i];
+        snkf0[i] = csk_one[kxy][i]*snk_one[kz][i] + snk_one[kxy][i]*csk_one[kz][i];
+        cskf1[i] = csk_one[kxy][i]*csk_one[kz][i] + snk_one[kxy][i]*snk_one[kz][i];
+        snkf1[i] = -csk_one[kxy][i]*snk_one[kz][i] + snk_one[kxy][i]*csk_one[kz][i];
+      }
+      kf += 2;
     }
-    kf += 2;
-  }
-
-  const int kcount_c = kcount;
-  for (k = 0; k < kcount_c; ++k) {
-    for (i = 0; i < elenum_c; ++i) {
-      csk_p[i][k] = csk_one[k][i] * 2.0 * ug[k];
-      snk_p[i][k] = snk_one[k][i] * 2.0 * ug[k];
+    // if himem, premultiply immediately by ug[k];
+    // if lowmem, leave out ugk
+    int const kcount_c = kcount;
+    for (k = 0; k < kcount_c; ++k) {
+      for (i = 0; i < elenum_c; ++i) {
+        csk_one[k][i] *= 2.0 * ug[k];
+        snk_one[k][i] *= 2.0 * ug[k];
+      }
     }
   }
-  memory->destroy(csk_one);
-  memory->destroy(snk_one);
 }
 
 void KSpaceModuleEwald::sincos_a_comm_eleall(double ** k_one, double ** k_all)
 {
   int i,k;
-  const int kcount_c = kcount;
+  const int kcount_a_c = kcount_a;
   const int elenum_all_c = fixconp->elenum_all;
   bool transposeflag = true; // will have to transpose to fit csk_p and snk_p
   if (transposeflag) {
     double *trigbuf = new double[elenum_all_c];
-    for (k = 0; k < kcount_c; ++k) {
+    for (k = 0; k < kcount_a_c; ++k) {
       fixconp->b_comm(k_one[k],trigbuf);
       for (i = 0; i < elenum_all_c; ++i) {
         k_all[i][k] = trigbuf[i];
@@ -480,7 +484,7 @@ void KSpaceModuleEwald::sincos_a_comm_eleall(double ** k_one, double ** k_all)
     delete [] trigbuf;
   }
   else {
-    for (k = 0; k < kcount_c; ++k) {
+    for (k = 0; k < kcount_a_c; ++k) {
       fixconp->b_comm(k_one[k],k_all[k]);
     }
   }
@@ -495,166 +499,101 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
   double CON_s2overPIS = sqrt(2.0)/MY_PIS;
   double CON_2overPIS = 2.0/MY_PIS;
   
-  int i,j,k,idx1d,n;
-  int const kcount_c = kcount;
+  int i,j,k,idx1d;
+  int const kcount_a_c = kcount_a;
   double aaatmp;
 
-  // do self entries -- self-other entries done with b_bcast
-
-  // diagonal entries
-  for (i = 0; i < elenum_c; ++i) {
-    int const elealli = ele2eleall[i];
-    idx1d = i*elenum_all_c + elealli;
-    double* __restrict__ cski = csk[i];
-    double* __restrict__ snki = snk[i];
-    aaatmp = 0;
-    for (k = 0; k < kcount_c; ++k) {
-      aaatmp += 0.5*(cski[k]*cski[k]+snki[k]*snki[k])/ug[k];
-    }
-    aaatmp+=CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
-    aaa[idx1d] = aaatmp;
-  }
-  // off-diagonal entries
-  for (i = 0; i < elenum_c; ++i) {
-    int const elealli = ele2eleall[i];
-    double* __restrict__ cski = csk[i];
-    double* __restrict__ snki = snk[i];
-    for (j = 0; j < elenum_c; ++j) {
-      int const eleallj = ele2eleall[j];
-      if (eleallj < elealli) {
+  if (!lowmemflag) {
+    for (i = 0; i < elenum_c; ++i) {
+      int const elealli = ele2eleall[i];
+      double* __restrict__ cski = csk[elealli];
+      double* __restrict__ snki = snk[elealli];
+      idx1d = i*elenum_all_c;
+      for (j = 0; j < elealli; ++j) {
         aaatmp = 0;
-        idx1d = i*elenum_all_c+eleallj;
-        for (k = 0; k < kcount_c; ++k) {
+        for (k = 0; k < kcount_a_c; ++k) {
           aaatmp += 0.5*(cski[k]*csk[j][k]+snki[k]*snk[j][k])/ug[k];
         }
         aaa[idx1d] = aaatmp;
+        idx1d++;
       }
+      idx1d = i*elenum_all_c + elealli;
+      aaatmp = 0;
+      for (k = 0; k < kcount_a_c; ++k) {
+        aaatmp += 0.5*(cski[k]*cski[k] + snki[k]*snki[k])/ug[k];
+      }
+      aaatmp+=CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
+      aaa[idx1d] = aaatmp;
     }
-  }
-  // comm stuff
 
-  int me,nprocs;
-  MPI_Comm_rank(world,&me);
-  MPI_Comm_size(world,&nprocs);
-  if (nprocs > 1) {
-    int ki,kj,jkf;
-    double *cskmy, *snkmy;
-    double *__restrict__ csxyj, *__restrict__ snxyj;
-    double *__restrict__ cszj, *__restrict__ snzj;
-    double *__restrict__ cskj0, *__restrict__ snkj0;
-    double *__restrict__ cskj1, *__restrict__ snkj1;
-    if (elenum_c > 0) {
-      // build and pack buffers
-      cskmy = new double [elenum_c*kcount_flat];
-      snkmy = new double [elenum_c*kcount_flat];
-  
-      csxyj = new double [kcount_expand];
-      snxyj = new double [kcount_expand];
-      cszj = new double [kcount_expand];
-      snzj = new double [kcount_expand];
-  
-      cskj0 = new double [kcount_expand];
-      snkj0 = new double [kcount_expand];
-      cskj1 = new double [kcount_expand];
-      snkj1 = new double [kcount_expand];
-  
-      double* __restrict__ ugk = ug;
-      int kpack = 0;
-  
-      for (i = 0; i < elenum_c; ++i) {
-        double* __restrict__ cski = csk[i];
-        double* __restrict__ snki = snk[i];
+  } else {
+    int ki, kj;
+    double* __restrict__ csxyi = new double [kcount_expand];
+    double* __restrict__ snxyi = new double [kcount_expand];
+    double* __restrict__ cszi = new double [kcount_expand];
+    double* __restrict__ snzi = new double [kcount_expand];
+    double* __restrict__ cskie = new double [2*kcount_expand];
+    double* __restrict__ snkie = new double [2*kcount_expand];
+    double* __restrict__ csxyj = new double [kcount_expand];
+    double* __restrict__ snxyj = new double [kcount_expand];
+    double* __restrict__ cszj = new double [kcount_expand];
+    double* __restrict__ snzj = new double [kcount_expand];
+    double* __restrict__ cskje = new double [2*kcount_expand];
+    double* __restrict__ snkje = new double [2*kcount_expand];
+    for (i = 0; i < elenum_c; ++i) {
+      int const elealli = ele2eleall[i];
+      double* __restrict__ cski = csk[elealli];
+      double* __restrict__ snki = snk[elealli];
+      for (ki = 0; ki < kcount_expand; ++ki) {
+        csxyi[ki] = cski[kxy_list[ki]];
+        snxyi[ki] = snki[kxy_list[ki]];
+        cszi[ki] = cski[kz_list[ki]];
+        snzi[ki] = snki[kz_list[ki]];	
+      }
+      for (ki = 0; ki < kcount_expand; ++ki) {
+        cskie[2*ki] = csxyi[ki]*cszi[ki] - snxyi[ki]*snzi[ki];
+        snkie[2*ki] = snxyi[ki]*cszi[ki] + csxyi[ki]*snzi[ki];
+        cskie[2*ki+1] = csxyi[ki]*cszi[ki] + snxyi[ki]*snzi[ki];
+        snkie[2*ki+1] = snxyi[ki]*cszi[ki] - csxyi[ki]*snzi[ki];
+      }
+      for (j = 0; j < elealli; ++j) {
+        double* __restrict__ cskj = csk[j];
+        double* __restrict__ snkj = snk[j];
+        for (kj = 0; kj < kcount_expand; ++kj) {
+          csxyj[kj] = cskj[kxy_list[kj]];
+          snxyj[kj] = snkj[kxy_list[kj]];
+          cszj[kj] = cskj[kz_list[kj]];
+          snzj[kj] = snkj[kz_list[kj]];	
+        }
+        for (kj = 0; kj < kcount_expand; ++kj) {
+          cskje[2*kj] = csxyj[kj]*cszj[kj] - snxyj[kj]*snzj[kj];
+          snkje[2*kj] = snxyj[kj]*cszj[kj] + csxyj[kj]*snzj[kj];
+          cskje[2*kj+1] = csxyj[kj]*cszj[kj] + snxyj[kj]*snzj[kj];
+          snkje[2*kj+1] = snxyj[kj]*cszj[kj] - csxyj[kj]*snzj[kj];
+        }
+        aaatmp = 0;
         for (k = 0; k < kcount_flat; ++k) {
-          cskmy[kpack] = cski[k] / (2*ugk[k]);
-          snkmy[kpack] = snki[k] / (2*ugk[k]);
-          ++kpack;
+          aaatmp += 2*ug[k]*(cski[k]*cskj[k]+snki[k]*snkj[k]);
         }
+	      for (k = 0; k < 2*kcount_expand; ++k) {
+	        aaatmp += 2*ug[kcount_flat+k]*(cskie[k]*cskje[k]+snkie[k]*snkje[k]);
+	      }
+        idx1d = i*elenum_all_c + j;
+	      aaa[idx1d] = aaatmp;
       }
-    }
-    for (n = 0; n < nprocs; ++n) {
-      int const elenum_n_c = fixconp->elenum_list[n];
-      if (elenum_n_c > 0) {
-        int* eleall_n_list;
-        double *cskbuf,*snkbuf;
-        if (me == n) {
-          eleall_n_list = fixconp->ele2eleall;
-          cskbuf = cskmy;
-          snkbuf = snkmy;
-        } else {
-          eleall_n_list = new int[elenum_n_c];
-          cskbuf = new double[elenum_n_c*kcount_flat];
-          snkbuf = new double[elenum_n_c*kcount_flat];
-        }
-        MPI_Barrier(world);
-        fixconp->b_bcast(n,kcount_flat,eleall_n_list,cskbuf);
-        fixconp->b_bcast(n,kcount_flat,eleall_n_list,snkbuf);
-        MPI_Barrier(world);
-        if (me != n) {
-          for (i = 0; i < elenum_c; ++i) {
-            int const elealli = ele2eleall[i];
-            double* __restrict__ cski = csk[i];
-            double* __restrict__ snki = snk[i];
-            for (j = 0; j < elenum_n_c; ++j) {
-              int const eleallj = eleall_n_list[j];
-              if (eleallj < elealli) {
-                aaatmp = 0;
-                idx1d = i*elenum_all_c+eleallj;
-                jkf = j*kcount_flat;
-                for (k = 0; k < kcount_flat; ++k) {
-                  aaatmp += cski[k]*cskbuf[jkf+k]+snki[k]*snkbuf[jkf+k];
-                }
-                // fill kbuffers and calculate z-vectors
-                for (kj = 0; kj < kcount_expand; ++kj) {
-                  csxyj[kj] = cskbuf[jkf+kxy_list[kj]];
-                  snxyj[kj] = snkbuf[jkf+kxy_list[kj]];
-                  cszj[kj] = cskbuf[jkf+kz_list[kj]];
-                  cszj[kj] = cskbuf[jkf+kz_list[kj]];
-                }
-                for (kj = 0; kj < kcount_expand; ++kj) {
-                  cskj0[kj] = csxyj[kj]*cszj[kj] - snxyj[kj]*snzj[kj];
-                  snkj0[kj] = snxyj[kj]*cszj[kj] + csxyj[kj]*snzj[kj];
-                  cskj1[kj] = csxyj[kj]*cszj[kj] + snxyj[kj]*snzj[kj];
-                  snkj0[kj] = snxyj[kj]*cszj[kj] - csxyj[kj]*snzj[kj];
-                }
-                // iterate over kcount_expand
-                ki = kcount_flat;
-                for (kj = 0; kj < kcount_expand; ++kj) {
-                  aaatmp += cski[ki]*cskj0[kj]+snki[ki]*snkj0[kj];
-                  ++ki;
-                  aaatmp += cski[ki]*cskj1[kj]+snki[ki]*snkj1[kj];
-                  ++ki;
-                }
-                aaa[idx1d] = aaatmp;
-              }
-            }
-          }
-        }
-        MPI_Barrier(world);
-        if (me == n) {
-          eleall_n_list = nullptr;
-          cskbuf = nullptr;
-          snkbuf = nullptr;
-        } else {
-          delete [] eleall_n_list;
-          delete [] cskbuf;
-          delete [] snkbuf;
-        }
+      aaatmp = 0;
+      for (k = 0; k < kcount_flat; ++k) {
+        aaatmp += 2*ug[k]*(cski[k]*cski[k]+snki[k]*snki[k]);
       }
-    }
-    if (elenum_c > 0) {
-      delete [] cskmy; 
-      delete [] snkmy;
-      delete [] csxyj;
-      delete [] snxyj;
-      delete [] cszj;
-      delete [] snzj;
-      delete [] cskj0;
-      delete [] snkj0;
-      delete [] cskj1;
-      delete [] snkj1;
+      for (k = 0; k < 2*kcount_expand; ++k) {
+	      aaatmp += 2*ug[kcount_flat+k]*(cskie[k]*cskje[k]+snkie[k]*snkje[k]);
+      }
+      aaatmp += CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
+      idx1d = i*elenum_all_c + elealli;
+      aaa[idx1d] = aaatmp;
     }
   }
-  
+
   // implement slab corrections
   if (slabflag == 1) {
     double CON_4PIoverV = MY_4PI/volume;
@@ -792,6 +731,15 @@ void KSpaceModuleEwald::sincos_b()
 
   MPI_Allreduce(sfacrl,sfacrl_all,kcount,MPI_DOUBLE,MPI_SUM,world);
   MPI_Allreduce(sfacim,sfacim_all,kcount,MPI_DOUBLE,MPI_SUM,world);
+
+  if (lowmemflag) {
+    int const kcount_c = kcount;
+    double* __restrict__ ugk = ug;
+    for (k = 0; k < kcount_c; ++k) {
+      sfacrl_all[k] *= 2*ugk[k];
+      sfacim_all[k] *= 2*ugk[k];
+    }
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -804,17 +752,56 @@ void KSpaceModuleEwald::bbb_from_sincos_b(double* bbb)
   int const kcount_c = kcount;
   double bbbtmp;
   // int one = 1;
-  for (elei = 0; elei < elenum_c; ++elei) {
-    //elealli = ele2eleall[elei];
-    //bbb[elei] = -ddot_(&kcount,csk[i],&one,sfacrl_all,&one);
-    //bbb[elei] -= ddot_(&kcount,snk[i],&one,sfacim_all,&one);
-    bbbtmp = 0;
-    for (k = 0; k < kcount_c; k++) {
-      bbbtmp -= (csk[elei][k]*sfacrl_all[k]+snk[elei][k]*sfacim_all[k]);
-    } // ddot tested -- slower!
-    bbb[elei] = bbbtmp;
+  if (!lowmemflag) {
+    for (elei = 0; elei < elenum_c; ++elei) {
+      elealli = ele2eleall[elei];
+      //bbb[elei] = -ddot_(&kcount,csk[i],&one,sfacrl_all,&one);
+      //bbb[elei] -= ddot_(&kcount,snk[i],&one,sfacim_all,&one);
+      bbbtmp = 0;
+      for (k = 0; k < kcount_c; k++) {
+        bbbtmp -= (csk[elealli][k]*sfacrl_all[k]+snk[elealli][k]*sfacim_all[k]);
+      } // ddot tested -- slower!
+      bbb[elei] = bbbtmp;
+    }
+  } else {
+    double* __restrict__ csxyi = new double [kcount_expand];
+    double* __restrict__ snxyi = new double [kcount_expand];
+    double* __restrict__ cszi = new double [kcount_expand];
+    double* __restrict__ snzi = new double [kcount_expand];
+    double* __restrict__ cskie = new double [2*kcount_expand];
+    double* __restrict__ snkie = new double [2*kcount_expand];
+    for (elei = 0; elei < elenum_c; ++elei) {
+      elealli = ele2eleall[elei];
+      double* __restrict__ cski = csk[elealli];
+      double* __restrict__ snki = snk[elealli];
+      for (k = 0; k < kcount_expand; ++k) {
+        csxyi[k] = cski[kxy_list[k]];
+        snxyi[k] = snki[kxy_list[k]];
+        cszi[k] = cski[kz_list[k]];
+        snzi[k] = snki[kz_list[k]];	
+      }
+      for (k = 0; k < kcount_expand; ++k) {
+        cskie[2*k] = csxyi[k]*cszi[k] - snxyi[k]*snzi[k];
+        snkie[2*k] = snxyi[k]*cszi[k] + csxyi[k]*snzi[k];
+        cskie[2*k+1] = csxyi[k]*cszi[k] + snxyi[k]*snzi[k];
+        snkie[2*k+1] = snxyi[k]*cszi[k] - csxyi[k]*snzi[k];
+      }
+      bbbtmp = 0;
+      for (k = 0; k < kcount_flat; ++k) {
+        bbbtmp -=(cski[k]*sfacrl_all[k]+snki[k]*sfacim_all[k]);
+      }
+      for (k = 0; k < 2*kcount_expand; ++k) {
+        bbbtmp -=(cskie[k]*sfacrl_all[kcount_flat+k]+snkie[k]*sfacim_all[kcount_flat+k]);
+      }
+      bbb[elei] = bbbtmp;
+    }
+    delete [] csxyi;
+    delete [] snxyi;
+    delete [] cszi;
+    delete [] snzi;
+    delete [] cskie;
+    delete [] snkie;
   }
-
   if (slabflag == 1) {
     int i;
     int nlocal = atom->nlocal;
@@ -833,6 +820,8 @@ void KSpaceModuleEwald::bbb_from_sincos_b(double* bbb)
       bbb[elei] -= x[i][2]*slabcorr;
     }
   }
+  //int* eleall2ele = fixconp->eleall2ele;
+  //printf("%g\t%d\n",bbb[eleall2ele[0]],ele2tag[eleall2ele[0]]);
 }
 
 void KSpaceModuleEwald::make_kvecs_brick()

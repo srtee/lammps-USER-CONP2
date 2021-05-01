@@ -26,17 +26,16 @@ namespace LAMMPS_NS{
 
 class KSpaceModuleEwald : public KSpaceModule, public Pointers {
  public:
-  KSpaceModuleEwald(class LAMMPS *);
-  virtual ~KSpaceModuleEwald();
+  KSpaceModuleEwald(class LAMMPS * lmp);
+  ~KSpaceModuleEwald();
   
   void conp_setup();
-  virtual void conp_post_neighbor(bool, bool);
+  void conp_post_neighbor(bool, bool);
   void a_cal(double *);
   void a_read();
   void b_cal(double *);
 
   protected:
-  bool aread_sincos_a;
   virtual void setup_allocate();
   virtual void elyte_allocate(int);
   virtual void ele_allocate(int);
@@ -50,6 +49,7 @@ class KSpaceModuleEwald : public KSpaceModule, public Pointers {
   virtual void bbb_from_sincos_b(double *);
   
   int slabflag;
+  bool lowmemflag;
 
   double rms(int,double,bigint,double);
   void make_kvecs_ewald();
@@ -63,7 +63,8 @@ class KSpaceModuleEwald : public KSpaceModule, public Pointers {
   int *kxvecs,*kyvecs,*kzvecs;
   double **cs,**sn,**csk,**snk;
   double *qj_global;
-  int kmax,kmax3d,kmax_created,kcount,kcount_flat,kcount_expand;
+  int kmax,kmax3d,kmax_created,kcount;
+  int kcount_a,kcount_flat,kcount_expand;
   int *kcount_dims;
   int *kxy_list,*kz_list;
   int kxmax,kymax,kzmax;
