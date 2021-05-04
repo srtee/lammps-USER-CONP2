@@ -327,7 +327,7 @@ void FixConp::request_smartlist() {
     aRq->fix  = 1;
     aRq->half = 1;
     aRq->full = 0;
-    aRq->newton = 2;
+    // aRq->newton = 2;
     aRq->occasional = 1;
     aRq->skip = 1;
     aRq->iskip = iskip_a;
@@ -756,10 +756,11 @@ void FixConp::a_cal()
   }
   MPI_Allgatherv(aaa,elenum*elenum_all,MPI_DOUBLE,aaa_all,elenum_list3,displs3,MPI_DOUBLE,world);
 
-  #pragma ivdep
-  for (i = 0; i < elenum_all_c-1; ++i) {
-    for (j = i+1; j < elenum_all_c; ++j) {
-      aaa_all[i*elenum_all_c+j] = aaa_all[j*elenum_all_c+i];
+  // #pragma ivdep
+  for (i = 1; i < elenum_all_c; ++i) {
+    for (j = 0; j < i; ++j) {
+      aaa_all[i*elenum_all_c+j] += aaa_all[j*elenum_all_c+i];
+      aaa_all[j*elenum_all_c+i] =  aaa_all[i*elenum_all_c+j];
     }
   }
 
@@ -1237,6 +1238,7 @@ void FixConp::alist_coul_cal(double* m)
     neighbor->build(0);
     neighbor->build_one(alist,1);
   }
+  bool newton = force->newton_pair;
   //coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
   int elei,elej,elealli,eleallj;
@@ -1299,16 +1301,11 @@ void FixConp::alist_coul_cal(double* m)
               erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
               dudq -= erfc/r;
             }
-            if (i < nlocal) {
-              elei = eleall2ele[tag2eleall[tag[i]]];
-              eleallj = tag2eleall[tag[j]];
+            elealli = tag2eleall[tag[i]];
+            eleallj = tag2eleall[tag[j]];
+            elei = eleall2ele[elealli];
+            if (j < nlocal || !(!newton && eleallj > elealli)) {
               idx1d = elei*elenum_all + eleallj;
-              m[idx1d] += dudq;
-            }
-            if (j < nlocal) {
-              elej = eleall2ele[tag2eleall[tag[j]]];
-              elealli = tag2eleall[tag[i]];
-              idx1d = elej*elenum_all + elealli;
               m[idx1d] += dudq;
             }
           }

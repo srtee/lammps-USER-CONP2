@@ -509,12 +509,14 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
       double* __restrict__ cski = csk[elealli];
       double* __restrict__ snki = snk[elealli];
       idx1d = i*elenum_all_c;
-      for (j = 0; j < elealli; ++j) {
-        aaatmp = 0;
-        for (k = 0; k < kcount_a_c; ++k) {
-          aaatmp += 0.5*(cski[k]*csk[j][k]+snki[k]*snk[j][k])/ug[k];
-        }
-        aaa[idx1d] = aaatmp;
+      for (j = 0; j < elenum_all_c; ++j) {
+        if ((elealli % 2 == 1 && j > elealli) || (j % 2 == 0 && j < elealli)) {
+          aaatmp = 0;
+          for (k = 0; k < kcount_a_c; ++k) {
+            aaatmp += 0.5*(cski[k]*csk[j][k]+snki[k]*snk[j][k])/ug[k];
+          }
+          aaa[idx1d] = aaatmp;
+	}
         idx1d++;
       }
       idx1d = i*elenum_all_c + elealli;
@@ -556,30 +558,35 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
         cskie[2*ki+1] = csxyi[ki]*cszi[ki] + snxyi[ki]*snzi[ki];
         snkie[2*ki+1] = snxyi[ki]*cszi[ki] - csxyi[ki]*snzi[ki];
       }
-      for (j = 0; j < elealli; ++j) {
-        double* __restrict__ cskj = csk[j];
-        double* __restrict__ snkj = snk[j];
-        for (kj = 0; kj < kcount_expand; ++kj) {
-          csxyj[kj] = cskj[kxy_list[kj]];
-          snxyj[kj] = snkj[kxy_list[kj]];
-          cszj[kj] = cskj[kz_list[kj]];
-          snzj[kj] = snkj[kz_list[kj]];	
+      idx1d = i*elenum_all_c;
+      for (j = 0; j < elenum_all_c; ++j) {
+        if ((elealli % 2 == 1 && j > elealli) || (j % 2 == 0 && j < elealli)) {
+        // if (j < elealli) {
+          printf("i=%d  j=%d\n",elealli,j);
+          double* __restrict__ cskj = csk[j];
+          double* __restrict__ snkj = snk[j];
+          for (kj = 0; kj < kcount_expand; ++kj) {
+            csxyj[kj] = cskj[kxy_list[kj]];
+            snxyj[kj] = snkj[kxy_list[kj]];
+            cszj[kj] = cskj[kz_list[kj]];
+            snzj[kj] = snkj[kz_list[kj]];	
+          }
+          for (kj = 0; kj < kcount_expand; ++kj) {
+            cskje[2*kj] = csxyj[kj]*cszj[kj] - snxyj[kj]*snzj[kj];
+            snkje[2*kj] = snxyj[kj]*cszj[kj] + csxyj[kj]*snzj[kj];
+            cskje[2*kj+1] = csxyj[kj]*cszj[kj] + snxyj[kj]*snzj[kj];
+            snkje[2*kj+1] = snxyj[kj]*cszj[kj] - csxyj[kj]*snzj[kj];
+          }
+          aaatmp = 0;
+          for (k = 0; k < kcount_flat; ++k) {
+            aaatmp += 2*ug[k]*(cski[k]*cskj[k]+snki[k]*snkj[k]);
+          }
+          for (k = 0; k < 2*kcount_expand; ++k) {
+            aaatmp += 2*ug[kcount_flat+k]*(cskie[k]*cskje[k]+snkie[k]*snkje[k]);
+          }
+        aaa[idx1d] = aaatmp;
         }
-        for (kj = 0; kj < kcount_expand; ++kj) {
-          cskje[2*kj] = csxyj[kj]*cszj[kj] - snxyj[kj]*snzj[kj];
-          snkje[2*kj] = snxyj[kj]*cszj[kj] + csxyj[kj]*snzj[kj];
-          cskje[2*kj+1] = csxyj[kj]*cszj[kj] + snxyj[kj]*snzj[kj];
-          snkje[2*kj+1] = snxyj[kj]*cszj[kj] - csxyj[kj]*snzj[kj];
-        }
-        aaatmp = 0;
-        for (k = 0; k < kcount_flat; ++k) {
-          aaatmp += 2*ug[k]*(cski[k]*cskj[k]+snki[k]*snkj[k]);
-        }
-	      for (k = 0; k < 2*kcount_expand; ++k) {
-	        aaatmp += 2*ug[kcount_flat+k]*(cskie[k]*cskje[k]+snkie[k]*snkje[k]);
-	      }
-        idx1d = i*elenum_all_c + j;
-	      aaa[idx1d] = aaatmp;
+      ++idx1d;
       }
       aaatmp = 0;
       for (k = 0; k < kcount_flat; ++k) {
