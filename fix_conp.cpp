@@ -182,11 +182,14 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   elecheck_eleall = nullptr;
   eleall2ele = ele2eleall = elebuf2eleall = nullptr;
   bbb = bbuf = nullptr;
+  newtonbuf = nullptr;
   Btime = cgtime = Ctime = Ktime = 0;
   alist = blist = list = nullptr;
   elenum_list = displs = nullptr;
   totsetq = 0;
   gotsetq = 0;  //=1 after getting setq vector
+
+  newton = !!(force->newton_pair);
 
   //kspmod_constructor();
 }
@@ -209,6 +212,7 @@ FixConp::~FixConp()
   memory->destroy(elebuf2eleall);
   memory->destroy(bbuf);
   memory->destroy(elesetq);
+  if (newton) memory->destroy(newtonbuf);
   if (tag2eleall!=nullptr) delete [] tag2eleall;
   if (qlstr!=nullptr) delete [] qlstr;
   if (qrstr!=nullptr) delete [] qrstr;
@@ -341,7 +345,7 @@ void FixConp::request_smartlist() {
   bRq->fix  = 1;
   bRq->half = 1;
   bRq->full = 0;
-  bRq->newton = 2;
+  //bRq->newton = 2;
   bRq->skip = 1;
   bRq->iskip = iskip_b;
   bRq->ijskip = ijskip_b;
@@ -464,6 +468,7 @@ void FixConp::post_neighbor()
     memory->grow(elebuf2eleall,elenum_all,"fixconp:elebuf2eleall");
     memory->grow(bbuf,elenum_all,"fixconp:bbuf");
     memory->grow(elesetq,elenum_all,"fixconp:elesetq");
+    if (newton) memory->grow(newtonbuf,elenum_all,"fixconp:newtonbuf");
     MPI_Barrier(world); // otherwise next MPI_Allgatherv can race??
     for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
     for (i = 0; i < natoms+1; i++) tag2eleall[i] = elenum_all;
@@ -1239,7 +1244,6 @@ void FixConp::alist_coul_cal(double* m)
     neighbor->build(0);
     neighbor->build_one(alist,1);
   }
-  bool newton = force->newton_pair;
   //coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
   int elei,elej,elealli,eleallj;
@@ -1322,8 +1326,7 @@ void FixConp::blist_coul_cal(double* m)
 {
   Ctime1 = MPI_Wtime();
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
-  int eci,ecj;
-  int checksum,elei,elej,elealli,eleallj;
+  int checksum,elei,elej,elealli,eleallj,tagi;
   double qtmp,xtmp,ytmp,ztmp,delx,dely,delz;
   double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
   double forcecoul,ecoul,prefactor,fpair;
@@ -1347,11 +1350,13 @@ void FixConp::blist_coul_cal(double* m)
   double **x = atom->x;
   double **f = atom->f;
   double *q = atom->q;
-  bool eleilocal,elejlocal;
+  bool ecib,ecjb;
+
+  if (newton) memset(newtonbuf,0,elenum_all*sizeof(double));
 
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
-    eleilocal = (!!electrode_check(i) && i < nlocal);
+    ecib = electrode_check(i);
     xtmp = x[i][0];
     ytmp = x[i][1];
     ztmp = x[i][2];
@@ -1361,8 +1366,9 @@ void FixConp::blist_coul_cal(double* m)
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
       j &= NEIGHMASK;
-      elejlocal = (!!electrode_check(j) && j < nlocal);
-      if (eleilocal ^ elejlocal) {
+      ecjb = electrode_check(j);
+      if ((smartlist || ecib ^ ecjb) &&
+          (newton || ecib || j < nlocal)) {
         delx = xtmp - x[j][0];
         dely = ytmp - x[j][1];
         delz = ztmp - x[j][2];
@@ -1386,18 +1392,31 @@ void FixConp::blist_coul_cal(double* m)
             erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
             dudq -= erfc/r;
 	        }
-          if (eleilocal) {
+          if (ecib) {
             elei = eleall2ele[tag2eleall[tag[i]]];
             m[elei] -= q[j]*dudq;
           }
-          if (elejlocal) {
+	  else if (j < nlocal) {
             elej = eleall2ele[tag2eleall[tag[j]]];
             m[elej] -= q[i]*dudq;
           }
+	  else if (newton) {
+	    eleallj = tag2eleall[tag[j]];
+	    newtonbuf[eleallj] -= q[i]*dudq;
+	  }
         }
       }
     }
   }
+
+  if (newton) {
+    MPI_Allreduce(MPI_IN_PLACE,newtonbuf,elenum_all,MPI_DOUBLE,MPI_SUM,world);
+    for (elei = 0; elei < elenum; ++elei) {
+      tagi = ele2tag[elei];
+      m[elei] += newtonbuf[tag2eleall[tagi]];
+    }
+  }
+
   Ctime2 = MPI_Wtime();
   Ctime += Ctime2-Ctime1;
 }
@@ -1410,10 +1429,9 @@ void FixConp::blist_coul_cal_post_force()
   double qtmp,xtmp,ytmp,ztmp,delx,dely,delz;
   double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
   double forcecoul,ecoul,prefactor,fpair;
-
+  int newton_pair = force->newton_pair;
   int inum = blist->inum;
   int nlocal = atom->nlocal;
-  int newton_pair = force->newton_pair;
   int *atomtype = atom->type;
   int *tag = atom->tag;
   int *ilist = blist->ilist;
@@ -1471,7 +1489,7 @@ void FixConp::blist_coul_cal_post_force()
               f[i][1] += dely*forcecoul;
               f[i][2] += delz*forcecoul;
             }
-            else if (newton_pair || j < nlocal) {
+            else if (newton || j < nlocal) {
               f[j][0] -= delx*forcecoul;
               f[j][1] -= dely*forcecoul;
               f[j][2] -= delz*forcecoul;

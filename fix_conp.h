@@ -88,9 +88,9 @@ class FixConp : public Fix {
   int *elecheck_eleall;
   int *elebuf2eleall;
   double totsetq,addv;
-  double *bbb,*bbuf;
+  double *bbb,*bbuf,*newtonbuf;
 
-  bool smartlist;
+  bool smartlist,newton;
   int eletypenum,arequest,brequest;
   int *eletypes;
   class NeighList *alist,*blist;
