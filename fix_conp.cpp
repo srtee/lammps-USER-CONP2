@@ -743,6 +743,7 @@ void FixConp::a_cal()
   double *eleallz = new double[elenum_all];
   int const elenum_c = elenum;
   double *aaa = new double[elenum*elenum_all];
+  memset(aaa,0,elenum*elenum_all*sizeof(double));
   kspmod->a_cal(aaa);
 
   if (smartlist) alist_coul_cal(aaa);

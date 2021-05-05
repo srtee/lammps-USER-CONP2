@@ -561,8 +561,6 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
       idx1d = i*elenum_all_c;
       for (j = 0; j < elenum_all_c; ++j) {
         if ((elealli % 2 == 1 && j > elealli) || (j % 2 == 0 && j < elealli)) {
-        // if (j < elealli) {
-          printf("i=%d  j=%d\n",elealli,j);
           double* __restrict__ cskj = csk[j];
           double* __restrict__ snkj = snk[j];
           for (kj = 0; kj < kcount_expand; ++kj) {
@@ -593,7 +591,7 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
         aaatmp += 2*ug[k]*(cski[k]*cski[k]+snki[k]*snki[k]);
       }
       for (k = 0; k < 2*kcount_expand; ++k) {
-	      aaatmp += 2*ug[kcount_flat+k]*(cskie[k]*cskje[k]+snkie[k]*snkje[k]);
+	      aaatmp += 2*ug[kcount_flat+k]*(cskie[k]*cskie[k]+snkie[k]*snkie[k]);
       }
       aaatmp += CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
       idx1d = i*elenum_all_c + elealli;
