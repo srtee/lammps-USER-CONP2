@@ -286,7 +286,7 @@ void FixConp::init()
       int irequest = neighbor->request(this,instance_me);
       neighbor->requests[irequest]->pair = 0;
       neighbor->requests[irequest]->fix  = 1;
-      neighbor->requests[irequest]->newton = 2;
+      // neighbor->requests[irequest]->newton = 2;
       if (intelflag) neighbor->requests[irequest]->intel = 1;
     }
   }
@@ -367,7 +367,10 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
       // error->all(FLERR,"Smart request init_list is being weird!");
     }
   }
-  else list = ptr;
+  else {
+    alist = ptr;
+    blist = ptr;
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -646,8 +649,9 @@ void FixConp::update_bk(bool coulyes, double* bbb_all)
   Ktime += Ktime2-Ktime1;
   
   if (coulyes) {
-    if (smartlist) blist_coul_cal(bbb);
-    else coul_cal(1,bbb);
+    //if (smartlist) blist_coul_cal(bbb);
+    //else coul_cal(1,bbb);
+    blist_coul_cal(bbb);
   }
   b_comm(bbb,bbb_all);
 }
@@ -751,9 +755,10 @@ void FixConp::a_cal()
   memset(aaa,0,elenum*elenum_all*sizeof(double));
   kspmod->a_cal(aaa);
 
-  if (smartlist) alist_coul_cal(aaa);
-  else coul_cal(2,aaa);
-  
+  //if (smartlist) alist_coul_cal(aaa);
+  //else coul_cal(2,aaa);
+  alist_coul_cal(aaa);
+
   int elenum_list3[nprocs];
   int displs3[nprocs];
   for (i = 0; i < nprocs; i++) {
@@ -1100,8 +1105,9 @@ void FixConp::force_cal(int vflag)
     double qscale = force->qqrd2e*scale;
     force->kspace->energy += qscale*eta*eleqsqsum/(sqrt(2)*MY_PIS);
   }
-  if (smartlist) blist_coul_cal_post_force();
-  else coul_cal(0,nullptr);
+  //if (smartlist) blist_coul_cal_post_force();
+  //else coul_cal(0,nullptr);
+  blist_coul_cal_post_force();
 }
 /* ---------------------------------------------------------------------- */
 /*

@@ -13,7 +13,7 @@ log log.lammps_$n
 
 units               real    
 dimension           3   
-newton on
+newton off
 #processors          * * 2
 if "$n <= 2" then "boundary p p f" else "boundary p p p"
 atom_style          full 
