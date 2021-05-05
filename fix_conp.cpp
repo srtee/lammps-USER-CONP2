@@ -1367,7 +1367,7 @@ void FixConp::blist_coul_cal(double* m)
       j = jlist[jj];
       j &= NEIGHMASK;
       ecjb = electrode_check(j);
-      if ((smartlist || ecib ^ ecjb) &&
+      if ((ecib ^ ecjb) &&
           (newton || ecib || j < nlocal)) {
         delx = xtmp - x[j][0];
         dely = ytmp - x[j][1];
@@ -1384,14 +1384,14 @@ void FixConp::blist_coul_cal(double* m)
             t = 1.0 / (1.0 + EWALD_P*grij);
             erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
             dudq = erfc/r;
-	        }
+	  }
           etarij = eta*r;
-	        if (etarij < ERFC_MAX) {
+	  if (etarij < ERFC_MAX) {
             expm2 = exp(-etarij*etarij);
             t = 1.0 / (1.0+EWALD_P*etarij);
             erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
             dudq -= erfc/r;
-	        }
+	  }
           if (ecib) {
             elei = eleall2ele[tag2eleall[tag[i]]];
             m[elei] -= q[j]*dudq;

@@ -13,7 +13,7 @@ log log.lammps_$n
 
 units               real    
 dimension           3   
-newton off 
+newton on
 #processors          * * 2
 if "$n <= 2" then "boundary p p f" else "boundary p p p"
 atom_style          full 
@@ -122,7 +122,7 @@ thermo              20
 
 if "$n == 2 || $n == 3" then "dump dsol sol atom 20 sol$n.traj"
 
-if "$n <= 6" then "run 1" &
+if "$n <= 6" then "run 500" &
 elif "$n == 7" &
 "rerun sol2.traj dump x y z" &
 "rerun sol2.traj dump x y z" &
