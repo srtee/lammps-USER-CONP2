@@ -516,7 +516,7 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
             aaatmp += 0.5*(cski[k]*csk[j][k]+snki[k]*snk[j][k])/ug[k];
           }
           aaa[idx1d] = aaatmp;
-	}
+      	}
         idx1d++;
       }
       idx1d = i*elenum_all_c + elealli;
@@ -558,33 +558,31 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
         cskie[2*ki+1] = csxyi[ki]*cszi[ki] + snxyi[ki]*snzi[ki];
         snkie[2*ki+1] = snxyi[ki]*cszi[ki] - csxyi[ki]*snzi[ki];
       }
-      idx1d = i*elenum_all_c;
-      for (j = 0; j < elenum_all_c; ++j) {
-        if ((elealli % 2 == 1 && j > elealli) || (j % 2 == 0 && j < elealli)) {
-          double* __restrict__ cskj = csk[j];
-          double* __restrict__ snkj = snk[j];
-          for (kj = 0; kj < kcount_expand; ++kj) {
-            csxyj[kj] = cskj[kxy_list[kj]];
-            snxyj[kj] = snkj[kxy_list[kj]];
-            cszj[kj] = cskj[kz_list[kj]];
-            snzj[kj] = snkj[kz_list[kj]];	
-          }
-          for (kj = 0; kj < kcount_expand; ++kj) {
-            cskje[2*kj] = csxyj[kj]*cszj[kj] - snxyj[kj]*snzj[kj];
-            snkje[2*kj] = snxyj[kj]*cszj[kj] + csxyj[kj]*snzj[kj];
-            cskje[2*kj+1] = csxyj[kj]*cszj[kj] + snxyj[kj]*snzj[kj];
-            snkje[2*kj+1] = snxyj[kj]*cszj[kj] - csxyj[kj]*snzj[kj];
-          }
-          aaatmp = 0;
-          for (k = 0; k < kcount_flat; ++k) {
-            aaatmp += 2*ug[k]*(cski[k]*cskj[k]+snki[k]*snkj[k]);
-          }
-          for (k = 0; k < 2*kcount_expand; ++k) {
-            aaatmp += 2*ug[kcount_flat+k]*(cskie[k]*cskje[k]+snkie[k]*snkje[k]);
-          }
-        aaa[idx1d] = aaatmp;
+      idx1d = i*elenum_all_c + elealli % 2;
+      for (j = elealli % 2; j < elealli; j += 2) {
+        double* __restrict__ cskj = csk[j];
+        double* __restrict__ snkj = snk[j];
+        for (kj = 0; kj < kcount_expand; ++kj) {
+          csxyj[kj] = cskj[kxy_list[kj]];
+          snxyj[kj] = snkj[kxy_list[kj]];
+          cszj[kj] = cskj[kz_list[kj]];
+          snzj[kj] = snkj[kz_list[kj]];	
         }
-      ++idx1d;
+        for (kj = 0; kj < kcount_expand; ++kj) {
+          cskje[2*kj] = csxyj[kj]*cszj[kj] - snxyj[kj]*snzj[kj];
+          snkje[2*kj] = snxyj[kj]*cszj[kj] + csxyj[kj]*snzj[kj];
+          cskje[2*kj+1] = csxyj[kj]*cszj[kj] + snxyj[kj]*snzj[kj];
+          snkje[2*kj+1] = snxyj[kj]*cszj[kj] - csxyj[kj]*snzj[kj];
+        }
+        aaatmp = 0;
+        for (k = 0; k < kcount_flat; ++k) {
+          aaatmp += 2*ug[k]*(cski[k]*cskj[k]+snki[k]*snkj[k]);
+        }
+        for (k = 0; k < 2*kcount_expand; ++k) {
+          aaatmp += 2*ug[kcount_flat+k]*(cskie[k]*cskje[k]+snkie[k]*snkje[k]);
+        }
+        aaa[idx1d] = aaatmp;
+        ++idx1d; ++idx1d;
       }
       aaatmp = 0;
       for (k = 0; k < kcount_flat; ++k) {
@@ -595,7 +593,32 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
       }
       aaatmp += CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
       idx1d = i*elenum_all_c + elealli;
-      aaa[idx1d] = aaatmp;
+      aaa[idx1d] = aaatmp; ++idx1d;
+      for (j = elealli + 1; j < elenum_all_c; j += 2) {
+        double* __restrict__ cskj = csk[j];
+        double* __restrict__ snkj = snk[j];
+        for (kj = 0; kj < kcount_expand; ++kj) {
+          csxyj[kj] = cskj[kxy_list[kj]];
+          snxyj[kj] = snkj[kxy_list[kj]];
+          cszj[kj] = cskj[kz_list[kj]];
+          snzj[kj] = snkj[kz_list[kj]];	
+        }
+        for (kj = 0; kj < kcount_expand; ++kj) {
+          cskje[2*kj] = csxyj[kj]*cszj[kj] - snxyj[kj]*snzj[kj];
+          snkje[2*kj] = snxyj[kj]*cszj[kj] + csxyj[kj]*snzj[kj];
+          cskje[2*kj+1] = csxyj[kj]*cszj[kj] + snxyj[kj]*snzj[kj];
+          snkje[2*kj+1] = snxyj[kj]*cszj[kj] - csxyj[kj]*snzj[kj];
+        }
+        aaatmp = 0;
+        for (k = 0; k < kcount_flat; ++k) {
+          aaatmp += 2*ug[k]*(cski[k]*cskj[k]+snki[k]*snkj[k]);
+        }
+        for (k = 0; k < 2*kcount_expand; ++k) {
+          aaatmp += 2*ug[kcount_flat+k]*(cskie[k]*cskje[k]+snkie[k]*snkje[k]);
+        }
+        aaa[idx1d] = aaatmp;
+        ++idx1d; ++idx1d;
+      }
     }
   }
 
