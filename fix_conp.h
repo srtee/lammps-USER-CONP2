@@ -27,6 +27,7 @@ FixStyle(conp,FixConp)
 
 #include "fix.h"
 #include "pair.h"
+#include "kspacemodule.h"
 
 namespace LAMMPS_NS {
 
@@ -50,12 +51,12 @@ class FixConp : public Fix {
   void equation_solve();
   virtual void update_charge();
   int electrode_check(int);
-  void sincos_a(int, double *);
-  void sincos_b();
   void cg();
   void inv();
   void get_setq();
   void b_comm(double *, double *);
+  void b_comm_int(int *, int *);
+  void b_bcast(int, int, int*, double*);
   void coul_cal(int, double *);
   void alist_coul_cal(double *);
   void blist_coul_cal(double *);
@@ -65,30 +66,36 @@ class FixConp : public Fix {
   virtual void dyn_setup() {}
   void init_list(int, class NeighList*);
   void end_of_step();
+  int elenum,elenum_all;
+  int elytenum;
+  int *ele2tag,*ele2eleall;
+  int *tag2eleall,*eleall2tag;
+  class KSpaceModule *kspmod;
+  double eta;
+  int *elenum_list,*displs,*eleall2ele;
 
  protected:
   class NeighList *list;
+  double g_ewald;
   int ff_flag; 
   int minimizer;
   double qL,qR;
   int qlstyle,qrstyle,qlvar,qrvar;
-  int elenum,elenum_old,elenum_all;
+  int elenum_old;
   double *eleallq;
   double *elesetq;
   double *aaa_all,*bbb_all;
-  int *tag2eleall,*eleall2tag,*ele2tag;
   int *elecheck_eleall;
-  int *elenum_list,*displs,*eleall2ele;
-  int *elebuf2eleall,*ele2eleall;
+  int *elebuf2eleall;
   double totsetq,addv;
-  double *bbb,*bbuf;
+  double *bbb,*bbuf,*newtonbuf;
 
-  bool smartlist;
+  bool smartlist,newton;
   int eletypenum,arequest,brequest;
   int *eletypes;
   class NeighList *alist,*blist;
 
-  int me,runstage,gotsetq;
+  int me,runstage,gotsetq,nprocs;
   int ilevel_respa;
   double Btime,Btime1,Btime2;
   double Ctime,Ctime1,Ctime2;
@@ -100,27 +107,13 @@ class FixConp : public Fix {
   int maxiter;
   double tolerance;
 
-  double rms(int,double,bigint,double);
-  void coeffs();
-
   char *qlstr,*qrstr;
 
-  double unitk[3];
-  double *ug;
-  double g_ewald,eta,gsqmx,volume,slab_volfactor;
-  int *kxvecs,*kyvecs,*kzvecs;
-  double **cs,**sn,**csk,**snk;
-  double *qj_global;
-  int elytenum;
-  int kmax,kmax3d,kmax_created,kcount,kcount_flat;
-  int *kcount_dims;
-  int *kxy_list;
-  int kxmax,kymax,kzmax;
-  double *sfacrl,*sfacrl_all,*sfacim,*sfacim_all;
   int everynum;
   Pair *coulpair;
 
   bool zneutrflag,preforceflag,initflag,matoutflag;
+  bool pppmflag;
 };
 
 }
