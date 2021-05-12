@@ -188,7 +188,6 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   elenum_list = displs = nullptr;
   totsetq = 0;
   gotsetq = 0;  //=1 after getting setq vector
-
   newton = !!(force->newton_pair);
 
   //kspmod_constructor();
@@ -377,11 +376,6 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
 
 void FixConp::setup(int vflag)
 {
-  if (pppmflag) kspmod = dynamic_cast<KSpaceModule *>(force->kspace);
-  else kspmod = new KSpaceModuleEwald(lmp);
-  kspmod->register_fix(this);
-  kspmod->conp_setup();
-  g_ewald = force->kspace->g_ewald;
 
   // To-do: encapsulate runstage == 0 into a discrete member function?
   // Especially because we should check that electrode atoms obey the
@@ -390,6 +384,13 @@ void FixConp::setup(int vflag)
   // not too late to process that here because we haven't done a_cal yet
   preforceflag = false;
   if (runstage == 0) {
+    if (pppmflag)
+      kspmod = dynamic_cast<KSpaceModule *>(force->kspace);
+    else
+      kspmod = new KSpaceModuleEwald(lmp);
+    kspmod->register_fix(this);
+    kspmod->conp_setup();
+    g_ewald = force->kspace->g_ewald;
     bigint natoms = atom->natoms;
     tag2eleall = new int[natoms+1];
     int nprocs = comm->nprocs;
@@ -405,12 +406,12 @@ void FixConp::setup(int vflag)
       a_cal();
       if (me == 0) printf(" ... done!\n");
     } else {
-      if (me == 0) printf("Fix conp is now reading in A matrix type %d ... \n",a_matrix_f);
+      if (me == 0) printf("Fix conp is now reading in A matrix type %d ... \n", a_matrix_f);
       a_read();
     }
     runstage = 1;
 
-    gotsetq = 0; 
+    gotsetq = 0;
     b_setq_cal();
     equation_solve();
     get_setq();

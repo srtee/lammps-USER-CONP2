@@ -304,6 +304,8 @@ void PPPMCONPIntel::elyte_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
   else
     nthr = comm->nthreads;
   
+  int nlocal = atom->nlocal;
+
   #if defined(_OPENMP)
   #pragma omp parallel LMP_DEFAULT_NONE \
     shared(nthr, nlocal, global_elyte_density) if(!_use_lrt)
@@ -412,7 +414,7 @@ void PPPMCONPIntel::elyte_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
     #endif
     {
       int ifrom, ito, tid;
-      IP_PRE_omp_range_id(ifrom, ito, tid, ngrid, thr);
+      IP_PRE_omp_range_id(ifrom, ito, tid, ngrid, nthr);
 
       #if defined(LMP_SIMD_COMPILER)
       #pragma simd
@@ -494,6 +496,8 @@ void PPPMCONPIntel::ele_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
   else
     nthr = comm->nthreads;
   
+  int nlocal = atom->nlocal;
+
   #if defined(_OPENMP)
   #pragma omp parallel LMP_DEFAULT_NONE \
     shared(nthr, nlocal, global_ele_density) if(!_use_lrt)
@@ -564,7 +568,7 @@ void PPPMCONPIntel::ele_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
     #endif
     {
       int ifrom, ito, tid;
-      IP_PRE_omp_range_id(ifrom, ito, tid, ngrid, thr);
+      IP_PRE_omp_range_id(ifrom, ito, tid, ngrid, nthr);
 
       #if defined(LMP_SIMD_COMPILER)
       #pragma simd
