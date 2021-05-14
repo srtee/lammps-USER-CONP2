@@ -149,8 +149,18 @@ void KSpaceModuleEwald::a_cal(double* aaa)
 
 void KSpaceModuleEwald::b_cal(double* bbb)
 {
-  sincos_b();
+  // TO-DO: this routine used to crash if called on a proc with no
+  // electrolyte atoms. The current check is very clunky
+  // because KSpaceModule (and its descendants) currently do not
+  // store their own elytenum. Need to implement KSPMod-internal
+  // atom counters ASAP.
+  memset(sfacrl,0,kmax3d*sizeof(double));
+  memset(sfacim,0,kmax3d*sizeof(double));
+  if (fixconp->elytenum) sincos_b();
+  MPI_Barrier(world);
+  sfac_reduce();
   bbb_from_sincos_b(bbb);
+  if (slabflag) slabcorr(bbb);
 }
 
 void KSpaceModuleEwald::setup_allocate()
@@ -756,14 +766,17 @@ void KSpaceModuleEwald::sincos_b()
     sfacim[kf+1] = tempim1;
     kf += 2;
   }
+}
 
+void KSpaceModuleEwald::sfac_reduce()
+{
   MPI_Allreduce(sfacrl,sfacrl_all,kcount,MPI_DOUBLE,MPI_SUM,world);
   MPI_Allreduce(sfacim,sfacim_all,kcount,MPI_DOUBLE,MPI_SUM,world);
 
   if (lowmemflag) {
     int const kcount_c = kcount;
     double* __restrict__ ugk = ug;
-    for (k = 0; k < kcount_c; ++k) {
+    for (int k = 0; k < kcount_c; ++k) {
       sfacrl_all[k] *= 2*ugk[k];
       sfacim_all[k] *= 2*ugk[k];
     }
@@ -830,26 +843,28 @@ void KSpaceModuleEwald::bbb_from_sincos_b(double* bbb)
     delete [] cskie;
     delete [] snkie;
   }
-  if (slabflag == 1) {
-    int i;
-    int nlocal = atom->nlocal;
-    double **x = atom->x;
-    double *q = atom->q;
-    double slabcorr = 0.0;
-    #pragma ivdep
-    for (i = 0; i < nlocal; i++) {
-      if (fixconp->electrode_check(i) == 0) {
-        slabcorr += 4*q[i]*MY_PI*x[i][2]/volume;
-      }
-    }
-    MPI_Allreduce(MPI_IN_PLACE,&slabcorr,1,MPI_DOUBLE,MPI_SUM,world);
-    for (elei = 0; elei < elenum_c; ++elei) {
-      i = atom->map(ele2tag[elei]);
-      bbb[elei] -= x[i][2]*slabcorr;
+}
+
+void KSpaceModuleEwald::slabcorr(double* bbb)
+{
+  int i,elei;
+  int const elenum_c = fixconp->elenum;
+  int* ele2tag = fixconp->ele2tag;
+  int nlocal = atom->nlocal;
+  double **x = atom->x;
+  double *q = atom->q;
+  double slabcorr = 0.0;
+  #pragma ivdep
+  for (i = 0; i < nlocal; i++) {
+    if (fixconp->electrode_check(i) == 0) {
+      slabcorr += 4*q[i]*MY_PI*x[i][2]/volume;
     }
   }
-  //int* eleall2ele = fixconp->eleall2ele;
-  //printf("%g\t%d\n",bbb[eleall2ele[0]],ele2tag[eleall2ele[0]]);
+  MPI_Allreduce(MPI_IN_PLACE,&slabcorr,1,MPI_DOUBLE,MPI_SUM,world);
+  for (elei = 0; elei < elenum_c; ++elei) {
+    i = atom->map(ele2tag[elei]);
+    bbb[elei] -= x[i][2]*slabcorr;
+  }
 }
 
 void KSpaceModuleEwald::make_kvecs_brick()

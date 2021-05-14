@@ -47,7 +47,9 @@ class KSpaceModuleEwald : public KSpaceModule, public Pointers {
   virtual void aaa_from_sincos_a(double *);
   virtual void sincos_b();
   virtual void bbb_from_sincos_b(double *);
-  
+  virtual void slabcorr(double *);
+  virtual void sfac_reduce();
+
   int slabflag;
   bool lowmemflag;
 

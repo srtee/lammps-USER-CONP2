@@ -17,7 +17,6 @@
 ------------------------------------------------------------------------- */
 
 #include "pppm_conp_intel.h"
-#include "pppm_intel.cpp"
 #include "km_ewald.h"
 
 #include "atom.h"
@@ -33,6 +32,9 @@
 
 using namespace LAMMPS_NS;
 using namespace MathConst;
+
+enum{REVERSE_RHO};
+enum{FORWARD_IK,FORWARD_AD,FORWARD_IK_PERATOM,FORWARD_AD_PERATOM};
 
 #ifdef FFT_SINGLE
 #define ZEROF 0.0f

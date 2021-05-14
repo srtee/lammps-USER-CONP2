@@ -648,10 +648,8 @@ void FixConp::update_bk(bool coulyes, double* bbb_all)
   kspmod->b_cal(bbb);
   Ktime2 = MPI_Wtime();
   Ktime += Ktime2-Ktime1;
-  
+
   if (coulyes) {
-    //if (smartlist) blist_coul_cal(bbb);
-    //else coul_cal(1,bbb);
     blist_coul_cal(bbb);
   }
   b_comm(bbb,bbb_all);
