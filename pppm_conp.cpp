@@ -68,6 +68,15 @@ void PPPMCONP::conp_post_neighbor(
     return;
   }
   else {
+    // need to allocate part2grid here
+    // main PPPM doesn't do it until compute()
+
+    if (atom->nmax > nmax) {
+      memory->destroy(part2grid);
+      nmax = atom->nmax;
+      memory->create(part2grid,nmax,3,"pppm:part2grid");
+    }
+
     if (do_elyte_alloc) {
       int elytenum = fixconp->elytenum;
       elyte_allocate(elytenum);
@@ -127,8 +136,7 @@ void PPPMCONP::elyte_particle_map()
   j = 0;
 
   for (int i = 0; i < nlocal; i++) {
-    if (fixconp->electrode_check(i) == 0 && q[i] != 0) {
-      j2i[j] = i;
+    if (fixconp->electrode_check(i) == 0) {
     // (nx,ny,nz) = global coords of grid pt to "lower left" of charge
     // current particle coord can be outside global and local box
     // add/subtract OFFSET to avoid int(-0.75) = 0 when want it to be -1
@@ -147,7 +155,11 @@ void PPPMCONP::elyte_particle_map()
           ny+nlower < nylo_out || ny+nupper > nyhi_out ||
           nz+nlower < nzlo_out || nz+nupper > nzhi_out)
         flag = 1;
-      ++j;
+      
+      if (q[i] != 0) {
+        j2i[j] = i;
+        ++j;
+      }
     }
 
     if (flag) error->one(FLERR,"Out of range atoms - cannot compute PPPM");

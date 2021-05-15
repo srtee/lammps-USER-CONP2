@@ -189,6 +189,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   totsetq = 0;
   gotsetq = 0;  //=1 after getting setq vector
   newton = !!(force->newton_pair);
+  preforceflag = postforceflag = false;
 
   //kspmod_constructor();
 }
@@ -374,15 +375,24 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
 
 /* ---------------------------------------------------------------------- */
 
-void FixConp::setup(int vflag)
-{
+void FixConp::setup_post_neighbor(){
+  linalg_init();
+  post_neighbor();
+}
 
+void FixConp::setup_pre_force(int vflag){
+  force->kspace->setup();
+  linalg_setup();
+  pre_force(vflag);
+}
+
+void FixConp::linalg_init()
+{
   // To-do: encapsulate runstage == 0 into a discrete member function?
   // Especially because we should check that electrode atoms obey the
   // smartlist listings, and if not, get the list pointer from coulpair,
   // and if _that_ fails, or if coulpair has newton on, we should bail
   // not too late to process that here because we haven't done a_cal yet
-  preforceflag = false;
   if (runstage == 0) {
     if (pppmflag)
       kspmod = dynamic_cast<KSpaceModule *>(force->kspace);
@@ -399,8 +409,12 @@ void FixConp::setup(int vflag)
     elenum = 0;
     elenum_all = 0;
     elytenum = 0;
-    post_neighbor();
+  }
+}
 
+void FixConp::linalg_setup()
+{
+  if (runstage == 0) {
     if (a_matrix_f == 0) {
       if (me == 0) printf("Fix conp is now calculating A matrix ... ");
       a_cal();
@@ -417,7 +431,6 @@ void FixConp::setup(int vflag)
     get_setq();
     gotsetq = 1;
     dyn_setup(); // additional setup for dynamic versions
-    pre_force(0);
   }
 }
 
@@ -532,6 +545,7 @@ void FixConp::pre_force(int /* vflag */)
 /* ---------------------------------------------------------------------- */
 
 void FixConp::post_force(int vflag) {
+  postforceflag = true;
   force_cal(vflag);
 }
 
@@ -539,13 +553,8 @@ void FixConp::post_force(int vflag) {
 
 void FixConp::end_of_step()
 {
-  if(update->ntimestep % everynum == 0) {
-    if ( !preforceflag ) {
-      post_neighbor();
-      pre_force(0);
-    }
-    else preforceflag = false;
-  }
+  if ( !postforceflag ) post_force(0);
+  postforceflag = false;
 }
 
 /* ---------------------------------------------------------------------- */

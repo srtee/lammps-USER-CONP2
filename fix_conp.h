@@ -38,11 +38,14 @@ class FixConp : public Fix {
   bool intelflag;
   int setmask();
   void init();
-  void setup(int);
   void pre_force(int);
   void post_neighbor();
   void post_force(int);
   void force_cal(int);
+  void setup_post_neighbor();
+  void setup_pre_force(int);
+  void linalg_init();
+  void linalg_setup();
   void a_cal();
   void a_read();
   void b_setq_cal();
@@ -112,8 +115,8 @@ class FixConp : public Fix {
   int everynum;
   Pair *coulpair;
 
-  bool zneutrflag,preforceflag,initflag,matoutflag;
-  bool pppmflag;
+  bool zneutrflag,initflag,matoutflag,pppmflag;
+  bool preforceflag,postforceflag;
 };
 
 }
