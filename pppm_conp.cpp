@@ -424,13 +424,13 @@ void PPPMCONP::ele_make_rho()
 }
 
 void PPPMCONP::particle_map(){
-  if (first_bcal) PPPM::particle_map();
+  if (first_bcal || fixconp == nullptr) PPPM::particle_map();
   else if (!elyte_mapped) elyte_particle_map();
   else return;
 }
 
 void PPPMCONP::make_rho(){
-  if (first_bcal) PPPM::make_rho();
+  if (first_bcal || fixconp == nullptr) PPPM::make_rho();
   else {
     if (!elyte_mapped) {
       elyte_make_rho();
@@ -445,4 +445,40 @@ void PPPMCONP::make_rho(){
           density_brick[nz][ny][nx] += ele_density_brick[nz][ny][nx];
     }
   }
+}
+
+double PPPMCONP::compute_particle_potential(int i)
+{
+  double **x = atom->x;
+  int l,m,n,nx,ny,nz,mx,my,mz;
+  FFT_SCALAR dx,dy,dz,x0,y0,z0;
+  FFT_SCALAR u = 0;
+  nx = part2grid[i][0];
+  ny = part2grid[i][1];
+  nz = part2grid[i][2];
+
+  dx = nx + shiftone - (x[i][0] - boxlo[0]) * delxinv;
+  dy = ny + shiftone - (x[i][1] - boxlo[1]) * delyinv;
+  dz = nz + shiftone - (x[i][2] - boxlo[2]) * delzinv;
+
+  compute_rho1d(dx, dy, dz);
+
+  for (n = 0; n < order; n++)
+  {
+    mz = n + nlower + nz;
+    z0 = rho1d[2][n + nlower];
+    for (m = 0; m < order; m++)
+    {
+      my = m + nlower + ny;
+      y0 = z0 * rho1d[1][m + nlower];
+      for (l = 0; l < order; l++)
+      {
+        mx = l + nlower + nx;
+        x0 = y0 * rho1d[0][l + nlower];
+        u -= x0 * u_brick[mz][my][mx];
+      }
+    }
+  }
+
+  return dynamic_cast<double>(u)
 }

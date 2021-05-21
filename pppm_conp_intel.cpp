@@ -629,7 +629,7 @@ void PPPMCONPIntel::setup_allocate()
 
 void PPPMCONPIntel::conp_make_rho()
 {
-  if (first_bcal) {
+  if (first_bcal || fixconp == nullptr) {
     if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
       make_rho<float,double>(fix->get_mixed_buffers());
     } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
@@ -774,4 +774,98 @@ void PPPMCONPIntel::conp_compute_first(int eflag, int vflag)
 			      gc_buf1,gc_buf2,MPI_FFT_SCALAR);
   }
   particles_mapped = false;
+}
+
+template <int use_table>
+double PPPMCONPIntel::compute_particle_potential(int i)
+{
+  double **x = atom->x;
+  FFT_SCALAR u = 0.;
+  const FFT_SCALAR lo0 = boxlo[0];
+  const FFT_SCALAR lo1 = boxlo[1];
+  const FFT_SCALAR lo2 = boxlo[2];
+  const FFT_SCALAR xi = delxinv;
+  const FFT_SCALAR yi = delyinv;
+  const FFT_SCALAR zi = delzinv;
+  const FFT_SCALAR fshift = shift;
+  const FFT_SCALAR fshiftone = shiftone;
+  const FFT_SCALAR fdelvolinv = delvolinv;
+
+  int nx = part2grid[i][0];
+  int ny = part2grid[i][1];
+  int nz = part2grid[i][2];
+
+  int nysum = nlower + ny - nylo_out;
+  int nxsum = nlower + nx - nxlo_out;
+  int nzsum = (nlower + nz - nzlo_out) * nix * niy + nysum * nix + nxsum;
+
+  FFT_SCALAR dx = nx + fshiftone - (x[i][0] - lo0) * xi;
+  FFT_SCALAR dy = ny + fshiftone - (x[i][1] - lo1) * yi;
+  FFT_SCALAR dz = nz + fshiftone - (x[i][2] - lo2) * zi;
+
+  _alignvar(flt_t rho[3][INTEL_P3M_ALIGNED_MAXORDER], 64) = {0};
+
+  if (use_table)
+  {
+    dx = dx * half_rho_scale + half_rho_scale_plus;
+    int idx = dx;
+    dy = dy * half_rho_scale + half_rho_scale_plus;
+    int idy = dy;
+    dz = dz * half_rho_scale + half_rho_scale_plus;
+    int idz = dz;
+#if defined(LMP_SIMD_COMPILER)
+#pragma simd
+#endif
+    for (int k = 0; k < INTEL_P3M_ALIGNED_MAXORDER; ++k)
+    {
+      rho[0][k] = rho_lookup[idx][k];
+      rho[1][k] = rho_lookup[idy][k];
+      rho[2][k] = rho_lookup[idz][k];
+    }
+  }
+  else
+  {
+#if defined(LMP_SIMD_COMPILER)
+#pragma simd
+#endif
+    for (int k = nlower; k <= nupper; ++k)
+    {
+      FFT_SCALAR r1, r2, r3;
+      r1 = r2 = r3 = ZEROF;
+      for (int l = order - 1; l >= 0; --l)
+      {
+        r1 = rho_coeff[l][k] + r1 * dx;
+        r2 = rho_coeff[l][k] + r2 * dy;
+        r3 = rho_coeff[l][k] + r3 * dz;
+      }
+      rho[0][k - nlower] = r1;
+      rho[1][k - nlower] = r2;
+      rho[2][k - nlower] = r3;
+    }
+  }
+#if defined(LMP_SIMD_COMPILER)
+#pragma loop_count min(2), max(INTEL_P3M_ALIGNED_MAXORDER), avg(7)
+#endif
+  for (n = 0; n < order; ++n)
+  {
+    mz = n + nlower + nz;
+    z0 = rho[2][n];
+#if defined(LMP_SIMD_COMPILER)
+#pragma loop_count min(2), max(INTEL_P3M_ALIGNED_MAXORDER), avg(7)
+#endif
+    for (m = 0; m < order; ++m)
+    {
+      my = m + nlower + ny;
+      y0 = z0 * rho[1][m];
+#if defined(LMP_SIMD_COMPILER)
+#pragma simd
+#endif
+      for (l = 0; l < order; ++l)
+      {
+        mx = l + nlower + nx;
+        x0 = y0 * rho[0][l];
+        u -= x0 * u_brick[mz][my][mx];
+      }
+    }
+  }
 }

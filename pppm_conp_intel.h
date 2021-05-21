@@ -70,6 +70,16 @@ class PPPMCONPIntel : public PPPMIntel, public KSpaceModule {
   template<class flt_t, class acc_t>
   void ele_make_rho(IntelBuffers<flt_t,acc_t> *buffers);
 
+  template<int use_table>
+  double compute_particle_potential(int i);
+  double compute_particle_potential(int i) {
+    if (_use_table == 1) {
+      return compute_particle_potential<1>(i);
+    } else {
+      return compute_particle_potential<0>(i);
+    }
+  }
+
   void conp_make_rho();
   void ele_make_rho();
   void conp_compute_first(int,int);
