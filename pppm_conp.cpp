@@ -480,5 +480,5 @@ double PPPMCONP::compute_particle_potential(int i)
     }
   }
 
-  return dynamic_cast<double>(u)
+  return static_cast<double>(u);
 }

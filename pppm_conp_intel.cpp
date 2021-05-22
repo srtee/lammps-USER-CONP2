@@ -779,6 +779,8 @@ void PPPMCONPIntel::conp_compute_first(int eflag, int vflag)
 template <int use_table>
 double PPPMCONPIntel::compute_particle_potential(int i)
 {
+  int mx,my,mz,l,m,n;
+  FFT_SCALAR x0,y0,z0;
   double **x = atom->x;
   FFT_SCALAR u = 0.;
   const FFT_SCALAR lo0 = boxlo[0];
@@ -791,6 +793,9 @@ double PPPMCONPIntel::compute_particle_potential(int i)
   const FFT_SCALAR fshiftone = shiftone;
   const FFT_SCALAR fdelvolinv = delvolinv;
 
+  const int nix = nxhi_out - nxlo_out + 1;
+  const int niy = nyhi_out - nylo_out + 1;
+  
   int nx = part2grid[i][0];
   int ny = part2grid[i][1];
   int nz = part2grid[i][2];
@@ -803,7 +808,7 @@ double PPPMCONPIntel::compute_particle_potential(int i)
   FFT_SCALAR dy = ny + fshiftone - (x[i][1] - lo1) * yi;
   FFT_SCALAR dz = nz + fshiftone - (x[i][2] - lo2) * zi;
 
-  _alignvar(flt_t rho[3][INTEL_P3M_ALIGNED_MAXORDER], 64) = {0};
+  _alignvar(FFT_SCALAR rho[3][INTEL_P3M_ALIGNED_MAXORDER], 64) = {0};
 
   if (use_table)
   {
@@ -868,4 +873,6 @@ double PPPMCONPIntel::compute_particle_potential(int i)
       }
     }
   }
+
+  return static_cast<double>(u);
 }

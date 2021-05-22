@@ -37,6 +37,8 @@ action km_ewald.cpp
 action km_ewald.h
 action km_ewald_split.cpp
 action km_ewald_split.h
+action compute_potential_atom.cpp pppm.h
+action compute_potential_atom.h pppm.h
 action pppm_conp.cpp pppm.h
 action pppm_conp.h pppm.h
 action pppm_conp_intel.cpp pppm_intel.cpp

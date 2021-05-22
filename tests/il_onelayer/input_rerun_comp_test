@@ -1,0 +1,46 @@
+log log.lammps_rerun
+
+units               real    
+dimension           3   
+newton off
+boundary p p p
+atom_style          full 
+
+##force field
+pair_style          lj/cut/coul/long 16.0
+pair_modify         mix arithmetic
+bond_style          harmonic
+angle_style         harmonic
+kspace_style        pppm/conp 1e-7
+
+##atom definition
+read_data           data
+
+variable molmax   equal 646
+variable molleft  equal 641
+variable molright equal 642
+
+neigh_modify one 3000
+group sol type 1:4
+variable q atom q
+variable etype equal 5
+group ele           type ${etype}
+group eleleft       molecule ${molleft}
+group eleright      molecule ${molright}
+compute qleft       eleleft  reduce sum v_q
+compute qright      eleright reduce sum v_q
+compute tempsl      sol      temp
+
+compute potele      ele      potential/atom
+
+variable pot1   equal    c_potele[1698]
+variable pot2   equal    c_potele[2837]
+variable potd   equal    v_pot1-v_pot2
+
+variable v equal 1.0
+fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} ffield pppm
+
+thermo_style custom step temp c_tempsl c_qleft c_qright v_pot1 v_pot2 v_potd
+thermo 1
+
+rerun sol3.traj dump x y z
