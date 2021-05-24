@@ -450,6 +450,7 @@ void PPPMCONP::make_rho(){
 double PPPMCONP::compute_particle_potential(int i)
 {
   double **x = atom->x;
+  double *q = atom->q;
   int l,m,n,nx,ny,nz,mx,my,mz;
   FFT_SCALAR dx,dy,dz,x0,y0,z0;
   FFT_SCALAR u = 0;
@@ -475,10 +476,11 @@ double PPPMCONP::compute_particle_potential(int i)
       {
         mx = l + nlower + nx;
         x0 = y0 * rho1d[0][l + nlower];
-        u -= x0 * u_brick[mz][my][mx];
+        u += x0 * u_brick[mz][my][mx];
       }
     }
   }
-
+  
+  u += 2*g_ewald*q[i]/MY_PIS;
   return static_cast<double>(u);
 }

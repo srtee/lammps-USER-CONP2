@@ -2,8 +2,9 @@ log log.lammps_rerun
 
 units               real    
 dimension           3   
-newton off
-boundary p p p
+#newton off
+processors * * 2
+boundary p p f
 atom_style          full 
 
 ##force field
@@ -12,6 +13,8 @@ pair_modify         mix arithmetic
 bond_style          harmonic
 angle_style         harmonic
 kspace_style        pppm/conp 1e-7
+kspace_modify       gewald 0.35 slab 3.0
+#kspace_modify slab 3.0
 
 ##atom definition
 read_data           data
@@ -31,16 +34,23 @@ compute qleft       eleleft  reduce sum v_q
 compute qright      eleright reduce sum v_q
 compute tempsl      sol      temp
 
-compute potele      ele      potential/atom
+compute potele      ele      potential/atom eta 0.1979 ${molleft} ${molright}
+compute poteleb     ele      potential/atom eta 0.1979 ${molleft} ${molright} pair
+#compute potele ele potential/atom pair
 
-variable pot1   equal    c_potele[1698]
-variable pot2   equal    c_potele[2837]
-variable potd   equal    v_pot1-v_pot2
+variable pot1a   equal    c_potele[1698]
+variable pot2a   equal    c_potele[2837]
+variable potda   equal    v_pot2a-v_pot1a
+variable pot1b   equal    c_poteleb[1698]
+variable pot2b   equal    c_poteleb[2837]
+variable potdb   equal    v_pot2b-v_pot1b
 
 variable v equal 1.0
-fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} ffield pppm
+fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} pppm
 
-thermo_style custom step temp c_tempsl c_qleft c_qright v_pot1 v_pot2 v_potd
+#thermo_style custom step temp c_tempsl c_qleft c_qright v_pot1 v_pot2 v_potd
+#thermo_style custom c_qleft c_qright
+thermo_style custom step v_pot1a v_pot2a v_potda v_pot1b v_pot2b v_potdb
 thermo 1
 
-rerun sol3.traj dump x y z
+rerun sol2.traj dump x y z

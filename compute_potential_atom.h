@@ -43,11 +43,17 @@ class ComputePotentialAtom : public Compute {
   void compute_pair_potential();
 
  private:
+  int eta_check(int);
+  void slabcorr();
   class KSpaceModule* kspmod;
   bool pairflag,kspaceflag;
+  int slabflag;
   int nmax;
   double evscale;
   double *potential;
+  double eta;
+  double volume;
+  int molidL,molidR;
 };
 
 }    // namespace LAMMPS_NS
