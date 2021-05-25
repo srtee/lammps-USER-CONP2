@@ -782,6 +782,7 @@ double PPPMCONPIntel::compute_particle_potential(int i)
   int mx,my,mz,l,m,n;
   FFT_SCALAR x0,y0,z0;
   double **x = atom->x;
+  double *q = atom->q;
   FFT_SCALAR u = 0.;
   const FFT_SCALAR lo0 = boxlo[0];
   const FFT_SCALAR lo1 = boxlo[1];
@@ -873,6 +874,7 @@ double PPPMCONPIntel::compute_particle_potential(int i)
       }
     }
   }
-
+  
+  u += 2*g_ewald*q[i]/MY_PIS;
   return static_cast<double>(u);
 }

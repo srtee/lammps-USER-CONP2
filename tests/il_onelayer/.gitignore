@@ -4,3 +4,4 @@ iter
 log.lammps*
 sol*.traj
 pot*
+*.swp
