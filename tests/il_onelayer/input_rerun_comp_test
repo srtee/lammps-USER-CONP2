@@ -39,23 +39,39 @@ compute tempsl      sol      temp
 
 variable eta equal 1.979
 
+# computing electrode atom potentials:
 compute potele      ele      potential/atom eta ${eta} ${molleft} ${molright}
-compute poteleb     ele      potential/atom eta ${eta} ${molleft} ${molright} pair
-#compute potele ele potential/atom pair
 
-variable pot1a   equal    c_potele[1698]
-variable pot2a   equal    c_potele[2837]
-variable potda   equal    v_pot2a-v_pot1a
-variable pot1b   equal    c_poteleb[1698]
-variable pot2b   equal    c_poteleb[2837]
-variable potdb   equal    v_pot2b-v_pot1b
+# calling potentials on individual electrode atoms:
+variable pot1  equal    c_potele[1698]
+variable pot2  equal    c_potele[2837]
+variable potd  equal    v_pot2-v_pot1
 
-#variable v equal 1.0
-#fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} pppm
+# dumping potentials on all electrode atoms:
+dump potele ele custom 1 potele.traj id x y z c_potele
 
-#thermo_style custom step temp c_tempsl c_qleft c_qright v_pot1 v_pot2 v_potd
-#thermo_style custom c_qleft c_qright
-thermo_style custom step v_pot1a v_pot2a v_potda v_pot1b v_pot2b v_potdb
+# if dump only contains solvent atoms, use this to dynamically re-generate electrode charges:
+# variable v equal 1.0
+# fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} pppm
+
+# adding probes:
+variable total_n_atoms equal count(all)
+variable old_n_atoms equal $(v_total_n_atoms)
+create_atoms 5 single $(lx/2) $(ly/2) 0  # use create_atoms region to make more probes
+create_atoms 5 single $(lx/2+0.01) $(ly/2) 0  # use create_atoms region to make more probes
+create_atoms 5 single $(lx/2) $(ly/2+0.01) 0  # use create_atoms region to make more probes
+create_atoms 5 single $(lx/2+0.01) $(ly/2+0.01) 0  # use create_atoms region to make more probes
+group probes id $(v_old_n_atoms+1):$(v_total_n_atoms)
+
+# getting average probe potential:
+compute potprobe  probes potential/atom eta ${eta} ${molleft} ${molright}
+compute potprobe_mean probes reduce ave c_potprobe
+fix fpotprobe  probes ave/time 1 1 1 c_potprobe_mean
+
+# dumping potentials on all probe atoms:
+dump potprobe probes custom 1 potprobe.traj id x y z c_potprobe
+
+thermo_style custom step v_pot1 v_pot2 v_potd f_fpotprobe
 thermo 1
 
 rerun sol2.traj dump x y z q
