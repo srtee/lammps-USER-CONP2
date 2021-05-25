@@ -14,7 +14,7 @@ log log.lammps_$n
 units               real    
 dimension           3   
 newton off
-#processors          * * 2
+processors          * * 2
 if "$n <= 2" then "boundary p p f" else "boundary p p p"
 atom_style          full 
 
@@ -121,8 +121,8 @@ elif "$n == 5 || $n == 6" &
 thermo              20
 
 if "$n == 2 || $n == 3 || $n == 4" then & 
-"dump dsol sol atom 20 sol$n.traj" &
-"dump_modify dsol format line '%d %d %20.15g %20.15g %20.15g'" &
+"dump dsol all custom 20 sol$n.traj id xu yu zu q" &
+"dump_modify dsol format line '%d %13.8g %13.8g %13.8g %13.8g'" &
 
 if "$n <= 6" then "run 500" &
 elif "$n == 7" &

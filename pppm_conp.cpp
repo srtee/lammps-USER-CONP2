@@ -476,7 +476,7 @@ double PPPMCONP::compute_particle_potential(int i)
       {
         mx = l + nlower + nx;
         x0 = y0 * rho1d[0][l + nlower];
-        u += x0 * u_brick[mz][my][mx];
+        u -= x0 * u_brick[mz][my][mx];
       }
     }
   }

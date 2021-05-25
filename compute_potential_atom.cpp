@@ -59,6 +59,7 @@ ComputePotentialAtom::ComputePotentialAtom(LAMMPS *lmp, int narg, char **arg) :
 
   eta = 0.;
   molidL = molidR = -1;
+  etaflag = false;
 
   if (narg == 3) {
     pairflag = true;
@@ -72,6 +73,7 @@ ComputePotentialAtom::ComputePotentialAtom(LAMMPS *lmp, int narg, char **arg) :
       else if (strcmp(arg[iarg],"kspace") == 0) kspaceflag = true;
       else if (strcmp(arg[iarg],"eta") == 0) {
         if (narg < iarg + 4) error->all(FLERR,"Insufficient arguments for eta flag");
+        etaflag = true;
         ++iarg;
         eta = utils::numeric(FLERR,arg[iarg],false,lmp);
         ++iarg;
@@ -82,7 +84,7 @@ ComputePotentialAtom::ComputePotentialAtom(LAMMPS *lmp, int narg, char **arg) :
       else error->all(FLERR,"Illegal compute potential/atom command");
       iarg++;
     }
-    if (eta != 0 && !pairflag && !kspaceflag) {
+    if (etaflag && !pairflag && !kspaceflag) {
       pairflag = true;
       kspaceflag = true;
     }
@@ -154,11 +156,12 @@ void ComputePotentialAtom::compute_peratom()
   if (pairflag) compute_pair_potential();
 
   if (kspaceflag && force->kspace && force->kspace->compute_flag) {
-    for (i = 0; i < nkspace; i++) potential[i] += kspmod->compute_particle_potential(i);
-    if (eta != 0.) {
-      double* q = atom->q;
-      for (i = 0; i < nkspace; ++i) {
-        if (eta_check(i)) potential[i] -= eta*q[i]*sqrt(2)/MY_PIS;
+    int* mask = atom->mask;
+    double* q = atom->q;
+    for (i = 0; i < nkspace; i++) {
+      if (mask[i] & groupbit) {
+        potential[i] -= kspmod->compute_particle_potential(i);
+        if (eta != 0. && eta_check(i)) potential[i] += eta*q[i]*sqrt(2)/MY_PIS;
       }
     }
     if (slabflag) slabcorr();
@@ -239,22 +242,21 @@ void ComputePotentialAtom::compute_pair_potential()
   double **x = atom->x;
   double *q = atom->q;
   bool gcib,gcjb; // group checks
-  // printf("%d\n",inum);
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
     gcib = (mask[i] & groupbit);
     xtmp = x[i][0];
     ytmp = x[i][1];
     ztmp = x[i][2];
+    qtmp = q[i];
     itype = atomtype[i];
     jlist = firstneigh[i];
     jnum = numneigh[i];
-    // printf("%d\t%d\t%g\t%g\t%g\t%d\n",ii,i,xtmp,ytmp,ztmp,jnum);
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
       j &= NEIGHMASK;
       gcjb = (mask[j] & groupbit);
-      if ((gcib ^ gcjb) &&
+      if ((gcib || gcjb) && (qtmp || q[j]) &&
           (newton || gcib || j < nlocal)) {
         delx = xtmp - x[j][0];
         dely = ytmp - x[j][1];
@@ -287,7 +289,7 @@ void ComputePotentialAtom::compute_pair_potential()
             if (gcib) {
               potential[i] += q[j]*dudq;
             }
-	          else if (j < nlocal || newton) {
+	          if (j < nlocal || newton) {
               potential[j] += q[i]*dudq;
             }
           }

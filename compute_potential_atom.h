@@ -46,7 +46,7 @@ class ComputePotentialAtom : public Compute {
   int eta_check(int);
   void slabcorr();
   class KSpaceModule* kspmod;
-  bool pairflag,kspaceflag;
+  bool pairflag,kspaceflag,etaflag;
   int slabflag;
   int nmax;
   double evscale;
