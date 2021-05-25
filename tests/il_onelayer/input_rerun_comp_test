@@ -13,7 +13,7 @@ pair_modify         mix arithmetic
 bond_style          harmonic
 angle_style         harmonic
 kspace_style        pppm/conp 1e-7
-kspace_modify       gewald 0.35 slab 3.0
+kspace_modify       gewald 0.4 slab 3.0
 #kspace_modify slab 3.0
 
 ##atom definition
