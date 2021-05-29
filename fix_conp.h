@@ -76,6 +76,7 @@ class FixConp : public Fix {
   class KSpaceModule *kspmod;
   double eta;
   int *elenum_list,*displs,*eleall2ele;
+  bool splitflag;
 
  protected:
   class NeighList *list;

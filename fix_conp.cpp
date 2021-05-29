@@ -163,6 +163,9 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
     else if (strcmp(arg[iarg],"pppm") == 0) {
       pppmflag = true;
     }
+    else if (strcmp(arg[iarg],"split") == 0) {
+      splitflag = true;
+    }
     else {
       printf(".<%s>.\n",arg[iarg]);
       error->all(FLERR,"Invalid fix conp input command");
