@@ -101,7 +101,7 @@ elif "$n == 3 || $n == 7"  &
 elif "$n == 5 || $n == 6"  &
 "fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} noslab zneutr" &
 elif "$n == 4" &
-"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} ffield pppm" &
+"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} ffield pppm split" &
 "fix efield all efield 0 0 $(-2*v_v/lz) "
 
 variable t equal 500

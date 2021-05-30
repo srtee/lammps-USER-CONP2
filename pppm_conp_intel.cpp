@@ -72,6 +72,13 @@ void PPPMCONPIntel::conp_post_neighbor(
     return;
   }
   else {
+    
+    if (atom->nmax > nmax) {
+      memory->destroy(part2grid);
+      nmax = atom->nmax;
+      memory->create(part2grid,nmax,3,"pppmintel:part2grid");
+    }
+
     if (do_elyte_alloc) {
       int elytenum = fixconp->elytenum;
       elyte_allocate(elytenum);
@@ -713,7 +720,7 @@ void PPPMCONPIntel::conp_compute_first(int eflag, int vflag)
       memory->destroy(particle_ekz);
     }
     nmax = atom->nmax;
-    memory->create(part2grid,nmax,3,"pppm:part2grid");
+    memory->create(part2grid,nmax,3,"pppmintel:part2grid");
     if (differentiation_flag == 1) {
       memory->create(particle_ekx, nmax, "pppmintel:pekx");
       memory->create(particle_eky, nmax, "pppmintel:peky");
