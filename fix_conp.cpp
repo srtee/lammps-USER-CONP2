@@ -89,6 +89,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   molidR = utils::inumeric(FLERR,arg[6],false,lmp);
   zneutrflag = false;
   pppmflag = false;
+  splitflag = false;
   if (strstr(arg[7],"v_") == arg[7]) {
     int n = strlen(&arg[7][2]) + 1;
     qlstr = new char[n];
@@ -353,6 +354,8 @@ void FixConp::request_smartlist() {
   bRq->iskip = iskip_b;
   bRq->ijskip = ijskip_b;
   if (intelflag) bRq->intel = 1;
+
+  delete [] eletypes;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -400,7 +403,8 @@ void FixConp::linalg_init()
     if (pppmflag)
       kspmod = dynamic_cast<KSpaceModule *>(force->kspace);
     else
-      kspmod = new KSpaceModuleEwald(lmp);
+      if (splitflag) kspmod = new KSpaceModuleEwaldSplit(lmp);
+      else kspmod = new KSpaceModuleEwald(lmp);
     kspmod->register_fix(this);
     kspmod->conp_setup();
     g_ewald = force->kspace->g_ewald;
@@ -760,7 +764,6 @@ void FixConp::a_cal()
   }
 
   // gather tag,x and q
-  double *eleallz = new double[elenum_all];
   int const elenum_c = elenum;
   double *aaa = new double[elenum*elenum_all];
   memset(aaa,0,elenum*elenum_all*sizeof(double));
@@ -777,6 +780,7 @@ void FixConp::a_cal()
     displs3[i] = displs[i]*elenum_all;
   }
   MPI_Allgatherv(aaa,elenum*elenum_all,MPI_DOUBLE,aaa_all,elenum_list3,displs3,MPI_DOUBLE,world);
+  delete [] aaa;
 
   // #pragma ivdep
   for (i = 1; i < elenum_all_c; ++i) {

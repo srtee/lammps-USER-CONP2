@@ -54,7 +54,7 @@ class PPPMCONP : public PPPM, public KSpaceModule {
   void ele_deallocate();
   void elyte_deallocate();
 
-  class KSpaceModuleEwald* my_ewald;
+  class KSpaceModule* my_ewald;
   bool first_postneighbor;
   bool first_bcal;
   bool reuseflag;

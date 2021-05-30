@@ -44,7 +44,7 @@ class PPPMCONPIntel : public PPPMIntel, public KSpaceModule {
   void conp_pre_force() {elyte_mapped = false;particles_mapped = false;}
   void update_charge();
  protected:
-  class KSpaceModuleEwald * my_ewald;
+  class KSpaceModule * my_ewald;
   template<class flt_t, class acc_t, int use_table>
   void aaa_map_rho(IntelBuffers<flt_t,acc_t> *buffers);
   template<class flt_t, class acc_t>

@@ -18,6 +18,7 @@
 
 #include "pppm_conp.h"
 #include "km_ewald.h"
+#include "km_ewald_split.h"
 
 #include "gridcomm.h"
 #include "fft3d_wrap.h"
@@ -89,7 +90,8 @@ void PPPMCONP::conp_post_neighbor(
 
 void PPPMCONP::a_cal(double * aaa)
 {
-  my_ewald = new KSpaceModuleEwald(lmp);
+  if (fixconp->splitflag) my_ewald = new KSpaceModuleEwaldSplit(lmp);
+  else my_ewald = new KSpaceModuleEwald(lmp);
   my_ewald->register_fix(fixconp);
   my_ewald->conp_setup();
   my_ewald->conp_post_neighbor(false,true); // ele_allocate
