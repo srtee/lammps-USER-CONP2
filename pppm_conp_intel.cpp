@@ -18,6 +18,7 @@
 
 #include "pppm_conp_intel.h"
 #include "km_ewald.h"
+#include "km_ewald_split.h"
 
 #include "atom.h"
 #include "comm.h"
@@ -110,7 +111,8 @@ void PPPMCONPIntel::fill_j2i()
 
 void PPPMCONPIntel::a_cal(double * aaa)
 {
-  my_ewald = new KSpaceModuleEwald(lmp);
+  if (fixconp->splitflag) my_ewald = new KSpaceModuleEwaldSplit(lmp);
+  else my_ewald = new KSpaceModuleEwald(lmp);
   my_ewald->register_fix(fixconp);
   my_ewald->conp_setup();
   my_ewald->conp_post_neighbor(false,true); // ele_allocate

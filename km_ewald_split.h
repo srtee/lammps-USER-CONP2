@@ -56,7 +56,11 @@ class KSpaceModuleEwaldSplit : public KSpaceModule, public Pointers {
   void make_kvecs_brick();
   void make_ug_from_kvecs();
   void make_kxy_list_from_kvecs();
-  
+  void sincos_a_transpose(double **, double **);
+  void kz_expand(double*, double*, double*, double*, double*);
+  double ewald_dot_ij(double*, double*, double*, double*, double*, double*, double*, double*); 
+  double ewald_dot_ii(double*, double*, double*, double*);
+  double ewald_dot_ib(int, double*, double*, double*);
   double unitk[3];
   double *ug;
   double g_ewald,gsqmx,volume,slab_volfactor;
