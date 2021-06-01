@@ -306,8 +306,8 @@ void PPPMCONPIntel::aaa_map_rho(IntelBuffers<flt_t,acc_t> *buffers)
 template<class flt_t, class acc_t, int use_table>
 void PPPMCONPIntel::elyte_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
 {
-  FFT_SCALAR * _noalias global_elyte_density = 
-    &(elyte_density_brick[nzlo_out][nylo_out][nxlo_out]);
+  FFT_SCALAR * _noalias global_density = 
+    &(density_brick[nzlo_out][nylo_out][nxlo_out]);
 
   ATOM_T * _noalias const x = buffers->get_x(0);
   flt_t * _noalias const q = buffers->get_q(0);
@@ -321,7 +321,7 @@ void PPPMCONPIntel::elyte_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
 
   #if defined(_OPENMP)
   #pragma omp parallel LMP_DEFAULT_NONE \
-    shared(nthr, nlocal, global_elyte_density) if(!_use_lrt)
+    shared(nthr, nlocal, global_density) if(!_use_lrt)
   #endif
   {
     const int nix = nxhi_out - nxlo_out + 1;
@@ -341,7 +341,7 @@ void PPPMCONPIntel::elyte_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
     IP_PRE_omp_range_id(ifrom,ito,tid,jmax,nthr);
 
     FFT_SCALAR * _noalias my_density = tid == 0 ?
-      global_elyte_density : perthread_density[tid-1];
+      global_density : perthread_density[tid-1];
     memset(my_density, 0, ngrid * sizeof(FFT_SCALAR));
 
     for (int j = ifrom; j < ito; ++j) {
@@ -423,7 +423,7 @@ void PPPMCONPIntel::elyte_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
   if (nthr > 1) {
     #if defined(_OPENMP)
     #pragma omp parallel LMP_DEFAULT_NONE \
-      shared(nthr, global_elyte_density) if (!_use_lrt)
+      shared(nthr, global_density) if (!_use_lrt)
     #endif
     {
       int ifrom, ito, tid;
@@ -434,14 +434,14 @@ void PPPMCONPIntel::elyte_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
       #endif
       for (int i = ifrom; i < ito; ++i) {
         for (int j = 1; j < nthr; ++j) {
-          global_elyte_density[i] += perthread_density[j-1][i];
+          global_density[i] += perthread_density[j-1][i];
         }
       }
     }
   }
-  FFT_SCALAR * _noalias global_density = 
-    &(density_brick[nzlo_out][nylo_out][nxlo_out]);
-  memcpy(global_density,global_elyte_density,ngrid*sizeof(FFT_SCALAR));
+  FFT_SCALAR * _noalias global_elyte_density = 
+    &(elyte_density_brick[nzlo_out][nylo_out][nxlo_out]);
+  memcpy(global_elyte_density,global_density,ngrid*sizeof(FFT_SCALAR));
 }
 
 void PPPMCONPIntel::elyte_poisson()
