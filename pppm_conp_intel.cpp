@@ -72,6 +72,15 @@ void PPPMCONPIntel::conp_post_neighbor(
     return;
   }
   else {
+    // need to allocate part2grid here
+    // main PPPM doesn't do it until compute()
+
+    if (atom->nmax > nmax) {
+      memory->destroy(part2grid);
+      nmax = atom->nmax;
+      memory->create(part2grid,nmax,3,"pppm:part2grid");
+    }
+
     if (do_elyte_alloc) {
       int elytenum = fixconp->elytenum;
       elyte_allocate(elytenum);
