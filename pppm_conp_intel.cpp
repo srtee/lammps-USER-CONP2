@@ -1,3 +1,4 @@
+
 /* ----------------------------------------------------------------------
    LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
    http://lammps.sandia.gov, Sandia National Laboratories
@@ -500,7 +501,6 @@ void PPPMCONPIntel::ele_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
   FFT_SCALAR * _noalias global_ele_density = 
     &(ele_density_brick[nzlo_out][nylo_out][nxlo_out]);
 
-  int * ele2tag = fixconp->ele2tag;
   int const elenum_c = fixconp->elenum;
   flt_t * _noalias const q = buffers->get_q(0);
   int nthr;
@@ -529,6 +529,7 @@ void PPPMCONPIntel::ele_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
     const flt_t fshiftone = shiftone;
     const flt_t fdelvolinv = delvolinv;
 
+    int * ele2tag = fixconp->ele2tag;
     int ifrom,ito,tid;
     IP_PRE_omp_range_id(ifrom,ito,tid,elenum_c,nthr);
 
