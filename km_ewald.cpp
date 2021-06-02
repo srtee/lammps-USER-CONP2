@@ -596,10 +596,10 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
       }
       aaatmp = 0;
       for (k = 0; k < kcount_flat; ++k) {
-        aaatmp += 4*ug[k];//*(cski[k]*cski[k]+snki[k]*snki[k]);
+        aaatmp += 2*ug[k];//*(cski[k]*cski[k]+snki[k]*snki[k]);
       }
       for (k = 0; k < 2*kcount_expand; ++k) {
-	      aaatmp += 4*ug[kcount_flat+k];//*(cskie[k]*cskie[k]+snkie[k]*snkie[k]);
+	      aaatmp += 2*ug[kcount_flat+k];//*(cskie[k]*cskie[k]+snkie[k]*snkie[k]);
       }
       aaatmp += CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
       idx1d = i*elenum_all_c + elealli;
