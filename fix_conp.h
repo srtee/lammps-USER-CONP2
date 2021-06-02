@@ -88,6 +88,7 @@ class FixConp : public Fix {
   int elenum_old;
   double *eleallq;
   double *elesetq;
+  double *eleinitq;
   double *aaa_all,*bbb_all;
   int *elecheck_eleall;
   int *elebuf2eleall;
@@ -116,7 +117,7 @@ class FixConp : public Fix {
   int everynum;
   Pair *coulpair;
 
-  bool zneutrflag,initflag,matoutflag,pppmflag;
+  bool zneutrflag,initflag,matoutflag,pppmflag,qinitflag;
   bool preforceflag,postforceflag;
 };
 
