@@ -90,6 +90,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   zneutrflag = false;
   pppmflag = false;
   splitflag = false;
+  qinitflag = false;
   if (strstr(arg[7],"v_") == arg[7]) {
     int n = strlen(&arg[7][2]) + 1;
     qlstr = new char[n];
@@ -167,6 +168,9 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
     else if (strcmp(arg[iarg],"split") == 0) {
       splitflag = true;
     }
+    else if (strcmp(arg[iarg],"qinit") == 0) {
+      qinitflag = true;
+    }
     else {
       printf(".<%s>.\n",arg[iarg]);
       error->all(FLERR,"Invalid fix conp input command");
@@ -181,7 +185,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   elenum = elenum_old = 0;
   aaa_all = nullptr;
   bbb_all = nullptr;
-  eleallq = elesetq = nullptr;
+  eleallq = elesetq = eleinitq = nullptr;
   tag2eleall = eleall2tag = ele2tag = nullptr;
   elecheck_eleall = nullptr;
   eleall2ele = ele2eleall = elebuf2eleall = nullptr;
@@ -216,6 +220,7 @@ FixConp::~FixConp()
   memory->destroy(elebuf2eleall);
   memory->destroy(bbuf);
   memory->destroy(elesetq);
+  if (qinitflag) memory->destroy(eleinitq);
   if (newton) memory->destroy(newtonbuf);
   if (tag2eleall!=nullptr) delete [] tag2eleall;
   if (qlstr!=nullptr) delete [] qlstr;
@@ -493,6 +498,7 @@ void FixConp::post_neighbor()
     memory->grow(bbuf,elenum_all,"fixconp:bbuf");
     memory->grow(elesetq,elenum_all,"fixconp:elesetq");
     if (newton) memory->grow(newtonbuf,elenum_all,"fixconp:newtonbuf");
+    if (qinitflag) memory->grow(eleinitq,elenum_all,"fixconp:eleinitq");
     MPI_Barrier(world); // otherwise next MPI_Allgatherv can race??
     for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
     for (i = 0; i < natoms+1; i++) tag2eleall[i] = elenum_all;
@@ -1053,6 +1059,15 @@ void FixConp::get_setq()
     }
   }
   MPI_Allreduce(MPI_IN_PLACE,&totsetq,1,MPI_DOUBLE,MPI_SUM,world);
+
+  if (qinitflag) {
+    double* q = atom->q;
+    for (iloc = 0; iloc < elenum_c; ++iloc) {
+      i = atom->map(ele2tag[iloc]);
+      bbb[iloc] = q[i];
+    }
+    b_comm(bbb,eleinitq);
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1093,6 +1108,7 @@ void FixConp::update_charge()
     i = atom->map(eleall2tag[iall]);
     if (i != -1) {
       q[i] = eleallq[iall] + addv*elesetq[iall];
+      if (qinitflag) q[i] += eleinitq[iall];
     }
   } // we need to loop like this to correctly charge ghost atoms
 
