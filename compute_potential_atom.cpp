@@ -325,15 +325,17 @@ void ComputePotentialAtom::slabcorr()
 
   double **x = atom->x;
   double *q = atom->q;
-  double qsum = kspmod->return_qsum();
+  double qsum = 0.0;
   double slabcorr = 0.0;
   int i;
   int nlocal = atom->nlocal;
   const double pi2vol = 2*MY_PI/volume;
   for (i = 0; i < nlocal; ++i) {
     slabcorr += 2*pi2vol*q[i]*x[i][2];
+    qsum += q[i];
   }
   MPI_Allreduce(MPI_IN_PLACE,&slabcorr,1,MPI_DOUBLE,MPI_SUM,world);
+  MPI_Allreduce(MPI_IN_PLACE,&qsum,1,MPI_DOUBLE,MPI_SUM,world);
   int *mask = atom->mask;
   for (i = 0; i < nlocal; ++i) {
     if (mask[i] & groupbit) {
