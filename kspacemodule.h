@@ -36,6 +36,7 @@ class KSpaceModule {
   virtual void b_cal(double *) {}
   virtual void update_charge() {}
   virtual double compute_particle_potential(int) {return 0. ;}
+  virtual double return_qsum() {return 0.;}
 
   class FixConp* fixconp;
 };

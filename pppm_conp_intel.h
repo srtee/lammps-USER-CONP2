@@ -43,6 +43,14 @@ class PPPMCONPIntel : public PPPMIntel, public KSpaceModule {
   void b_cal(double*);
   void conp_pre_force() {elyte_mapped = false;particles_mapped = false;}
   void update_charge();
+  double compute_particle_potential(int i) {
+    if (_use_table == 1) {
+      return compute_particle_potential<1>(i);
+    } else {
+      return compute_particle_potential<0>(i);
+    }
+  }
+  double return_qsum() {return qsum;}
  protected:
   class KSpaceModule * my_ewald;
   template<class flt_t, class acc_t, int use_table>
@@ -72,13 +80,6 @@ class PPPMCONPIntel : public PPPMIntel, public KSpaceModule {
 
   template<int use_table>
   double compute_particle_potential(int i);
-  double compute_particle_potential(int i) {
-    if (_use_table == 1) {
-      return compute_particle_potential<1>(i);
-    } else {
-      return compute_particle_potential<0>(i);
-    }
-  }
 
   void conp_make_rho();
   void ele_make_rho();

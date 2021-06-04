@@ -60,6 +60,7 @@ ComputePotentialAtom::ComputePotentialAtom(LAMMPS *lmp, int narg, char **arg) :
   eta = 0.;
   molidL = molidR = -1;
   etaflag = false;
+  qsumflag = true;
 
   if (narg == 3) {
     pairflag = true;
@@ -71,6 +72,7 @@ ComputePotentialAtom::ComputePotentialAtom(LAMMPS *lmp, int narg, char **arg) :
     while (iarg < narg) {
       if (strcmp(arg[iarg],"pair") == 0) pairflag = true;
       else if (strcmp(arg[iarg],"kspace") == 0) kspaceflag = true;
+      else if (strcmp(arg[iarg],"noqsum") == 0) qsumflag = false;
       else if (strcmp(arg[iarg],"eta") == 0) {
         if (narg < iarg + 4) error->all(FLERR,"Insufficient arguments for eta flag");
         etaflag = true;
@@ -133,6 +135,12 @@ void ComputePotentialAtom::compute_peratom()
     vector_atom = potential;
   }
 
+  double xprd = domain->xprd;
+  double yprd = domain->yprd;
+  double zprd = domain->zprd;
+  double zprd_slab = zprd*force->kspace->slab_volfactor;
+  volume = xprd * yprd * zprd_slab;
+  
   // npair includes ghosts if either newton flag is set
   //   b/c some bonds/dihedrals call pair::ev_tally with pairwise info
   // nbond includes ghosts if newton_bond is set
@@ -314,25 +322,23 @@ int ComputePotentialAtom::eta_check(int i)
 ------------------------------------------------------------------------- */
 void ComputePotentialAtom::slabcorr()
 {
-  double xprd = domain->xprd;
-  double yprd = domain->yprd;
-  double zprd = domain->zprd;
-  double zprd_slab = zprd*force->kspace->slab_volfactor;
-  double volume = xprd * yprd * zprd_slab;
 
   double **x = atom->x;
   double *q = atom->q;
+  double qsum = kspmod->return_qsum();
   double slabcorr = 0.0;
   int i;
   int nlocal = atom->nlocal;
+  const double pi2vol = 2*MY_PI/volume;
   for (i = 0; i < nlocal; ++i) {
-    slabcorr += 4*q[i]*MY_PI*x[i][2]/volume;
+    slabcorr += 2*pi2vol*q[i]*x[i][2];
   }
   MPI_Allreduce(MPI_IN_PLACE,&slabcorr,1,MPI_DOUBLE,MPI_SUM,world);
   int *mask = atom->mask;
   for (i = 0; i < nlocal; ++i) {
     if (mask[i] & groupbit) {
       potential[i] += x[i][2]*slabcorr;
+      if (qsumflag) potential[i] -= pi2vol*qsum*x[i][2]*x[i][2];
     }
   }
 }

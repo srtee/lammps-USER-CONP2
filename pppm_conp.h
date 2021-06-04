@@ -42,6 +42,7 @@ class PPPMCONP : public PPPM, public KSpaceModule {
   void conp_pre_force() {elyte_mapped = false;}
   void update_charge() {ele_make_rho();}
   double compute_particle_potential(int);
+  double return_qsum(){return qsum;};
  protected:
   void aaa_map_rho();
   void elyte_map_rho_pois();
