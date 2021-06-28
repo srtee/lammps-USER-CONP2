@@ -30,24 +30,24 @@ class KSpaceModuleEwaldSplit : public KSpaceModule, public Pointers {
   virtual ~KSpaceModuleEwaldSplit();
   
   void conp_setup();
-  virtual void conp_post_neighbor(bool, bool);
+  void conp_post_neighbor(bool, bool);
   void a_cal(double *);
   void a_read();
   void b_cal(double *);
 
   protected:
   bool aread_sincos_a;
-  virtual void setup_allocate();
-  virtual void elyte_allocate(int);
-  virtual void ele_allocate(int);
-  virtual void setup_deallocate();
-  virtual void elyte_deallocate();
-  virtual void ele_deallocate();
-  virtual void sincos_a_ele(double **, double **);
-  virtual void sincos_a_comm_eleall(double **, double **);
-  virtual void aaa_from_sincos_a(double *);
-  virtual void sincos_b();
-  virtual void bbb_from_sincos_b(double *);
+  void setup_allocate();
+  void elyte_allocate(int);
+  void ele_allocate(int);
+  void setup_deallocate();
+  void elyte_deallocate();
+  void ele_deallocate();
+  void sincos_a_ele(double **, double **);
+  void sincos_a_comm_eleall(double **, double **);
+  void aaa_from_sincos_a(double *);
+  void sincos_b();
+  void bbb_from_sincos_b(double *);
   
   int slabflag;
 
