@@ -1,4 +1,5 @@
 // File "pppm_impl.cpp"
+#ifdef LMP_USER_INTEL
 #include "pppm_intel.cpp"
 
 using namespace LAMMPS_NS;
@@ -12,3 +13,4 @@ template void PPPMIntel::make_rho<float,float,0>(IntelBuffers<float,float> *buff
 template void PPPMIntel::make_rho<float,double,1>(IntelBuffers<float,double> *buffers); 
 template void PPPMIntel::make_rho<double,double,1>(IntelBuffers<double,double> *buffers);
 template void PPPMIntel::make_rho<float,float,1>(IntelBuffers<float,float> *buffers);
+#endif
