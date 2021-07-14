@@ -411,10 +411,11 @@ void FixConp::linalg_init()
   // and if _that_ fails, or if coulpair has newton on, we should bail
   // not too late to process that here because we haven't done a_cal yet
   if (runstage == 0) {
-    if (pppmflag)
+    if (pppmflag) {
       kspmod = dynamic_cast<KSpaceModule *>(force->kspace);
       if (kspmod == nullptr)
         error->all(FLERR,"Fix conp couldn't detect a pppm/conp kspace style (which is required with the pppm flag)");
+    }
     else
       if (splitflag) kspmod = new KSpaceModuleEwaldSplit(lmp);
       else kspmod = new KSpaceModuleEwald(lmp);
