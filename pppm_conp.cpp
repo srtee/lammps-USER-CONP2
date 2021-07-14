@@ -93,7 +93,7 @@ void PPPMCONP::a_cal(double * aaa)
   if (fixconp->splitflag) my_ewald = new KSpaceModuleEwaldSplit(lmp);
   else my_ewald = new KSpaceModuleEwald(lmp);
   my_ewald->register_fix(fixconp);
-  my_ewald->conp_setup();
+  my_ewald->conp_setup(lowmemflag);
   my_ewald->conp_post_neighbor(false,true); // ele_allocate
   my_ewald->a_cal(aaa);
   delete my_ewald;
@@ -483,6 +483,52 @@ double PPPMCONP::compute_particle_potential(int i)
     }
   }
   
-  u += 2*g_ewald*q[i]/MY_PIS;
+  // u += 2*g_ewald*q[i]/MY_PIS;
   return static_cast<double>(u);
+}
+
+void PPPMCONP::compute_group_potential(int groupbit, double* recv_arr)
+{
+  int const nlocal = atom->nlocal;
+  int* mask = atom->mask;
+  double **x = atom->x;
+  double *q = atom->q;
+  int i,l,m,n,nx,ny,nz,mx,my,mz;
+  FFT_SCALAR dx,dy,dz,x0,y0,z0;
+  FFT_SCALAR u;
+
+  for (i = 0; i < nlocal; ++i) {
+    u = 0;
+    
+    if (mask[i] & groupbit) {
+      nx = part2grid[i][0];
+      ny = part2grid[i][1];
+      nz = part2grid[i][2];
+    
+      dx = nx + shiftone - (x[i][0] - boxlo[0]) * delxinv;
+      dy = ny + shiftone - (x[i][1] - boxlo[1]) * delyinv;
+      dz = nz + shiftone - (x[i][2] - boxlo[2]) * delzinv;
+    
+      compute_rho1d(dx, dy, dz);
+    
+      for (n = 0; n < order; n++)
+      {
+        mz = n + nlower + nz;
+        z0 = rho1d[2][n + nlower];
+        for (m = 0; m < order; m++)
+        {
+          my = m + nlower + ny;
+          y0 = z0 * rho1d[1][m + nlower];
+          for (l = 0; l < order; l++)
+          {
+            mx = l + nlower + nx;
+            x0 = y0 * rho1d[0][l + nlower];
+            u -= x0 * u_brick[mz][my][mx];
+          }
+        }
+      }
+    
+      recv_arr[i] = static_cast<double>(u);
+    }
+  }
 }

@@ -36,7 +36,7 @@ class PPPMCONPIntel : public PPPMIntel, public KSpaceModule {
   PPPMCONPIntel(class LAMMPS *);
   ~PPPMCONPIntel();
   void compute(int, int);
-  void conp_setup() {}
+  void conp_setup(bool inflag) {lowmemflag = inflag;}
   void conp_post_neighbor(bool, bool);
   void a_cal(double*);
   void a_read();

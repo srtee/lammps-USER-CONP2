@@ -29,29 +29,33 @@ class KSpaceModuleEwald : public KSpaceModule, public Pointers {
   KSpaceModuleEwald(class LAMMPS * lmp);
   ~KSpaceModuleEwald();
   
-  void conp_setup();
+  void conp_setup(bool);
   void conp_post_neighbor(bool, bool);
   void a_cal(double *);
   void a_read();
   void b_cal(double *);
 
   protected:
-  virtual void setup_allocate();
-  virtual void elyte_allocate(int);
-  virtual void ele_allocate(int);
-  virtual void setup_deallocate();
-  virtual void elyte_deallocate();
-  virtual void ele_deallocate();
-  virtual void sincos_a_ele(double **, double **);
-  virtual void sincos_a_comm_eleall(double **, double **);
-  virtual void aaa_from_sincos_a(double *);
-  virtual void sincos_b();
-  virtual void bbb_from_sincos_b(double *);
-  virtual void slabcorr(double *);
-  virtual void sfac_reduce();
+  void setup_allocate();
+  void elyte_allocate(int);
+  void ele_allocate(int);
+  void setup_deallocate();
+  void elyte_deallocate();
+  void ele_deallocate();
+  void lowmem_allocate();
+  void sincos_a_ele(double **, double **);
+  void sincos_a_comm_eleall(double **, double **);
+  void aaa_from_sincos_a(double *);
+  void sincos_b();
+  void bbb_from_sincos_b(double *);
+  void slabcorr(double *);
+  void sfac_reduce();
+
+  void kz_expand(double *, double *, double *, double *);
+  double ewald_dot_ij(double *, double*, double *, double *,
+    double *, double *, double *, double *);
 
   int slabflag;
-  bool lowmemflag;
 
   double rms(int,double,bigint,double);
   void make_kvecs_ewald();
@@ -61,6 +65,7 @@ class KSpaceModuleEwald : public KSpaceModule, public Pointers {
   
   double unitk[3];
   double *ug;
+  double ug_tot;
   double g_ewald,gsqmx,volume,slab_volfactor;
   int *kxvecs,*kyvecs,*kzvecs;
   double **cs,**sn,**csk,**snk;
@@ -71,6 +76,7 @@ class KSpaceModuleEwald : public KSpaceModule, public Pointers {
   int *kxy_list,*kz_list;
   int kxmax,kymax,kzmax;
   double *sfacrl,*sfacrl_all,*sfacim,*sfacim_all;
+  double *csxyi, *snxyi, *cszi, *snzi, *cskie, *snkie;
 };
 }
 

@@ -17,7 +17,6 @@
 ------------------------------------------------------------------------- */
 
 #include "math.h"
-#include "string.h"
 #include "stdlib.h"
 #include "stddef.h"
 #include "atom.h"
@@ -46,7 +45,8 @@
 #include "neighbor.h"
 #include "domain.h"
 #include "utils.h"
-#include "iostream"
+#include <iostream>
+#include <string>
 
 #define EWALD_F   1.12837917
 #define EWALD_P   0.3275911
@@ -78,7 +78,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
 {
   MPI_Comm_rank(world,&me);
   MPI_Comm_size(world,&nprocs);
-  if (narg < 11) error->all(FLERR,"Illegal fix conp command");
+  if (narg < 11) error->all(FLERR,"Illegal fix conp command (too few input parameters)");
   qlstyle = qrstyle = CONSTANT;
   ilevel_respa = 0;
   maxiter = 100;
@@ -91,6 +91,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   pppmflag = false;
   splitflag = false;
   qinitflag = false;
+  lowmemflag = true;
   if (strstr(arg[7],"v_") == arg[7]) {
     int n = strlen(&arg[7][2]) + 1;
     qlstr = new char[n];
@@ -111,7 +112,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
     minimizer = CG;
   } else if (strcmp(arg[9],"inv") == 0) {
     minimizer = INV;
-  } else error->all(FLERR,"Unknown minimization method");
+  } else error->all(FLERR,"Invalid fix conp command (unknown minimization method)");
   
   outf = fopen(arg[10],"w");
   ff_flag = NORMAL; // turn on ff / noslab options if needed.
@@ -121,28 +122,28 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   int iarg;
   for (iarg = 11; iarg < narg; ++iarg){
     if (strcmp(arg[iarg],"ffield") == 0) {
-      if (ff_flag == NOSLAB) error->all(FLERR,"ffield and noslab cannot both be chosen");
+      if (ff_flag == NOSLAB) error->all(FLERR,"Invalid fix conp command (ffield and noslab cannot both be chosen)");
       ff_flag = FFIELD;
     }
     else if (strcmp(arg[iarg],"noslab") == 0) {
-      if (ff_flag == FFIELD) error->all(FLERR,"ffield and noslab cannot both be chosen");
+      if (ff_flag == FFIELD) error->all(FLERR,"Invalid fix conp command (ffield and noslab cannot both be chosen)");
       ff_flag = NOSLAB;     
     }
     else if (strcmp(arg[iarg],"org") == 0 || strcmp(arg[iarg],"inv") == 0) {
-      if (a_matrix_f != 0) error->all(FLERR,"A matrix file specified more than once");
+      if (a_matrix_f != 0) error->all(FLERR,"Invalid fix conp command (A matrix file specified more than once)");
       if (strcmp(arg[iarg],"org") == 0) a_matrix_f = 1;
       else if (strcmp(arg[iarg],"inv") == 0) a_matrix_f = 2;
       ++iarg;
-      if (iarg >= narg) error->all(FLERR,"No A matrix filename given");
+      if (iarg >= narg) error->all(FLERR,"Invalid fix conp command (No A matrix filename given)");
       if (me == 0) {
         a_matrix_fp = fopen(arg[iarg],"r");
-        printf("Opened file %s for reading A matrix\n",arg[iarg]);
-        if (a_matrix_fp == nullptr) error->all(FLERR,"Cannot open A matrix file");
+        // printf("Opened file %s for reading A matrix\n",arg[iarg]);
+        if (a_matrix_fp == nullptr) error->all(FLERR,"Invalid fix conp command (Cannot open A matrix file)");
       }
     }
     else if (strcmp(arg[iarg],"etypes") == 0) {
       ++iarg;
-      if (iarg >= narg-1) error->all(FLERR,"Insufficient input entries for etypes");
+      if (iarg >= narg-1) error->all(FLERR,"Invalid fix conp command (Insufficient input entries for etypes)");
       eletypenum = utils::inumeric(FLERR,arg[iarg],false,lmp);
       eletypes = new int[eletypenum+1];
       for (int i = 0; i < eletypenum; ++i) {
@@ -152,7 +153,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
       eletypes[eletypenum] = -1;
       int ntypes = atom->ntypes;
       for (int i = 0; i < eletypenum; ++i) {
-        if (eletypes[i] > ntypes) error->all(FLERR,"Invalid atom type in etypes");
+        if (eletypes[i] > ntypes) error->all(FLERR,"Invalid fix conp command (Invalid atom type in etypes)");
       }
       smartlist = true;
     }
@@ -171,9 +172,14 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
     else if (strcmp(arg[iarg],"qinit") == 0) {
       qinitflag = true;
     }
+    else if (strcmp(arg[iarg],"himem") == 0) {
+      lowmemflag = false;
+    }
     else {
-      printf(".<%s>.\n",arg[iarg]);
-      error->all(FLERR,"Invalid fix conp input command");
+      std::string errmsg = "Invalid fix conp commmand (unknown option: ";
+      errmsg += arg[iarg];
+      errmsg += ")";
+      error->all(FLERR,errmsg);
     }
   }
   scalar_flag = 1;
@@ -256,7 +262,7 @@ void FixConp::init()
     // return 1st hybrid substyle matching coul (inexactly)
     coulpair = (Pair *) force->pair_match("coul",0,1);
     }
-  if (coulpair == nullptr) error->all(FLERR,"Must use conp with coul pair style");
+  if (coulpair == nullptr) error->all(FLERR,"Fix conp couldn't detect a Coulombic pair style");
   
   if (strstr(update->integrate_style,"respa")) {
     ilevel_respa = ((Respa *) update->integrate)->nlevels-1;
@@ -267,24 +273,24 @@ void FixConp::init()
   if (qlstr) {
     qlvar = input->variable->find(qlstr);
     if (qlvar < 0)
-      error->all(FLERR,"Variable name 1 for fix conp does not exist");
+      error->all(FLERR,"Variable name for fix conp electrode voltage 1 does not exist");
     if (!input->variable->equalstyle(qlvar))
-      error->all(FLERR,"Variable 1 for fix conp is invalid style");
+      error->all(FLERR,"Variable for fix conp electrode voltage 1 is invalid style");
   }
  
   if (qrstr) {
     qrvar = input->variable->find(qrstr);
     if (qrvar < 0)
-      error->all(FLERR,"Variable name 2 for fix conp does not exist");
+      error->all(FLERR,"Variable name for fix conp electrode voltage 2 does not exist");
     if (!input->variable->equalstyle(qrvar))
-      error->all(FLERR,"Variable 2 for fix conp is invalid style");
+      error->all(FLERR,"Variable for fix conp electrode voltage 2 is invalid style");
   }
 
   intelflag = false;
   int ifix = modify->find_fix("package_intel");
   if (ifix >= 0) intelflag = true;
 
-  if (!initflag) {
+  if (alist == nullptr || blist == nullptr) {
     // request neighbor list 
     // if not smart list half, newton off
     // else do request_smartlist()
@@ -299,7 +305,7 @@ void FixConp::init()
       if (intelflag) neighbor->requests[irequest]->intel = 1;
     }
   }
-  initflag = true;
+  // initflag = true;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -407,11 +413,13 @@ void FixConp::linalg_init()
   if (runstage == 0) {
     if (pppmflag)
       kspmod = dynamic_cast<KSpaceModule *>(force->kspace);
+      if (kspmod == nullptr)
+        error->all(FLERR,"Fix conp couldn't detect a pppm/conp kspace style (which is required with the pppm flag)");
     else
       if (splitflag) kspmod = new KSpaceModuleEwaldSplit(lmp);
       else kspmod = new KSpaceModuleEwald(lmp);
     kspmod->register_fix(this);
-    kspmod->conp_setup();
+    kspmod->conp_setup(lowmemflag);
     g_ewald = force->kspace->g_ewald;
     bigint natoms = atom->natoms;
     tag2eleall = new int[natoms+1];

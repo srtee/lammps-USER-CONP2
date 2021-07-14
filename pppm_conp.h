@@ -34,7 +34,7 @@ class PPPMCONP : public PPPM, public KSpaceModule {
  public:
   PPPMCONP(class LAMMPS *);
   ~PPPMCONP();
-  void conp_setup() {}
+  void conp_setup(bool inflag) {lowmemflag = inflag;}
   void conp_post_neighbor(bool, bool);
   void a_cal(double*);
   void a_read();
@@ -42,6 +42,7 @@ class PPPMCONP : public PPPM, public KSpaceModule {
   void conp_pre_force() {elyte_mapped = false;}
   void update_charge() {ele_make_rho();}
   double compute_particle_potential(int);
+  void compute_group_potential(int, double*);
   double return_qsum(){return qsum;};
  protected:
   void aaa_map_rho();

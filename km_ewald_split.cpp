@@ -57,7 +57,7 @@ KSpaceModuleEwaldSplit::~KSpaceModuleEwaldSplit()
   ele_deallocate();
 }
 
-void KSpaceModuleEwaldSplit::conp_setup()
+void KSpaceModuleEwaldSplit::conp_setup(bool /* lowmemflag */)
 {
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;
