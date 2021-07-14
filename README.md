@@ -12,9 +12,36 @@ The USER-CONP2 package allows users to perform LAMMPS MD simulations with consta
 
 This is version 1.0 of the code. Upgrade priorities for version 1.1 are listed throughout this document in **boldface**; I welcome all feature suggestions!
 
+# Dependencies
+This package is only guaranteed to work for the 27May2021 patch of LAMMPS. Although it *may* work with
+other versions, they are not officially supported by the USER-CONP2 developers and may require extra
+work on the part of the user to compile.
+
+The fix requires BLAS and LAPACK compatible linear algebra libraries, although it's not fussy about
+which ones to use. CMake will automatically attempt to find compatible libraries during the
+configuration stage and will build its own if it can't find any, although this will be slower than using
+libraries optimised for the target machine. CMake is usually accurate when
+finding libraries, but it may be necessary to modify the `CMAKE_CXX_FLAGS` variable to explicitly
+specify the desired library location and link flags.
+
+Git is required by the `install_cmake.sh` installation script.
+
 # Installation instructions
 
-Currently the easiest way to install USER-CONP2 is to copy all relevant .cpp/.h files into the LAMMPS src folder, and compile. Note that ``pppm_conp_intel.cpp/h`` require the USER-INTEL package to be compiled at the same time. **Work is in progress to wrap this all up into a ``USER-CONP2''-style folder together with CMake patches to streamline the process.**
+Installation is managed via the `install_cmake.sh` script in the root directory. This script copies the
+necessary files into a dedicated `USER-CONP2` folder in the LAMMPS `src` directory and integrates with
+LAMMPS' CMake build process. The installation steps are as follows:
+
+1. Set the `LAMMPS_PREFIX` environment variable to the location of the base LAMMPS directory (note: this
+   must be the *root* directory containing the `README` file, not the `src` directory). In bash, run the
+   command `export LAMMPS_PREFIX=/path/to/lammps`.
+2. In the root directory of *this* repository, run the install script via `bash ./install_cmake.sh`
+3. Compile LAMMPS using the usual CMake procedure, setting `-D PKG_USER-CONP2=on`. The fix can be used
+   with the `USER-INTEL` accelerator package by also setting `-D PKG_USER-INTEL=on`, in which case you
+   should use the Intel C++ compiler and link against Intel MKL for the best performance.
+
+It is also possible to use the legacy `make`-based build system by copying all relevant `.cpp` and `.h`
+files into the LAMMPS `src` directory and manually specifying the BLAS/LAPACK compile and link options.
 
 # Usage instructions
 

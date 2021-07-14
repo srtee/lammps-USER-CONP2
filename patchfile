@@ -1,0 +1,79 @@
+diff --git a/cmake/CMakeLists.txt b/cmake/CMakeLists.txt
+index aa6b0ed583..12d8eec863 100644
+--- a/cmake/CMakeLists.txt
++++ b/cmake/CMakeLists.txt
+@@ -146,7 +146,7 @@ set(STANDARD_PACKAGES ASPHERE BODY CLASS2 COLLOID COMPRESS DIPOLE
+   USER-HDNNP USER-LB USER-MANIFOLD USER-MDI USER-MEAMC USER-MESONT USER-MGPT USER-MISC
+   USER-MOFFF USER-MOLFILE USER-NETCDF USER-PHONON USER-PLUMED USER-PTM USER-QTB
+   USER-RANN USER-REACTION USER-REAXC USER-SCAFACOS USER-SDPD USER-SMD USER-SMTBQ USER-SPH
+-  USER-TALLY USER-UEF USER-VTK USER-QUIP USER-QMMM USER-YAFF USER-PACE USER-BROWNIAN)
++  USER-TALLY USER-UEF USER-VTK USER-QUIP USER-QMMM USER-YAFF USER-PACE USER-BROWNIAN USER-CONP2)
+ 
+ set(SUFFIX_PACKAGES CORESHELL GPU KOKKOS OPT USER-INTEL USER-OMP)
+ 
+@@ -235,6 +235,7 @@ pkg_depends(USER-ATC MANYBODY)
+ pkg_depends(USER-LB MPI)
+ pkg_depends(USER-PHONON KSPACE)
+ pkg_depends(USER-SCAFACOS MPI)
++pkg_depends(USER-CONP2 KSPACE)
+ 
+ # detect if we may enable OpenMP support by default
+ set(BUILD_OMP_DEFAULT OFF)
+@@ -269,7 +270,7 @@ if(BUILD_OMP)
+   target_link_libraries(lammps PRIVATE OpenMP::OpenMP_CXX)
+ endif()
+ 
+-if(PKG_MSCG OR PKG_USER-ATC OR PKG_USER-AWPMD OR PKG_USER-QUIP OR PKG_LATTE)
++if(PKG_MSCG OR PKG_USER-ATC OR PKG_USER-AWPMD OR PKG_USER-QUIP OR PKG_LATTE OR PKG_USER-CONP2)
+   enable_language(C)
+   find_package(LAPACK)
+   find_package(BLAS)
+@@ -490,6 +491,10 @@ if(PKG_USER-H5MD)
+   include(Packages/USER-H5MD)
+ endif()
+ 
++if(PKG_USER-CONP2)
++    target_link_libraries(lammps PRIVATE ${LAPACK_LIBRARIES})
++endif()
++
+ ######################################################################
+ # packages which selectively include variants based on enabled styles
+ # e.g. accelerator packages
+diff --git a/src/Depend.sh b/src/Depend.sh
+index f77d435fc5..aeda21f96c 100755
+--- a/src/Depend.sh
++++ b/src/Depend.sh
+@@ -149,3 +149,7 @@ if (test $1 = "USER-REAXC") then
+   depend KOKKOS
+   depend USER-OMP
+ fi
++
++if (test $1 = "USER-CONP2") then
++  depend USER-INTEL
++fi
+diff --git a/src/Makefile b/src/Makefile
+index 24d99a5fe3..a62fa3e4dc 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -58,7 +58,7 @@ PACKUSER = user-adios user-atc user-awpmd user-brownian user-bocs user-cgdna \
+ 	   user-mofff user-molfile user-netcdf user-omp user-phonon \
+ 	   user-pace user-plumed user-ptm user-qmmm user-qtb user-quip \
+ 	   user-rann user-reaction user-reaxc user-scafacos user-smd user-smtbq \
+-	   user-sdpd user-sph user-tally user-uef user-vtk user-yaff
++	   user-sdpd user-sph user-tally user-uef user-vtk user-yaff user-conp2
+ 
+ PACKLIB = compress gpu kim kokkos latte message mpiio mscg poems python voronoi \
+ 	  user-adios user-atc user-awpmd user-colvars user-h5md user-hdnnp user-lb user-mdi \
+diff --git a/src/USER-INTEL/intel_buffers.h b/src/USER-INTEL/intel_buffers.h
+index 607cc2fd82..11aeb29c72 100644
+--- a/src/USER-INTEL/intel_buffers.h
++++ b/src/USER-INTEL/intel_buffers.h
+@@ -201,7 +201,7 @@ class IntelBuffers {
+   #endif
+ 
+   inline void thr_pack(const int ifrom, const int ito, const int ago) {
+-    if (ago == 0) {
++    if (true) {
+       #if defined(LMP_SIMD_COMPILER)
+       #pragma vector aligned
+       #pragma ivdep
