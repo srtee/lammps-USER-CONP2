@@ -29,7 +29,7 @@ class KSpaceModuleEwaldSplit : public KSpaceModule, public Pointers {
   KSpaceModuleEwaldSplit(class LAMMPS *);
   virtual ~KSpaceModuleEwaldSplit();
   
-  void conp_setup();
+  void conp_setup(bool);
   void conp_post_neighbor(bool, bool);
   void a_cal(double *);
   void a_read();

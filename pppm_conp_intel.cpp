@@ -124,7 +124,7 @@ void PPPMCONPIntel::a_cal(double * aaa)
   if (fixconp->splitflag) my_ewald = new KSpaceModuleEwaldSplit(lmp);
   else my_ewald = new KSpaceModuleEwald(lmp);
   my_ewald->register_fix(fixconp);
-  my_ewald->conp_setup();
+  my_ewald->conp_setup(lowmemflag);
   my_ewald->conp_post_neighbor(false,true); // ele_allocate
   my_ewald->a_cal(aaa);
   delete my_ewald;
@@ -888,6 +888,6 @@ double PPPMCONPIntel::compute_particle_potential(int i)
     }
   }
   
-  u += 2*g_ewald*q[i]/MY_PIS;
+  // u += 2*g_ewald*q[i]/MY_PIS;
   return static_cast<double>(u);
 }

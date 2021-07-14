@@ -119,6 +119,7 @@ class FixConp : public Fix {
 
   bool zneutrflag,initflag,matoutflag,pppmflag,qinitflag;
   bool preforceflag,postforceflag;
+  bool lowmemflag;
 };
 
 }

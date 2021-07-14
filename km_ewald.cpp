@@ -60,8 +60,9 @@ KSpaceModuleEwald::~KSpaceModuleEwald()
   ele_deallocate();
 }
 
-void KSpaceModuleEwald::conp_setup()
+void KSpaceModuleEwald::conp_setup(bool lowmemflag_in)
 {
+  lowmemflag = lowmemflag_in;
   g_ewald = force->kspace->g_ewald;
   slab_volfactor = force->kspace->slab_volfactor;
   slabflag = force->kspace->slabflag;

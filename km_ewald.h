@@ -29,7 +29,7 @@ class KSpaceModuleEwald : public KSpaceModule, public Pointers {
   KSpaceModuleEwald(class LAMMPS * lmp);
   ~KSpaceModuleEwald();
   
-  void conp_setup();
+  void conp_setup(bool);
   void conp_post_neighbor(bool, bool);
   void a_cal(double *);
   void a_read();
@@ -56,7 +56,6 @@ class KSpaceModuleEwald : public KSpaceModule, public Pointers {
     double *, double *, double *, double *);
 
   int slabflag;
-  bool lowmemflag;
 
   double rms(int,double,bigint,double);
   void make_kvecs_ewald();
