@@ -24,6 +24,8 @@ libraries optimised for the target machine. CMake is usually accurate when
 finding libraries, but it may be necessary to modify the `CMAKE_CXX_FLAGS` variable to explicitly
 specify the desired library location and link flags.
 
+Git is required by the `install_cmake.sh` installation script.
+
 # Installation instructions
 
 Installation is managed via the `install_cmake.sh` script in the root directory. This script copies the

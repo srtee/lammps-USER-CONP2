@@ -22,6 +22,7 @@ fi
 echo "Copying base CONP files..."
 cp -v compute_potential_atom.* fix_conp.* fix_conp_dyn2.* fix_conp_dyn.* \
 km_ewald.* km_ewald_split.* kspacemodule.h pppm_conp.* incl_pppm_intel_templates.cpp \
+Install.sh \
 ${CONP_SRC_DIR} || exit 1
 echo "Done"
 # And the Intel accelerated styles

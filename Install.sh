@@ -41,7 +41,6 @@ action compute_potential_atom.cpp pppm.h
 action compute_potential_atom.h pppm.h
 action pppm_conp.cpp pppm.h
 action pppm_conp.h pppm.h
-action pppm_conp_intel.cpp pppm_intel.cpp
-action pppm_conp_intel.h pppm_intel.h
 action fix_conp.cpp
 action fix_conp.h
+action incl_pppm_intel_templates.cpp
