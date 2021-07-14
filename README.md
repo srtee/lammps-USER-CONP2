@@ -36,12 +36,21 @@ LAMMPS' CMake build process. The installation steps are as follows:
    must be the *root* directory containing the `README` file, not the `src` directory). In bash, run the
    command `export LAMMPS_PREFIX=/path/to/lammps`.
 2. In the root directory of *this* repository, run the install script via `bash ./install_cmake.sh`
-3. Compile LAMMPS using the usual CMake procedure, setting `-D PKG_USER-CONP2=on`. The fix can be used
-   with the `USER-INTEL` accelerator package by also setting `-D PKG_USER-INTEL=on`, in which case you
+3. Compile LAMMPS using the usual CMake procedure, setting `-D PKG_USER-CONP2=yes`. This package can be installed
+   alongside the `USER-INTEL` accelerator package by also setting `-D PKG_USER-INTEL=yes`, in which case you
    should use the Intel C++ compiler and link against Intel MKL for the best performance.
+4. Alternatively, compile LAMMPS using the legacy Make procedure, including `make yes-user-conp2` to set up
+   this package for inclusion.
 
 It is also possible to use the legacy `make`-based build system by copying all relevant `.cpp` and `.h`
 files into the LAMMPS `src` directory and manually specifying the BLAS/LAPACK compile and link options.
+
+# Known issues
+
+Fix conp is likely to crash without an error message if electrolyte particle IDs are non-contiguous (e.g. after a `delete_atoms` command).
+Repairing this will likely require significant code refactoring; for now, the situation may be remedied by a suitable `reset_atom_ids` command.
+
+The PPPM flag causes weird things to happen in Poiseuille-flow-type simulations. Omitting that flag works fine (albeit with much lower performance). **Repairing this is a priority issue.**
 
 # Usage instructions
 
@@ -83,7 +92,9 @@ Does what it says on the box!
 
 To use `pppm`, the `pppm/conp` KSpace style must be used. This style is interchangeable with the LAMMPS `pppm` style in every other way but can interface with `fix conp` to enable PPPM calculations of the electrode-electrolyte interactions in KSpace. (Note that there is a `pppm/conp/intel` KSpace implementation, which works with `package intel` and will automatically be used when `suffix intel` is specified).
 
-If the `pppm` flag is not specified, `fix conp` will use the default Ewald KSpace solver; if the `pppm` flag is specified but `pppm/conp` is not the KSpace style being used, LAMMPS will crash with a generic segfault message. **The eventual design goal is for the pppm flag to be removed and for `fix conp` to silently interface with `pppm/conp` when detected.**
+~~If the `pppm` flag is not specified, `fix conp` will use the default Ewald KSpace solver; if the `pppm` flag is specified but `pppm/conp` is not the KSpace style being used, LAMMPS will crash with a generic segfault message.~~ Fix conp will crash LAMMPS with an error message if the `pppm` flag is specified but fix conp cannot find the `pppm/conp` (or `/intel`) KSpace style. **The eventual design goal is for the pppm flag to be removed and for `fix conp` to silently interface with `pppm/conp` when detected.**
+
+**Note: Weird things happen with PPPM mode (with and without USER-INTEL) in NEMD simulations. Proceed with caution.**
 
 ### added in v0.9
 
