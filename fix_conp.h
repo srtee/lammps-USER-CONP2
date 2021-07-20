@@ -32,9 +32,10 @@ FixStyle(conp,FixConp)
 namespace LAMMPS_NS {
 
 class FixConp : public Fix {
+ friend class FixConq;
  public:
   FixConp(class LAMMPS *, int, char **);
-  ~FixConp();
+  virtual ~FixConp();
   bool intelflag;
   int setmask();
   void init();
@@ -69,6 +70,8 @@ class FixConp : public Fix {
   virtual void dyn_setup() {}
   void init_list(int, class NeighList*);
   void end_of_step();
+  double erfcr_sqrt(double);
+  double ferfcr_sqrt(double);
   int elenum,elenum_all;
   int elytenum;
   int *ele2tag,*ele2eleall;
@@ -77,10 +80,11 @@ class FixConp : public Fix {
   double eta;
   int *elenum_list,*displs,*eleall2ele;
   bool splitflag;
+  tagint maxtag_all;
+
 
  protected:
   class NeighList *list;
-
   // constructor
   int ilevel_respa, maxiter;
   double g_ewald;

@@ -16,6 +16,7 @@
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
+#include "lmptype.h"
 #include "math.h"
 #include "stdlib.h"
 #include "stddef.h"
@@ -396,8 +397,10 @@ void FixConp::linalg_init()
     kspmod->register_fix(this);
     kspmod->conp_setup(lowmemflag);
     g_ewald = force->kspace->g_ewald;
-    bigint natoms = atom->natoms;
-    tag2eleall = new int[natoms+1];
+    tagint maxtag = 0;
+    for (int i = 0; i < atom->nlocal; ++i) maxtag = MAX(atom->tag[i],maxtag);
+    MPI_Allreduce(&maxtag,&maxtag_all,1,MPI_LMP_TAGINT,MPI_MAX,world);
+    tag2eleall = new int[maxtag_all+1];
     int nprocs = comm->nprocs;
     elenum_list = new int[nprocs];
     displs = new int[nprocs];
@@ -484,7 +487,7 @@ void FixConp::post_neighbor()
     if (qinitflag) memory->grow(eleinitq,elenum_all,"fixconp:eleinitq");
     MPI_Barrier(world); // otherwise next MPI_Allgatherv can race??
     for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
-    for (i = 0; i < natoms+1; i++) tag2eleall[i] = elenum_all;
+    for (i = 0; i < maxtag_all+1; i++) tag2eleall[i] = elenum_all;
     eleall2ele[elenum_all] = -1; // not a typo
     MPI_Allgatherv(ele2tag,elenum,MPI_INT,eleall2tag,elenum_list,displs,MPI_INT,world);
     for (i = 0; i < elenum_all_c; ++i) tag2eleall[eleall2tag[i]] = i;
@@ -1134,7 +1137,7 @@ void FixConp::alist_coul_cal(double* m)
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
   int elei,elej,elealli,eleallj;
   double xtmp,ytmp,ztmp,delx,dely,delz;
-  double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
+  double r,r2inv,rsq,grij,etarij2,expm2,t,erfc,dudq;
   double forcecoul,ecoul,prefactor,fpair;
   bool ecib,ecjb;
   int inum = alist->inum;
@@ -1177,21 +1180,9 @@ void FixConp::alist_coul_cal(double* m)
         jtype = atomtype[j];
         if (rsq < cutsq[itype][jtype]) {
           if (rsq < cut_coulsq) {
-            dudq = 0;
-            r2inv = 1.0/rsq;
-            r = sqrt(rsq);
-            grij = g_ewald * r;
-            expm2 = exp(-grij*grij);
-            t = 1.0 / (1.0 + EWALD_P*grij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            dudq = erfc/r;
-            etarij = eta*r/sqrt(2);
-            if (etarij < ERFC_MAX) {
-              expm2 = exp(-etarij*etarij);
-              t = 1.0 / (1.0+EWALD_P*etarij);
-              erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-              dudq -= erfc/r;
-            }
+            dudq = erfcr_sqrt(g_ewald*g_ewald*rsq)*g_ewald;
+            etarij2 = eta*eta*rsq/2;
+            if (etarij2 < ERFC_MAX) dudq -= erfcr_sqrt(etarij2)*eta/sqrt(2);
             elealli = tag2eleall[tag[i]];
             eleallj = tag2eleall[tag[j]];
             elei = eleall2ele[elealli];
@@ -1214,7 +1205,7 @@ void FixConp::blist_coul_cal(double* m)
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
   int checksum,elei,elej,elealli,eleallj,tagi;
   double qtmp,xtmp,ytmp,ztmp,delx,dely,delz;
-  double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
+  double r,r2inv,rsq,grij,etarij2,expm2,t,erfc,dudq;
   double forcecoul,ecoul,prefactor,fpair;
 
   int inum = blist->inum;
@@ -1262,34 +1253,22 @@ void FixConp::blist_coul_cal(double* m)
         jtype = atomtype[j];
         if (rsq < cutsq[itype][jtype]) {
           if (rsq < cut_coulsq) {
-            r2inv = 1.0/rsq;
-            dudq = 0.0;
-            r = sqrt(rsq);
-            grij = g_ewald * r;
-            expm2 = exp(-grij*grij);
-            t = 1.0 / (1.0 + EWALD_P*grij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            dudq = erfc/r;
-	  }
-          etarij = eta*r;
-	  if (etarij < ERFC_MAX) {
-            expm2 = exp(-etarij*etarij);
-            t = 1.0 / (1.0+EWALD_P*etarij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            dudq -= erfc/r;
-	  }
-          if (ecib) {
-            elei = eleall2ele[tag2eleall[tag[i]]];
-            m[elei] -= q[j]*dudq;
-          }
-	  else if (j < nlocal) {
-            elej = eleall2ele[tag2eleall[tag[j]]];
-            m[elej] -= q[i]*dudq;
-          }
-	  else if (newton) {
-	    eleallj = tag2eleall[tag[j]];
-	    newtonbuf[eleallj] -= q[i]*dudq;
-	  }
+            dudq = erfcr_sqrt(g_ewald*g_ewald*rsq)*g_ewald;
+            etarij2 = eta*eta*rsq;
+            if (etarij2 < ERFC_MAX) dudq -= erfcr_sqrt(etarij2)*eta;
+            if (ecib) {
+              elei = eleall2ele[tag2eleall[tag[i]]];
+              m[elei] -= q[j]*dudq;
+            }
+	          else if (j < nlocal) {
+              elej = eleall2ele[tag2eleall[tag[j]]];
+              m[elej] -= q[i]*dudq;
+            }
+	          else if (newton) {
+	            eleallj = tag2eleall[tag[j]];
+	            newtonbuf[eleallj] -= q[i]*dudq;
+            }
+	        }
         }
       }
     }
@@ -1313,7 +1292,7 @@ void FixConp::blist_coul_cal_post_force()
   Ctime1 = MPI_Wtime();
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
   double qtmp,xtmp,ytmp,ztmp,delx,dely,delz;
-  double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
+  double r,r2inv,rsq,grij,etarij2,expm2,t,erfcr,dudq;
   double forcecoul,ecoul,prefactor,fpair;
   int newton_pair = force->newton_pair;
   int inum = blist->inum;
@@ -1358,16 +1337,11 @@ void FixConp::blist_coul_cal_post_force()
         rsq = delx*delx + dely*dely + delz*delz;
         jtype = atomtype[j];
         if (rsq < cutsq[itype][jtype]) {
-          if (rsq < cut_coulsq) {
-            r2inv = 1.0/rsq;
-            r = sqrt(rsq);
-            etarij = eta*r;
-            expm2 = exp(-etarij*etarij);
-            t = 1.0 / (1.0+EWALD_P*etarij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            prefactor = qqrd2e*qtmp*q[j]/r;
-            forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
-            fpair = forcecoul*r2inv;
+          etarij2 = eta*eta*rsq;
+          if (etarij2 < ERFC_MAX) {
+            prefactor = qqrd2e*qtmp*q[j]*eta;
+            forcecoul = -prefactor*ferfcr_sqrt(etarij2);
+            fpair = forcecoul/rsq;
             // following logic is asymmetric
             // because we always know i < nlocal (but j could be ghost)
             if (!eleilocal) {
@@ -1380,7 +1354,7 @@ void FixConp::blist_coul_cal_post_force()
               f[j][1] -= dely*forcecoul;
               f[j][2] -= delz*forcecoul;
             }
-            ecoul = -prefactor*erfc;
+            ecoul = -prefactor*erfcr_sqrt(etarij2);
             force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
           }
         }
@@ -1389,4 +1363,19 @@ void FixConp::blist_coul_cal_post_force()
   }
   Ctime2 = MPI_Wtime();
   Ctime += Ctime2-Ctime1;
+}
+
+double FixConp::erfcr_sqrt(double a2_r2) {
+  double a_r = sqrt(a2_r2);
+  double expm2 = exp(-a2_r2);
+  double t = 1.0 / (1.0 + EWALD_P*a_r);
+  return t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2 / a_r;
+}
+
+double FixConp::ferfcr_sqrt(double a2_r2) {
+  double a_r = sqrt(a2_r2);
+  double expm2 = exp(-a2_r2);
+  double t = 1.0 / (1.0 + EWALD_P*a_r);
+  double erfcr = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2 / a_r;
+  return erfcr + EWALD_F*expm2;
 }

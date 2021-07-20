@@ -94,7 +94,7 @@ if "$n == 0" then &
 elif "$n == 1"  &
 "fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype}" &
 elif "$n == 2"  &
-"fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} pppm" &
+"fix e eleleft conq 1 eleright 1.979 $v iter etypes 1 ${etype} pppm" &
 elif "$n == 3 || $n == 7"  &
 "fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} ffield" &
 "fix efield all efield 0 0 $(-v_v/lz) " &
@@ -115,7 +115,7 @@ elif "$n == 5 || $n == 6" &
 "fix 2 solneg nvt temp $t $t 100.0"
 
 if "$n != 5 && $n != 6" then &
-"thermo_style custom step temp c_tempsl c_qleft c_qright c_qall" &
+"thermo_style custom step temp c_tempsl c_qleft c_qright f_e" &
 elif "$n == 5 || $n == 6" &
 "thermo_style custom step temp c_temppos c_qleftneg c_qrightneg c_qneg c_qrightpos c_qleftpos c_qpos c_tempneg"
 thermo              20
