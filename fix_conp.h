@@ -60,7 +60,7 @@ class FixConp : public Fix {
   void b_comm(double *, double *);
   void b_comm_int(int *, int *);
   void b_bcast(int, int, int*, double*);
-  void coul_cal(int, double *);
+  //void coul_cal(int, double *);
   void alist_coul_cal(double *);
   void blist_coul_cal(double *);
   void blist_coul_cal_post_force();
@@ -80,11 +80,17 @@ class FixConp : public Fix {
 
  protected:
   class NeighList *list;
+
+  // constructor
+  int ilevel_respa, maxiter;
   double g_ewald;
   int ff_flag; 
   int minimizer;
-  double qL,qR;
-  int qlstyle,qrstyle,qlvar,qrvar;
+  double potdiff;
+  int potdiffstyle,potdiffvar;
+  char *potdiffstr,*group2;
+  int jgroup,jgroupbit;
+  
   int elenum_old;
   double *eleallq;
   double *elesetq;
@@ -101,7 +107,6 @@ class FixConp : public Fix {
   class NeighList *alist,*blist;
 
   int me,runstage,gotsetq,nprocs;
-  int ilevel_respa;
   double Btime,Btime1,Btime2;
   double Ctime,Ctime1,Ctime2;
   double Ktime,Ktime1,Ktime2;
@@ -109,17 +114,17 @@ class FixConp : public Fix {
   FILE *outf,*a_matrix_fp;
   int a_matrix_f;
   int molidL,molidR;
-  int maxiter;
   double tolerance;
 
-  char *qlstr,*qrstr;
 
   int everynum;
   Pair *coulpair;
 
   bool zneutrflag,initflag,matoutflag,pppmflag,qinitflag;
+  bool lowmemflag,nullneutralflag;
   bool preforceflag,postforceflag;
-  bool lowmemflag;
+
+  double scalar_output;
 };
 
 }

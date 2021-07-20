@@ -14,7 +14,7 @@ log log.lammps_$n
 units               real    
 dimension           3   
 newton off
-processors          * * 2
+#processors          * * 2
 if "$n <= 2" then "boundary p p f" else "boundary p p p"
 atom_style          full 
 
@@ -87,22 +87,22 @@ run_style           verlet
 timestep            2
 velocity ele set 0.0 0.0 0.0
 #fix 0 ele setforce 0.0 0.0 0.0
-variable v equal 1.0
+variable v equal 2.0
 
 if "$n == 0" then &
-"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter" &
+"fix e eleleft conp 1 eleright 1.979 $v iter" &
 elif "$n == 1"  &
-"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype}" &
+"fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype}" &
 elif "$n == 2"  &
-"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} pppm" &
+"fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} pppm" &
 elif "$n == 3 || $n == 7"  &
-"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} ffield" &
-"fix efield all efield 0 0 $(-2*v_v/lz) " &
+"fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} ffield" &
+"fix efield all efield 0 0 $(-v_v/lz) " &
 elif "$n == 5 || $n == 6"  &
-"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} noslab zneutr" &
+"fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} noslab zneutr" &
 elif "$n == 4" &
-"fix e all conp 1 1.979 ${molleft} ${molright} -$v $v inv iter etypes 1 ${etype} ffield pppm" &
-"fix efield all efield 0 0 $(-2*v_v/lz) "
+"fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} pppm ffield" &
+"fix efield all efield 0 0 $(-v_v/lz) "
 
 variable t equal 500
 group bmi type 1:3
