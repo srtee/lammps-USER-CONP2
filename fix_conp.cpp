@@ -906,82 +906,82 @@ void FixConp::inv()
     
     // here we project aaa_all onto
     // the null space of e
-
-    double *ainve = new double[elenum_all];
-    double ainvtmp;
-    double totinve = 0;
-    idx1d = 0;
-
-    for (i = 0; i < elenum_all_c; i++) {
-      ainvtmp = 0;
-      for (j = 0; j < elenum_all_c; j++) {
-        ainvtmp += aaa_all[idx1d];
-      	idx1d++;
-      }
-      totinve += ainvtmp;
-      ainve[i] = ainvtmp;
-    }
-
-    if (totinve*totinve > 1e-8) {
+    if (nullneutralflag) {
+      double *ainve = new double[elenum_all];
+      double ainvtmp;
+      double totinve = 0;
       idx1d = 0;
-      for (i = 0; i < elenum_all_c; i++) {
-        for (j = 0; j < elenum_all_c; j++) {
-          aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
-	        idx1d++;
-	      }
-      }
-    }
-
-    // here we project aaa_all onto
-    // the null space of e_pos
-    // if zneutr has been called (i.e. we want each half of the unit cell
-    // to be neutral, not just the overall electrodes, in noslab)
-
-    if (zneutrflag) {
-      int iele;
-      double zprd_half = domain->zprd_half;
-      double zhalf = zprd_half + domain->boxlo[2];
-      double *elez = new double[elenum];
-      double *eleallz = new double[elenum_all];
-      int nlocal = atom->nlocal;
-      double **x = atom->x;
-      for (iele = 0; iele < elenum_c; ++iele) {
-        elez[iele] = x[atom->map(ele2tag[iele])][2];
-      }
-      b_comm(elez,eleallz);
-
-      bool *zele_is_pos = new bool[elenum_all];
-      for (iele = 0; iele < elenum_all_c; ++iele) {
-        zele_is_pos[iele] = (eleallz[iele] > zhalf);
-      }      
-      idx1d = 0;
-      totinve = 0;
+  
       for (i = 0; i < elenum_all_c; i++) {
         ainvtmp = 0;
         for (j = 0; j < elenum_all_c; j++) {
-          if (zele_is_pos[j]) ainvtmp += aaa_all[idx1d];
-      	  idx1d++;
+          ainvtmp += aaa_all[idx1d];
+        	idx1d++;
         }
+        totinve += ainvtmp;
         ainve[i] = ainvtmp;
-        if (zele_is_pos[i]) totinve += ainvtmp;
       }
-
+  
       if (totinve*totinve > 1e-8) {
         idx1d = 0;
         for (i = 0; i < elenum_all_c; i++) {
           for (j = 0; j < elenum_all_c; j++) {
             aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
-  	    idx1d++;
-  	  }
+  	        idx1d++;
+  	      }
         }
       }
-      delete [] zele_is_pos;
-      delete [] elez;
-      delete [] eleallz;      
+  
+      // here we project aaa_all onto
+      // the null space of e_pos
+      // if zneutr has been called (i.e. we want each half of the unit cell
+      // to be neutral, not just the overall electrodes, in noslab)
+  
+      if (zneutrflag) {
+        int iele;
+        double zprd_half = domain->zprd_half;
+        double zhalf = zprd_half + domain->boxlo[2];
+        double *elez = new double[elenum];
+        double *eleallz = new double[elenum_all];
+        int nlocal = atom->nlocal;
+        double **x = atom->x;
+        for (iele = 0; iele < elenum_c; ++iele) {
+          elez[iele] = x[atom->map(ele2tag[iele])][2];
+        }
+        b_comm(elez,eleallz);
+  
+        bool *zele_is_pos = new bool[elenum_all];
+        for (iele = 0; iele < elenum_all_c; ++iele) {
+          zele_is_pos[iele] = (eleallz[iele] > zhalf);
+        }      
+        idx1d = 0;
+        totinve = 0;
+        for (i = 0; i < elenum_all_c; i++) {
+          ainvtmp = 0;
+          for (j = 0; j < elenum_all_c; j++) {
+            if (zele_is_pos[j]) ainvtmp += aaa_all[idx1d];
+        	  idx1d++;
+          }
+          ainve[i] = ainvtmp;
+          if (zele_is_pos[i]) totinve += ainvtmp;
+        }
+  
+        if (totinve*totinve > 1e-8) {
+          idx1d = 0;
+          for (i = 0; i < elenum_all_c; i++) {
+            for (j = 0; j < elenum_all_c; j++) {
+              aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
+    	    idx1d++;
+    	  }
+          }
+        }
+        delete [] zele_is_pos;
+        delete [] elez;
+        delete [] eleallz;      
+      }
+  
+      delete [] ainve;
     }
-
-    delete [] ainve;
-
     if (matoutflag && me == 0) {
       FILE *outinva = fopen("inv_a_matrix","w");
       for (i = 0; i < elenum_all_c; i++) {
