@@ -77,7 +77,7 @@ void FixConq::update_charge()
   for (iall = 0; iall < elenum_all_c; ++iall) {
     i = atom->map(eleall2tag[iall]);
     if (i != -1) {
-      q[i] = eleallq[iall] + potdiff*elesetq[iall];
+      q[i] = eleallq[iall] - potdiff*elesetq[iall];
       if (qinitflag) q[i] += eleinitq[iall];
     }
   } // we need to loop like this to correctly charge ghost atoms
