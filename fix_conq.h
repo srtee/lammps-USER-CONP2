@@ -38,8 +38,8 @@ class FixConq : public FixConp {
   void update_charge();
 
  protected:
-  double leftcharge;
-  int leftchargestyle;
+  double rightcharge;
+  int rightchargestyle,rightchargevar;
 };
 
 }

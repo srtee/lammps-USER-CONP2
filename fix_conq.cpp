@@ -33,8 +33,9 @@ extern "C" {
 FixConq::FixConq(LAMMPS *lmp, int narg, char **arg):
   FixConp(lmp, narg, arg)
 {
-  leftchargestyle = potdiffstyle;
-  leftcharge = potdiff;
+  rightchargevar = potdiffvar;
+  rightchargestyle = potdiffstyle;
+  rightcharge = potdiff;
 }
 
 void FixConq::update_charge()
@@ -46,7 +47,7 @@ void FixConq::update_charge()
   int *tag = atom->tag;
   int const nlocal = atom->nlocal;
   int const nall = nlocal+atom->nghost;
-  double netcharge_left = 0;
+  double netcharge_right = 0;
   double *q = atom->q;    
   int const elenum_c = elenum;
   int const elenum_all_c = elenum_all;
@@ -61,22 +62,22 @@ void FixConq::update_charge()
     b_comm(bbb,eleallq);
   } // if minimizer == 0 then we already have eleallq ready;
 
-  if (leftchargestyle == EQUAL) leftcharge = input->variable->compute_equal(leftchargevar);
+  if (rightchargestyle == EQUAL) rightcharge = input->variable->compute_equal(rightchargevar);
   //  now qL and qR are left and right *voltages*
   //  evscale was included in the precalculation of eleallq
 
   //  update charges including additional charge needed
   //  this fragment is the only difference from fix_conp
   for (iall = 0; iall < elenum_all_c; ++iall) {
-    if (elecheck_eleall[iall] == 1) netcharge_left += eleallq[iall];
+    if (elecheck_eleall[iall] == 1) netcharge_right -= eleallq[iall];
   }
   
-  scalar_output = (leftcharge - netcharge_left)/totsetq;
+  potdiff = scalar_output = (rightcharge - rightcharge_left)/totsetq;
   
   for (iall = 0; iall < elenum_all_c; ++iall) {
     i = atom->map(eleall2tag[iall]);
     if (i != -1) {
-      q[i] = eleallq[iall] + scalar_output*elesetq[iall];
+      q[i] = eleallq[iall] + potdiff*elesetq[iall];
       if (qinitflag) q[i] += eleinitq[iall];
     }
   } // we need to loop like this to correctly charge ghost atoms
