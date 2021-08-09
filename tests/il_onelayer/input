@@ -101,8 +101,12 @@ elif "$n == 3 || $n == 7"  &
 elif "$n == 5 || $n == 6"  &
 "fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} noslab zneutr" &
 elif "$n == 4" &
-"fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} pppm ffield" &
+"fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} pppm ffield ehgo" &
+"fix_modify e ehgo kappa 2" &
+"fix_modify e ehgo coeff ${etype} 1.979 auto" &
 "fix efield all efield 0 0 $(-v_v/lz) "
+
+#"fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} pppm ffield" &
 
 variable t equal 500
 group bmi type 1:3

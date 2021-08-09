@@ -222,7 +222,7 @@ FixConp::~FixConp()
   memory->destroy(elesetq);
   if (qinitflag) memory->destroy(eleinitq);
   if (newton) memory->destroy(newtonbuf);
-  if (ehgo_allocated) ehgo_deallocate();
+  ehgo_deallocate();
   delete [] tag2eleall;
   delete [] potdiffstr;
   delete [] displs;
@@ -294,8 +294,11 @@ void FixConp::init()
   }
   // initflag = true;
 
-
   if (groupbit == jgroupbit) one_electrode_flag = true;
+  if (pairmode == EHGO) {
+    ehgo_allocate();
+    ehgo_setup_tables();
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -426,12 +429,14 @@ void FixConp::linalg_setup()
 {
   if (runstage == 0) {
     if (pairmode == EHGO) {
-      ehgo_setup_tables();
       pair_potential = &FixConp::ehgo_potential;
       pair_force = &FixConp::ehgo_force;
     }
     // if, not elseif, so ehgo_setup_tables can set pairmode to ETA if no parameters were given
-    if (pairmode == ETA) pair_potential = &FixConp::eta_potential_A;
+    if (pairmode == ETA) {
+      pair_potential = &FixConp::eta_potential_A; // switch to eta_potential later
+      pair_force = &FixConp::eta_force;
+    }
     if (a_matrix_f == 0) {
       if (me == 0) printf("Fix conp is now calculating A matrix ... ");
       a_cal();
@@ -444,7 +449,6 @@ void FixConp::linalg_setup()
 
     if (pairmode == ETA) {
       pair_potential = &FixConp::eta_potential;
-      pair_force = &FixConp::eta_force;
     }
 
     gotsetq = 0;
@@ -796,7 +800,7 @@ void FixConp::a_cal()
     int* atomtype = atom->type;
     for (i = 0; i < elenum_c; ++i) {
       int idx1d = i*elenum_all_c + ele2eleall[i];
-      int itype = atom->map(ele2tag[i]);
+      int itype = atomtype[atom->map(ele2tag[i])];
       aaa[idx1d] += u0_i[itype];
     }
   }
@@ -1416,7 +1420,7 @@ void FixConp::blist_coul_cal_post_force()
               f[j][1] -= dely*forcecoul;
               f[j][2] -= delz*forcecoul;
             }
-            ecoul = -prefactor*(this->*pair_potential)(etarij2, itype, jtype);
+            ecoul = prefactor*(this->*pair_potential)(etarij2, itype, jtype);
             force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
           }
         }
@@ -1467,15 +1471,22 @@ int FixConp::modify_param(int narg, char ** arg) {
   if (pairmode == ETA) {
     error->all(FLERR,"Can't fix_modify conp parameters in basic pair mode");
   }
+  double CON_s2overPIS = sqrt(2.0)/MY_PIS;
   if (strcmp(arg[0], "ehgo") == 0) {
-    if (!ehgo_allocated) ehgo_allocate();
-    if (strcmp(arg[1], "kappa") == 0) kappa = utils::numeric(FLERR,arg[2],false,lmp);
+    ehgo_allocate();
+    if (strcmp(arg[1], "kappa") == 0) {
+      if (narg != 3) error->all(FLERR,"Invalid number of inputs for EHGO coeff setting");
+      kappa = utils::numeric(FLERR,arg[2],false,lmp);
+      return 3;
+    }
     else if (strcmp(arg[1], "coeff") == 0) {
       if (narg != 5) error->all(FLERR,"Invalid number of inputs for EHGO coeff setting");
       int ilo, ihi;
       utils::bounds(FLERR,arg[2],1,atom->ntypes,ilo,ihi,error);
       double eta_one = utils::numeric(FLERR,arg[3],false,lmp);
-      double u0_one = utils::numeric(FLERR,arg[4],false,lmp);
+      double u0_one;
+      if (strcmp(arg[4], "auto") == 0) u0_one = evscale*CON_s2overPIS*eta_one;
+      else u0_one = utils::numeric(FLERR,arg[4],false,lmp);
       int count = 0;
       for (int i = ilo; i <= ihi; ++i) {
         eta_i[i] = eta_one;
@@ -1483,6 +1494,7 @@ int FixConp::modify_param(int narg, char ** arg) {
         ++count;
       }
       if (count == 0) error->all(FLERR,"Couldn't set EHGO coeffs with mintype more than maxtype");
+      return 5;
     }
     else error->all(FLERR,"Invalid entry for EHGO coeff setting");
   }
@@ -1497,7 +1509,7 @@ void FixConp::ehgo_setup_tables() {
   bool setflag = false;
   int i,j;
   for (i = 1; i <= ntypes; ++i) {
-    if (eta_i[i] && u0_i[i]) setflag = true;
+    if (eta_i[i] || u0_i[i]) setflag = true;
   }
   if (setflag) {
     double* f_i = new double[ntypes+1];
@@ -1519,14 +1531,17 @@ void FixConp::ehgo_setup_tables() {
           eta_ij[i][j] = eta_i[i] + eta_i[j]; // set eta_ij to the nonzero eta_i
           // leave fo_ij[i][j] = 0 from earlier memset
         }
+        if (i != j) {
+          eta_ij[j][i] = eta_ij[i][j]; // not sure if need to exclude i == j
+          fo_ij[j][i] = fo_ij[i][j];
+        }
       }
-      eta_ij[j][i] = eta_ij[i][j]; // not sure if need to exclude i == j
-      fo_ij[j][i] = fo_ij[i][j];
     }
   } else {
     ehgo_deallocate();
     pairmode = ETA;
-    error->warning(FLERR,"Switching back to eta pairmode because no EHGO settings were detected");
+    error->warning(FLERR,"No EHGO settings found, "
+                   "switching back to ETA mode");
   }
 }
 
@@ -1545,20 +1560,26 @@ double FixConp::ehgo_force(double rsq, int itype, int jtype) {
 }
 
 void FixConp::ehgo_allocate() {
-  int ntypes = atom->ntypes;
-  eta_i = new double[ntypes+1];
-  u0_i  = new double[ntypes+1];
-  memory->create(eta_ij,ntypes+1,ntypes+1,"fixconp:eta_ij");
-  memory->create(fo_ij,ntypes+1,ntypes+1,"fixconp:fo_ij");
-  memset(eta_ij,0,(ntypes+1)*(ntypes+1)*sizeof(double));
-  memset(fo_ij,0,(ntypes+1)*(ntypes+1)*sizeof(double));
-  ehgo_allocated = true;
+  if (!ehgo_allocated) {
+    int ntypes = atom->ntypes;
+    eta_i = new double[ntypes+1];
+    u0_i  = new double[ntypes+1];
+    memory->create(eta_ij,ntypes+1,ntypes+1,"fixconp:eta_ij");
+    memory->create(fo_ij,ntypes+1,ntypes+1,"fixconp:fo_ij");
+    memset(eta_i,0,(ntypes+1)*sizeof(double));
+    memset(u0_i,0,(ntypes+1)*sizeof(double));
+    memset(&eta_ij[0][0],0,(ntypes+1)*(ntypes+1)*sizeof(double));
+    memset(&fo_ij[0][0],0,(ntypes+1)*(ntypes+1)*sizeof(double));
+    ehgo_allocated = true;
+  }
 }
 
 void FixConp::ehgo_deallocate() {
-  delete [] eta_i;
-  delete [] u0_i;
-  memory->destroy(eta_ij);
-  memory->destroy(fo_ij);
-  ehgo_allocated = false;
+  if (ehgo_allocated) {
+    delete [] eta_i;
+    delete [] u0_i;
+    memory->destroy(eta_ij);
+    memory->destroy(fo_ij);
+    ehgo_allocated = false;
+  }
 }
