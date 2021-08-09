@@ -1472,6 +1472,7 @@ int FixConp::modify_param(int narg, char ** arg) {
     error->all(FLERR,"Can't fix_modify conp parameters in basic pair mode");
   }
   double CON_s2overPIS = sqrt(2.0)/MY_PIS;
+  evscale = force->qe2f/force->qqr2e;
   if (strcmp(arg[0], "ehgo") == 0) {
     ehgo_allocate();
     if (strcmp(arg[1], "kappa") == 0) {

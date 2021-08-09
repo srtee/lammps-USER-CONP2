@@ -14,7 +14,7 @@ log log.lammps_$n
 units               real    
 dimension           3   
 newton off
-processors          * * 2
+#processors          * * 2
 if "$n <= 2" then "boundary p p f" else "boundary p p p"
 atom_style          full 
 
@@ -102,8 +102,8 @@ elif "$n == 5 || $n == 6"  &
 "fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} noslab zneutr" &
 elif "$n == 4" &
 "fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} pppm ffield ehgo" &
-"fix_modify e ehgo kappa 2" &
-"fix_modify e ehgo coeff ${etype} 1.979 3" &
+"fix_modify e ehgo kappa 0" &
+"fix_modify e ehgo coeff ${etype} 1.979 auto" &
 "fix efield all efield 0 0 $(-v_v/lz) "
 
 #"fix e eleleft conp 1 eleright 1.979 $v iter etypes 1 ${etype} pppm ffield" &
