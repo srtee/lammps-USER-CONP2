@@ -39,6 +39,7 @@ class FixConp : public Fix {
   bool intelflag;
   int setmask();
   void init();
+  int modify_param(int, char **);
   void pre_force(int);
   void post_neighbor();
   void post_force(int);
@@ -57,11 +58,11 @@ class FixConp : public Fix {
   int electrode_check(int);
   void cg();
   void inv();
+  void inv_project();
   void get_setq();
   void b_comm(double *, double *);
   void b_comm_int(int *, int *);
   void b_bcast(int, int, int*, double*);
-  //void coul_cal(int, double *);
   void alist_coul_cal(double *);
   void blist_coul_cal(double *);
   void blist_coul_cal_post_force();
@@ -84,8 +85,30 @@ class FixConp : public Fix {
 
 
  protected:
+  /* pair type polymorphism      */
+  int pairmode;
+  using rsq_ij_func = double(FixConp::*)(double, int, int);
+  // rsq_ij_func self_potential;
+  rsq_ij_func pair_potential;
+  rsq_ij_func pair_force;
+
+  double eta_potential_A(double, int, int);
+  double eta_potential(double, int, int);
+  double eta_force(double, int, int);
+  double evscale;
+  
+  double kappa;
+  double* eta_i,*u0_i;
+  double** eta_ij,*fo_ij;
+  void ehgo_setup_tables();
+  bool ehgo_allocated;
+  void ehgo_allocate();
+  void ehgo_deallocate();
+  double ehgo_potential(double, int, int);
+  double ehgo_force(double, int, int);
+  /* ---------------------------- */
+  
   class NeighList *list;
-  // constructor
   int ilevel_respa, maxiter;
   double g_ewald;
   int ff_flag; 
@@ -127,6 +150,7 @@ class FixConp : public Fix {
   bool zneutrflag,initflag,matoutflag,pppmflag,qinitflag;
   bool lowmemflag,nullneutralflag;
   bool preforceflag,postforceflag;
+  bool one_electrode_flag;
 
   double scalar_output;
 };
