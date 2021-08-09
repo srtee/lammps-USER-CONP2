@@ -1485,12 +1485,12 @@ int FixConp::modify_param(int narg, char ** arg) {
       utils::bounds(FLERR,arg[2],1,atom->ntypes,ilo,ihi,error);
       double eta_one = utils::numeric(FLERR,arg[3],false,lmp);
       double u0_one;
-      if (strcmp(arg[4], "auto") == 0) u0_one = evscale*CON_s2overPIS*eta_one;
+      if (strcmp(arg[4], "auto") == 0) u0_one = CON_s2overPIS*eta_one/evscale;
       else u0_one = utils::numeric(FLERR,arg[4],false,lmp);
       int count = 0;
       for (int i = ilo; i <= ihi; ++i) {
         eta_i[i] = eta_one;
-        u0_i[i] = u0_one / evscale; // convert from eV/e^2 to A^-1
+        u0_i[i] = u0_one * evscale; // convert from eV/e^2 to A^-1
         ++count;
       }
       if (count == 0) error->all(FLERR,"Couldn't set EHGO coeffs with mintype more than maxtype");
