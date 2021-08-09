@@ -786,7 +786,7 @@ void FixConp::a_cal()
   kspmod->a_cal(aaa);
   
   if (pairmode == ETA) {
-    for (i = 0; i < elenum; ++i) {
+    for (i = 0; i < elenum_c; ++i) {
       int idx1d = i*elenum_all_c + ele2eleall[i];
       aaa[idx1d] += CON_s2overPIS*eta;
     }
@@ -794,7 +794,7 @@ void FixConp::a_cal()
 
   else if (pairmode == EHGO) {
     int* atomtype = atom->type;
-    for (i = 0; i < elenum; ++i) {
+    for (i = 0; i < elenum_c; ++i) {
       int idx1d = i*elenum_all_c + ele2eleall[i];
       int itype = atom->map(ele2tag[i]);
       aaa[idx1d] += u0_i[itype];
@@ -1402,7 +1402,7 @@ void FixConp::blist_coul_cal_post_force()
           etarij2 = eta*eta*rsq;
           if (etarij2 < ERFC_MAX) {
             prefactor = qqrd2e*qtmp*q[j];
-            forcecoul = -prefactor*(this->*pair_force)(etarij2, itype, jtype);
+            forcecoul = prefactor*(this->*pair_force)(etarij2, itype, jtype);
             fpair = forcecoul/rsq;
             // following logic is asymmetric
             // because we always know i < nlocal (but j could be ghost)
@@ -1428,37 +1428,39 @@ void FixConp::blist_coul_cal_post_force()
 }
 
 double FixConp::erfcr_sqrt(double a2_r2) {
-  double a_r = sqrt(a2_r2);
-  double expm2 = exp(-a2_r2);
-  double t = 1.0 / (1.0 + EWALD_P*a_r);
-  return t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2 / a_r;
+  if (a2_r2 < ERFC_MAX*ERFC_MAX) {
+    double a_r = sqrt(a2_r2);
+    double expm2 = exp(-a2_r2);
+    double t = 1.0 / (1.0 + EWALD_P*a_r);
+    return t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2 / a_r;
+  }
+  else return 0.;
 }
 
 double FixConp::ferfcr_sqrt(double a2_r2) {
-  double a_r = sqrt(a2_r2);
-  double expm2 = exp(-a2_r2);
-  double t = 1.0 / (1.0 + EWALD_P*a_r);
-  double erfcr = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2 / a_r;
-  return erfcr + EWALD_F*expm2;
+  if (a2_r2 < ERFC_MAX*ERFC_MAX) {
+    double a_r = sqrt(a2_r2);
+    double expm2 = exp(-a2_r2);
+    double t = 1.0 / (1.0 + EWALD_P*a_r);
+    double erfcr = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2 / a_r;
+    return erfcr + EWALD_F*expm2;
+  }
+  else return 0.;
 }
 
 double FixConp::eta_potential_A(double rsq, int /*itype*/, int /*jtype*/) {
-  double dudq = 0;
   double etarij2 = eta*eta*rsq/2;
-  if (etarij2 < ERFC_MAX) dudq -= erfcr_sqrt(etarij2)*eta/sqrt(2);
-  return dudq;
+  return -erfcr_sqrt(etarij2)*eta/sqrt(2);
 }
 
 double FixConp::eta_potential(double rsq, int /*itype*/, int /*jtype*/) {
-  double dudq = 0;
   double etarij2 = eta*eta*rsq;
-  if (etarij2 < ERFC_MAX) dudq -= erfcr_sqrt(etarij2)*eta;
-  return dudq;
+  return -erfcr_sqrt(etarij2)*eta;
 }
 
 double FixConp::eta_force(double rsq, int /*itype*/, int /*jtype*/) {
   double etarij2 = eta*eta*rsq;
-  return eta*ferfcr_sqrt(etarij2);
+  return -ferfcr_sqrt(etarij2)*eta;
 }
 
 int FixConp::modify_param(int narg, char ** arg) {
@@ -1529,20 +1531,17 @@ void FixConp::ehgo_setup_tables() {
 }
 
 double FixConp::ehgo_potential(double rsq, int itype, int jtype) {
-  double dudq = 0;
   double etaij = eta_ij[itype][jtype];
   double foij = fo_ij[itype][jtype];
   double etarij2 = etaij*etaij*rsq;
-  if (etarij2 < 17) dudq += foij*exp(-2*etarij2); 
-  if (etarij2 < ERFC_MAX) dudq -= erfcr_sqrt(etarij2)*etaij;
-  return dudq;
+  return foij*exp(-2*etarij2) - erfcr_sqrt(etarij2)*etaij;
 }
 
 double FixConp::ehgo_force(double rsq, int itype, int jtype) {
   double etaij = eta_ij[itype][jtype];
   double foij = fo_ij[itype][jtype];
   double etarij2 = etaij*etaij*rsq;
-  return -4*etarij2*foij*exp(-2*etarij2)+eta*ferfcr_sqrt(etarij2);
+  return 4*etarij2*foij*exp(-2*etarij2) - ferfcr_sqrt(etarij2)*etaij;
 }
 
 void FixConp::ehgo_allocate() {
