@@ -99,7 +99,7 @@ class FixConp : public Fix {
   
   double kappa;
   double* eta_i,*u0_i;
-  double** eta_ij,*fo_ij;
+  double** eta_ij,**fo_ij;
   void ehgo_setup_tables();
   bool ehgo_allocated;
   void ehgo_allocate();
