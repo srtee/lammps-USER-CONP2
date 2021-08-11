@@ -64,23 +64,23 @@ fix [ID] [group1] conq [Nevery] [group2] [η] [QR] [Log] [optional keyword1] [op
 
 `ID` = ID of FIX command
 
-`[group1]` = Group for 'left' electrode
+`group1` = Group for 'left' electrode
 
 `Nevery` = Update charge every this many steps
 
-`[group2]` = Group for 'right' electrode
+`group2` = Group for 'right' electrode
 
 `η` = Gaussian width parameter in angstrom<sup>-1</sup>. Usually this is 1.979 in earlier literature. **Validating this is an active project.**
 
-`[DV]`: fix con**p** will set the charges such that group2 has a potential DV volts above group1.
+`DV`: fix con**p** will set the charges such that group2 has a potential DV volts above group1.
 
-`[QR]`: fix con**q** will set the charges such that group2 has total charge QR, group1 has total charge -QR, and energy is minimized. See [5] for more details. **fully added in v1.1**
+`QR`: fix con**q** will set the charges such that group2 has total charge QR, group1 has total charge -QR, and energy is minimized. See [5] for more details. **fully added in v1.1**
 
 `Log` = Name of log file recording time usage of different parts
 
 ## The optional keywords and values allowed are as follows:
 
-`pppm`
+`pppm [no values]`
 
 Does what it says on the box!
 
