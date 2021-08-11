@@ -43,4 +43,6 @@ action pppm_conp.cpp pppm.h
 action pppm_conp.h pppm.h
 action fix_conp.cpp
 action fix_conp.h
+action fix_conq.cpp
+action fix_conq.cpp
 action incl_pppm_intel_templates.cpp
