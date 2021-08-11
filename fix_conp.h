@@ -32,12 +32,14 @@ FixStyle(conp,FixConp)
 namespace LAMMPS_NS {
 
 class FixConp : public Fix {
+ friend class FixConq;
  public:
   FixConp(class LAMMPS *, int, char **);
-  ~FixConp();
+  virtual ~FixConp();
   bool intelflag;
   int setmask();
   void init();
+  int modify_param(int, char **);
   void pre_force(int);
   void post_neighbor();
   void post_force(int);
@@ -56,11 +58,11 @@ class FixConp : public Fix {
   int electrode_check(int);
   void cg();
   void inv();
+  void inv_project();
   void get_setq();
   void b_comm(double *, double *);
   void b_comm_int(int *, int *);
   void b_bcast(int, int, int*, double*);
-  void coul_cal(int, double *);
   void alist_coul_cal(double *);
   void blist_coul_cal(double *);
   void blist_coul_cal_post_force();
@@ -69,6 +71,8 @@ class FixConp : public Fix {
   virtual void dyn_setup() {}
   void init_list(int, class NeighList*);
   void end_of_step();
+  double erfcr_sqrt(double);
+  double ferfcr_sqrt(double);
   int elenum,elenum_all;
   int elytenum;
   int *ele2tag,*ele2eleall;
@@ -77,14 +81,43 @@ class FixConp : public Fix {
   double eta;
   int *elenum_list,*displs,*eleall2ele;
   bool splitflag;
+  tagint maxtag_all;
+
 
  protected:
+  /* pair type polymorphism      */
+  int pairmode;
+  using rsq_ij_func = double(FixConp::*)(double, int, int);
+  // rsq_ij_func self_potential;
+  rsq_ij_func pair_potential;
+  rsq_ij_func pair_force;
+
+  double eta_potential_A(double, int, int);
+  double eta_potential(double, int, int);
+  double eta_force(double, int, int);
+  double evscale;
+  
+  double kappa;
+  double* eta_i,*u0_i;
+  double** eta_ij,**fo_ij;
+  void ehgo_setup_tables();
+  bool ehgo_allocated;
+  void ehgo_allocate();
+  void ehgo_deallocate();
+  double ehgo_potential(double, int, int);
+  double ehgo_force(double, int, int);
+  /* ---------------------------- */
+  
   class NeighList *list;
+  int ilevel_respa, maxiter;
   double g_ewald;
   int ff_flag; 
   int minimizer;
-  double qL,qR;
-  int qlstyle,qrstyle,qlvar,qrvar;
+  double potdiff;
+  int potdiffstyle,potdiffvar;
+  char *potdiffstr,*group2;
+  int jgroup,jgroupbit;
+  
   int elenum_old;
   double *eleallq;
   double *elesetq;
@@ -101,7 +134,6 @@ class FixConp : public Fix {
   class NeighList *alist,*blist;
 
   int me,runstage,gotsetq,nprocs;
-  int ilevel_respa;
   double Btime,Btime1,Btime2;
   double Ctime,Ctime1,Ctime2;
   double Ktime,Ktime1,Ktime2;
@@ -109,17 +141,18 @@ class FixConp : public Fix {
   FILE *outf,*a_matrix_fp;
   int a_matrix_f;
   int molidL,molidR;
-  int maxiter;
   double tolerance;
 
-  char *qlstr,*qrstr;
 
   int everynum;
   Pair *coulpair;
 
   bool zneutrflag,initflag,matoutflag,pppmflag,qinitflag;
+  bool lowmemflag,nullneutralflag;
   bool preforceflag,postforceflag;
-  bool lowmemflag;
+  bool one_electrode_flag;
+
+  double scalar_output;
 };
 
 }

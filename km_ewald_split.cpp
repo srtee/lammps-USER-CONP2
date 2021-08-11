@@ -606,8 +606,7 @@ void KSpaceModuleEwaldSplit::aaa_from_sincos_a(double* aaa)
       }
     }
     idx1d = i*elenum_all_c+elealli;
-    aaa[idx1d] = ewald_dot_ii(csk[i],snk[i],cski_e,snki_e);
-    aaa[idx1d] += CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
+    aaa[idx1d] = ewald_dot_ii(csk[i],snk[i],cski_e,snki_e) - CON_2overPIS*g_ewald;
   }
   // comm stuff
 

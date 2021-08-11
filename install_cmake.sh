@@ -20,7 +20,7 @@ fi
 # Copy the source files to the source directory
 # Do the base files first
 echo "Copying base CONP files..."
-cp -v compute_potential_atom.* fix_conp.* fix_conp_dyn2.* fix_conp_dyn.* \
+cp -v compute_potential_atom.* fix_conp.* fix_conq.* \
 km_ewald.* km_ewald_split.* kspacemodule.h pppm_conp.* incl_pppm_intel_templates.cpp \
 Install.sh \
 ${CONP_SRC_DIR} || exit 1

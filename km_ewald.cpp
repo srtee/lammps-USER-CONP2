@@ -611,7 +611,7 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
         idx1d++;
       }
       idx1d = i*elenum_all_c + elealli;
-      aaatmp = ug_tot+CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
+      aaatmp = ug_tot-CON_2overPIS*g_ewald;
       aaa[idx1d] = aaatmp;
     }
 
@@ -629,7 +629,7 @@ void KSpaceModuleEwald::aaa_from_sincos_a(double* aaa)
         aaa[idx1d] = aaatmp;
         ++idx1d; ++idx1d;
       }
-      aaatmp = ug_tot+CON_s2overPIS*fixconp->eta-CON_2overPIS*g_ewald;
+      aaatmp = ug_tot-CON_2overPIS*g_ewald;
       idx1d = i*elenum_all_c + elealli;
       aaa[idx1d] = aaatmp; ++idx1d;
       for (j = elealli + 1; j < elenum_all_c; j += 2) {

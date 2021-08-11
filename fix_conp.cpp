@@ -16,6 +16,7 @@
    Shern Ren Tee (UQ AIBN), s.tee@uq.edu.au
 ------------------------------------------------------------------------- */
 
+#include "lmptype.h"
 #include "math.h"
 #include "stdlib.h"
 #include "stddef.h"
@@ -29,6 +30,7 @@
 #include "memory.h"
 #include "error.h"
 #include "compute.h"
+#include "group.h"
 #include "kspacemodule.h"
 #include "km_ewald.h"
 #include "km_ewald_split.h"
@@ -64,6 +66,7 @@ using namespace MathConst;
 enum{CONSTANT,EQUAL,ATOM};
 enum{CG,INV};
 enum{NORMAL,FFIELD,NOSLAB};
+enum{ETA,EHGO};
 extern "C" {
   double ddot_(const int *N, const double *SX, const int *INCX, const double *SY, const int *INCY);
   void daxpy_(const int *N, const double *alpha, const double *X, const int *incX, double *Y, const int *incY);
@@ -74,53 +77,54 @@ extern "C" {
 /* ---------------------------------------------------------------------- */
 
 FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
-  Fix(lmp, narg, arg),coulpair(NULL),qlstr(NULL),qrstr(NULL)
+  Fix(lmp, narg, arg),coulpair(nullptr),potdiffstr(nullptr),group2(nullptr),
+  pair_potential(nullptr),pair_force(nullptr),ehgo_allocated(false),
+  kappa(1.), eta_i(nullptr),eta_ij(nullptr),u0_i(nullptr),fo_ij(nullptr)
 {
   MPI_Comm_rank(world,&me);
   MPI_Comm_size(world,&nprocs);
-  if (narg < 11) error->all(FLERR,"Illegal fix conp command (too few input parameters)");
-  qlstyle = qrstyle = CONSTANT;
+  if (narg < 8) error->all(FLERR,"Illegal fix conp command (too few input parameters)");
   ilevel_respa = 0;
   maxiter = 100;
   tolerance = 0.000001;
-  everynum = utils::inumeric(FLERR,arg[3],false,lmp);
-  eta = utils::numeric(FLERR,arg[4],false,lmp);
-  molidL = utils::inumeric(FLERR,arg[5],false,lmp);
-  molidR = utils::inumeric(FLERR,arg[6],false,lmp);
+  minimizer = 1; // default is inverse matrix solver
+
   zneutrflag = false;
   pppmflag = false;
   splitflag = false;
   qinitflag = false;
   lowmemflag = true;
-  if (strstr(arg[7],"v_") == arg[7]) {
-    int n = strlen(&arg[7][2]) + 1;
-    qlstr = new char[n];
-    strcpy(qlstr,&arg[7][2]);
-    qlstyle = EQUAL;
-  } else {
-    qL = utils::numeric(FLERR,arg[7],false,lmp);
-  }
-  if (strstr(arg[8],"v_") == arg[8]) {
-    int n = strlen(&arg[8][2]) + 1;
-    qrstr = new char[n];
-    strcpy(qrstr,&arg[8][2]);
-    qrstyle = EQUAL;
-  } else {
-    qR = utils::numeric(FLERR,arg[8],false,lmp);
-  }
-  if (strcmp(arg[9],"cg") == 0) {
-    minimizer = CG;
-  } else if (strcmp(arg[9],"inv") == 0) {
-    minimizer = INV;
-  } else error->all(FLERR,"Invalid fix conp command (unknown minimization method)");
+  nullneutralflag = true;
+  one_electrode_flag = false;
+  potdiffstyle = CONSTANT;
+  pairmode = ETA;
   
-  outf = fopen(arg[10],"w");
+  everynum = utils::inumeric(FLERR,arg[3],false,lmp);
+  
+  group2 = utils::strdup(arg[4]);
+  jgroup = group->find(group2);
+  if (jgroup == -1)
+    error->all(FLERR,"Fix conp group ID does not exist");
+  jgroupbit = group->bitmask[jgroup];
+  
+  eta = utils::numeric(FLERR,arg[5],false,lmp);
+  
+  if (strstr(arg[6],"v_") == arg[6]) {
+    int n = strlen(&arg[6][2]) + 1;
+    potdiffstr = new char[n];
+    strcpy(potdiffstr,&arg[7][2]);
+    potdiffstyle = EQUAL;
+  } else {
+    potdiff = utils::numeric(FLERR,arg[6],false,lmp);
+  }
+  
+  outf = fopen(arg[7],"w");
   ff_flag = NORMAL; // turn on ff / noslab options if needed.
   a_matrix_f = 0;
   smartlist = false; // get regular neighbor lists
   matoutflag = false; // turn off matrix output unless explicitly requested
   int iarg;
-  for (iarg = 11; iarg < narg; ++iarg){
+  for (iarg = 8; iarg < narg; ++iarg){
     if (strcmp(arg[iarg],"ffield") == 0) {
       if (ff_flag == NOSLAB) error->all(FLERR,"Invalid fix conp command (ffield and noslab cannot both be chosen)");
       ff_flag = FFIELD;
@@ -157,24 +161,14 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
       }
       smartlist = true;
     }
-    else if (strcmp(arg[iarg],"zneutr") == 0) {
-      zneutrflag = true;
-    }
-    else if (strcmp(arg[iarg],"matout") == 0) {
-      matoutflag = true;
-    }
-    else if (strcmp(arg[iarg],"pppm") == 0) {
-      pppmflag = true;
-    }
-    else if (strcmp(arg[iarg],"split") == 0) {
-      splitflag = true;
-    }
-    else if (strcmp(arg[iarg],"qinit") == 0) {
-      qinitflag = true;
-    }
-    else if (strcmp(arg[iarg],"himem") == 0) {
-      lowmemflag = false;
-    }
+    else if (strcmp(arg[iarg],"zneutr") == 0) zneutrflag = true;
+    else if (strcmp(arg[iarg],"matout") == 0) matoutflag = true;
+    else if (strcmp(arg[iarg],"pppm") == 0) pppmflag = true;
+    else if (strcmp(arg[iarg],"split") == 0) splitflag = true;
+    else if (strcmp(arg[iarg],"qinit") == 0) qinitflag = true;
+    else if (strcmp(arg[iarg],"himem") == 0) lowmemflag = false;
+    else if (strcmp(arg[iarg],"nonneutral") == 0) nullneutralflag = false;
+    else if (strcmp(arg[iarg],"ehgo") == 0) pairmode = EHGO;
     else {
       std::string errmsg = "Invalid fix conp commmand (unknown option: ";
       errmsg += arg[iarg];
@@ -228,11 +222,12 @@ FixConp::~FixConp()
   memory->destroy(elesetq);
   if (qinitflag) memory->destroy(eleinitq);
   if (newton) memory->destroy(newtonbuf);
-  if (tag2eleall!=nullptr) delete [] tag2eleall;
-  if (qlstr!=nullptr) delete [] qlstr;
-  if (qrstr!=nullptr) delete [] qrstr;
-  if (displs!=nullptr) delete [] displs;
-  if (elenum_list!=nullptr) delete [] elenum_list;
+  ehgo_deallocate();
+  delete [] tag2eleall;
+  delete [] potdiffstr;
+  delete [] displs;
+  delete [] elenum_list;
+  delete [] group2;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -270,22 +265,14 @@ void FixConp::init()
   }
   
   // check variables
-  if (qlstr) {
-    qlvar = input->variable->find(qlstr);
-    if (qlvar < 0)
-      error->all(FLERR,"Variable name for fix conp electrode voltage 1 does not exist");
-    if (!input->variable->equalstyle(qlvar))
-      error->all(FLERR,"Variable for fix conp electrode voltage 1 is invalid style");
+  if (potdiffstr) {
+    potdiffvar = input->variable->find(potdiffstr);
+    if (potdiffvar < 0)
+      error->all(FLERR,"Fix conp potential difference variable does not exist");
+    if (!input->variable->equalstyle(potdiffvar))
+      error->all(FLERR,"Fix conp potential difference variable is invalid style");
   }
  
-  if (qrstr) {
-    qrvar = input->variable->find(qrstr);
-    if (qrvar < 0)
-      error->all(FLERR,"Variable name for fix conp electrode voltage 2 does not exist");
-    if (!input->variable->equalstyle(qrvar))
-      error->all(FLERR,"Variable for fix conp electrode voltage 2 is invalid style");
-  }
-
   intelflag = false;
   int ifix = modify->find_fix("package_intel");
   if (ifix >= 0) intelflag = true;
@@ -306,6 +293,12 @@ void FixConp::init()
     }
   }
   // initflag = true;
+
+  if (groupbit == jgroupbit) one_electrode_flag = true;
+  if (pairmode == EHGO) {
+    ehgo_allocate();
+    ehgo_setup_tables();
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -379,10 +372,6 @@ void FixConp::init_list(int /* id */, NeighList *ptr) {
     else if (ptr->index == brequest) {
       blist = ptr;
     }
-    else {
-      // if (me == 0) printf("Init_list returned ID %d\n",ptr->index);
-      // error->all(FLERR,"Smart request init_list is being weird!");
-    }
   }
   else {
     alist = ptr;
@@ -422,8 +411,11 @@ void FixConp::linalg_init()
     kspmod->register_fix(this);
     kspmod->conp_setup(lowmemflag);
     g_ewald = force->kspace->g_ewald;
-    bigint natoms = atom->natoms;
-    tag2eleall = new int[natoms+1];
+    evscale = force->qe2f/force->qqr2e;
+    tagint maxtag = 0;
+    for (int i = 0; i < atom->nlocal; ++i) maxtag = MAX(atom->tag[i],maxtag);
+    MPI_Allreduce(&maxtag,&maxtag_all,1,MPI_LMP_TAGINT,MPI_MAX,world);
+    tag2eleall = new int[maxtag_all+1];
     int nprocs = comm->nprocs;
     elenum_list = new int[nprocs];
     displs = new int[nprocs];
@@ -436,6 +428,15 @@ void FixConp::linalg_init()
 void FixConp::linalg_setup()
 {
   if (runstage == 0) {
+    if (pairmode == EHGO) {
+      pair_potential = &FixConp::ehgo_potential;
+      pair_force = &FixConp::ehgo_force;
+    }
+    // if, not elseif, so ehgo_setup_tables can set pairmode to ETA if no parameters were given
+    if (pairmode == ETA) {
+      pair_potential = &FixConp::eta_potential_A; // switch to eta_potential later
+      pair_force = &FixConp::eta_force;
+    }
     if (a_matrix_f == 0) {
       if (me == 0) printf("Fix conp is now calculating A matrix ... ");
       a_cal();
@@ -445,6 +446,10 @@ void FixConp::linalg_setup()
       a_read();
     }
     runstage = 1;
+
+    if (pairmode == ETA) {
+      pair_potential = &FixConp::eta_potential;
+    }
 
     gotsetq = 0;
     b_setq_cal();
@@ -510,7 +515,7 @@ void FixConp::post_neighbor()
     if (qinitflag) memory->grow(eleinitq,elenum_all,"fixconp:eleinitq");
     MPI_Barrier(world); // otherwise next MPI_Allgatherv can race??
     for (i = 0; i < elenum_all; i++) elecheck_eleall[i] = 0;
-    for (i = 0; i < natoms+1; i++) tag2eleall[i] = elenum_all;
+    for (i = 0; i < maxtag_all+1; i++) tag2eleall[i] = elenum_all;
     eleall2ele[elenum_all] = -1; // not a typo
     MPI_Allgatherv(ele2tag,elenum,MPI_INT,eleall2tag,elenum_list,displs,MPI_INT,world);
     for (i = 0; i < elenum_all_c; ++i) tag2eleall[eleall2tag[i]] = i;
@@ -583,16 +588,16 @@ void FixConp::end_of_step()
 
 double FixConp::compute_scalar()
 {
-  return addv;
+  return scalar_output;
 }
 
 /* ---------------------------------------------------------------------- */
 
 int FixConp::electrode_check(int atomid)
 {
-  int *molid = atom->molecule;
-  if (molid[atomid] == molidL) return 1;
-  else if (molid[atomid] == molidR) return -1;
+  int *mask = atom->mask;
+  if (mask[atomid] & groupbit) return 1;
+  else if (mask[atomid] & jgroupbit) return -1;
   else return 0;
 }
 
@@ -603,7 +608,6 @@ void FixConp::b_setq_cal()
   int i,iall,iloc,eci;
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
-  double evscale = force->qe2f/force->qqr2e;
   double **x = atom->x;
   double zprd = domain->zprd;
   double zprd_half = domain->zprd_half;
@@ -772,6 +776,7 @@ void FixConp::a_cal()
   int i,j,k,iele;
   int const elenum_all_c = elenum_all;
   int nprocs = comm->nprocs;
+  double CON_s2overPIS = sqrt(2.0)/MY_PIS;
   t1 = MPI_Wtime();
   Ktime1 = MPI_Wtime();
   if (me == 0) {
@@ -783,6 +788,22 @@ void FixConp::a_cal()
   double *aaa = new double[elenum*elenum_all];
   memset(aaa,0,elenum*elenum_all*sizeof(double));
   kspmod->a_cal(aaa);
+  
+  if (pairmode == ETA) {
+    for (i = 0; i < elenum_c; ++i) {
+      int idx1d = i*elenum_all_c + ele2eleall[i];
+      aaa[idx1d] += CON_s2overPIS*eta;
+    }
+  }
+
+  else if (pairmode == EHGO) {
+    int* atomtype = atom->type;
+    for (i = 0; i < elenum_c; ++i) {
+      int idx1d = i*elenum_all_c + ele2eleall[i];
+      int itype = atomtype[atom->map(ele2tag[i])];
+      aaa[idx1d] += u0_i[itype];
+    }
+  }
 
   //if (smartlist) alist_coul_cal(aaa);
   //else coul_cal(2,aaa);
@@ -929,85 +950,8 @@ void FixConp::inv()
     work = NULL;
 
     if (infosum != 0) error->all(FLERR,"Inversion failed!");
-    
-    // here we project aaa_all onto
-    // the null space of e
 
-    double *ainve = new double[elenum_all];
-    double ainvtmp;
-    double totinve = 0;
-    idx1d = 0;
-
-    for (i = 0; i < elenum_all_c; i++) {
-      ainvtmp = 0;
-      for (j = 0; j < elenum_all_c; j++) {
-        ainvtmp += aaa_all[idx1d];
-      	idx1d++;
-      }
-      totinve += ainvtmp;
-      ainve[i] = ainvtmp;
-    }
-
-    if (totinve*totinve > 1e-8) {
-      idx1d = 0;
-      for (i = 0; i < elenum_all_c; i++) {
-        for (j = 0; j < elenum_all_c; j++) {
-          aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
-	  idx1d++;
-	}
-      }
-    }
-
-    // here we project aaa_all onto
-    // the null space of e_pos
-    // if zneutr has been called (i.e. we want each half of the unit cell
-    // to be neutral, not just the overall electrodes, in noslab)
-
-    if (zneutrflag) {
-      int iele;
-      double zprd_half = domain->zprd_half;
-      double zhalf = zprd_half + domain->boxlo[2];
-      double *elez = new double[elenum];
-      double *eleallz = new double[elenum_all];
-      int nlocal = atom->nlocal;
-      double **x = atom->x;
-      for (iele = 0; iele < elenum_c; ++iele) {
-        elez[iele] = x[atom->map(ele2tag[iele])][2];
-      }
-      b_comm(elez,eleallz);
-
-      bool *zele_is_pos = new bool[elenum_all];
-      for (iele = 0; iele < elenum_all_c; ++iele) {
-        zele_is_pos[iele] = (eleallz[iele] > zhalf);
-      }      
-      idx1d = 0;
-      totinve = 0;
-      for (i = 0; i < elenum_all_c; i++) {
-        ainvtmp = 0;
-        for (j = 0; j < elenum_all_c; j++) {
-          if (zele_is_pos[j]) ainvtmp += aaa_all[idx1d];
-      	  idx1d++;
-        }
-        ainve[i] = ainvtmp;
-        if (zele_is_pos[i]) totinve += ainvtmp;
-      }
-
-      if (totinve*totinve > 1e-8) {
-        idx1d = 0;
-        for (i = 0; i < elenum_all_c; i++) {
-          for (j = 0; j < elenum_all_c; j++) {
-            aaa_all[idx1d] -= ainve[i]*ainve[j]/totinve;
-  	    idx1d++;
-  	  }
-        }
-      }
-      delete [] zele_is_pos;
-      delete [] elez;
-      delete [] eleallz;      
-    }
-
-    delete [] ainve;
-    ainve = NULL;
+    if (!one_electrode_flag) inv_project();
 
     if (matoutflag && me == 0) {
       FILE *outinva = fopen("inv_a_matrix","w");
@@ -1029,6 +973,86 @@ void FixConp::inv()
     }
   }
   if (runstage == 2) runstage = 3;
+}
+
+void FixConp::inv_project()
+{
+  // here we project aaa_all onto
+  // the null space of e
+  if (nullneutralflag) {
+    double *ainve = new double[elenum_all];
+    double ainvtmp;
+    double totinve = 0;
+    int const elenum_c = elenum;
+    int const elenum_all_c = elenum_all;
+    int i,j;
+    int idx1d = 0;
+
+    for (i = 0; i < elenum_all_c; i++) {
+      ainvtmp = 0;
+      for (j = 0; j < elenum_all_c; j++) {
+        ainvtmp += aaa_all[idx1d];
+        idx1d++;
+      }
+      totinve += ainvtmp;
+      ainve[i] = ainvtmp;
+    }
+
+    if (totinve * totinve > 1e-8) {
+      idx1d = 0;
+      for (i = 0; i < elenum_all_c; i++) {
+        for (j = 0; j < elenum_all_c; j++) {
+          aaa_all[idx1d] -= ainve[i] * ainve[j] / totinve;
+          idx1d++;
+        }
+      }
+    }
+
+    // here we project aaa_all onto
+    // the null space of e_pos
+    // if zneutr has been called (i.e. we want each half of the unit cell
+    // to be neutral, not just the overall electrodes, in noslab)
+
+    if (zneutrflag) {
+      int iele;
+      double zprd_half = domain->zprd_half;
+      double zhalf = zprd_half + domain->boxlo[2];
+      double *elez = new double[elenum];
+      double *eleallz = new double[elenum_all];
+      int nlocal = atom->nlocal;
+      double **x = atom->x;
+      for (iele = 0; iele < elenum_c; ++iele) { elez[iele] = x[atom->map(ele2tag[iele])][2]; }
+      b_comm(elez, eleallz);
+
+      bool *zele_is_pos = new bool[elenum_all];
+      for (iele = 0; iele < elenum_all_c; ++iele) { zele_is_pos[iele] = (eleallz[iele] > zhalf); }
+      idx1d = 0;
+      totinve = 0;
+      for (i = 0; i < elenum_all_c; i++) {
+        ainvtmp = 0;
+        for (j = 0; j < elenum_all_c; j++) {
+          if (zele_is_pos[j]) ainvtmp += aaa_all[idx1d];
+          idx1d++;
+        }
+        ainve[i] = ainvtmp;
+        if (zele_is_pos[i]) totinve += ainvtmp;
+      }
+
+      if (totinve * totinve > 1e-8) {
+        idx1d = 0;
+        for (i = 0; i < elenum_all_c; i++) {
+          for (j = 0; j < elenum_all_c; j++) {
+            aaa_all[idx1d] -= ainve[i] * ainve[j] / totinve;
+            idx1d++;
+          }
+        }
+      }
+      delete[] zele_is_pos;
+      delete[] elez;
+      delete[] eleallz;
+    }
+    delete[] ainve;
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1077,6 +1101,7 @@ void FixConp::get_setq()
     }
     b_comm(bbb,eleinitq);
   }
+  if (one_electrode_flag) inv_project();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1104,9 +1129,7 @@ void FixConp::update_charge()
     b_comm(bbb,eleallq);
   } // if minimizer == 0 then we already have eleallq ready;
 
-  if (qlstyle == EQUAL) qL = input->variable->compute_equal(qlvar);
-  if (qrstyle == EQUAL) qR = input->variable->compute_equal(qrvar);
-  addv = qR - qL;
+  if (potdiffstyle == EQUAL) potdiff = input->variable->compute_equal(potdiffvar);
   //  now qL and qR are left and right *voltages*
   //  evscale was included in the precalculation of eleallq
 
@@ -1116,14 +1139,12 @@ void FixConp::update_charge()
     if (elecheck_eleall[iall] == 1) netcharge_left += eleallq[iall];
     i = atom->map(eleall2tag[iall]);
     if (i != -1) {
-      q[i] = eleallq[iall] + addv*elesetq[iall];
+      q[i] = eleallq[iall] + potdiff*elesetq[iall];
       if (qinitflag) q[i] += eleinitq[iall];
     }
   } // we need to loop like this to correctly charge ghost atoms
 
-  //  hack: we will use addv to store total electrode charge
-  addv *= totsetq;
-  addv += netcharge_left;
+  scalar_output = potdiff*totsetq+netcharge_left;
   kspmod->update_charge();
 }
 /* ---------------------------------------------------------------------- */
@@ -1131,157 +1152,47 @@ void FixConp::force_cal(int vflag)
 {
   int i;
   if (force->kspace->energy) {
-    double eleqsqsum = 0.0;
-    int nlocal = atom->nlocal;
-    for (i = 0; i < nlocal; i++) {
-      if (electrode_check(i)) {
-        eleqsqsum += atom->q[i]*atom->q[i];
+    if (pairmode == ETA) {
+      double eleqsqsum = 0.0;
+      int nlocal = atom->nlocal;
+      for (i = 0; i < nlocal; i++) {
+        if (electrode_check(i)) {
+          eleqsqsum += atom->q[i]*atom->q[i];
+        }
       }
+      double tmp;
+      MPI_Allreduce(&eleqsqsum,&tmp,1,MPI_DOUBLE,MPI_SUM,world);
+      eleqsqsum = tmp;
+      double scale = 1.0;
+      double qscale = force->qqrd2e*scale;
+      force->kspace->energy += qscale*eta*eleqsqsum/(sqrt(2)*MY_PIS);
     }
-    double tmp;
-    MPI_Allreduce(&eleqsqsum,&tmp,1,MPI_DOUBLE,MPI_SUM,world);
-    eleqsqsum = tmp;
-    double scale = 1.0;
-    double qscale = force->qqrd2e*scale;
-    force->kspace->energy += qscale*eta*eleqsqsum/(sqrt(2)*MY_PIS);
+    else if (pairmode == EHGO) {
+      double u0qsqsum = 0.0;
+      int nlocal = atom->nlocal;
+      int* atomtype = atom->type;
+      double* q = atom->q;
+      for (i = 0; i < nlocal; i++) {
+        if (electrode_check(i)) {
+          u0qsqsum += u0_i[atomtype[i]]*q[i]*q[i];
+        }
+      }
+      double tmp;
+      MPI_Allreduce(&u0qsqsum,&tmp,1,MPI_DOUBLE,MPI_SUM,world);
+      u0qsqsum = tmp;
+      double scale = 1.0;
+      double qscale = force->qqrd2e*scale;
+      force->kspace->energy += qscale*u0qsqsum;
+    }
   }
-  //if (smartlist) blist_coul_cal_post_force();
-  //else coul_cal(0,nullptr);
   blist_coul_cal_post_force();
 }
 /* ---------------------------------------------------------------------- */
 /*
-Notes: the alist_coul_cal, blist_coul_cal, and blist_coul_cal_post_force
-loops have been optimized by using request_smartlist to only return the
-correct neighbor pairs. But coul_cal must also be maintained because if
-smartlisting fails, we need something reliable to fall back upon!
-
-Also, electrode_check(i) is the standard way to check electrode membership
+Electrode_check(i) is the standard way to check electrode membership
 and all other ways must be checked and double checked and triple checked.
 Many coder-hours and rubber duckies died to give us this information.
 /*
-/* ---------------------------------------------------------------------- */
-void FixConp::coul_cal(int coulcalflag, double* m)
-{
-  Ctime1 = MPI_Wtime();
-  // coulcalflag = 2: a_cal; 1: b_cal; 0: force_cal
-  // NeighList *list = coulpair->list;
-  int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
-  int eci,ecj;
-  int checksum,elei,elej,elealli,eleallj;
-  double qtmp,xtmp,ytmp,ztmp,delx,dely,delz;
-  double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
-  double forcecoul,ecoul,prefactor,fpair;
-
-  int inum = list->inum;
-  int nlocal = atom->nlocal;
-  int newton_pair = force->newton_pair;
-  int *atomtype = atom->type;
-  int *tag = atom->tag;
-  int *ilist = list->ilist;
-  int *jlist;
-  int *numneigh = list->numneigh;
-  int **firstneigh = list->firstneigh;
-  
-  double qqrd2e = force->qqrd2e;
-  double **cutsq = coulpair->cutsq;
-  int itmp;
-  double *p_cut_coul = (double *) coulpair->extract("cut_coul",itmp);
-  double cut_coulsq = (*p_cut_coul)*(*p_cut_coul);
-  double cut_erfc = ERFC_MAX*ERFC_MAX/(g_ewald*g_ewald);
-  if (cut_coulsq > cut_erfc) cut_coulsq = cut_erfc;
-  double **x = atom->x;
-  double **f = atom->f;
-  double *q = atom->q;
-
-  for (ii = 0; ii < inum; ii++) {
-    i = ilist[ii];
-    eci = abs(electrode_check(i));
-    qtmp = q[i];
-    xtmp = x[i][0];
-    ytmp = x[i][1];
-    ztmp = x[i][2];
-    itype = atomtype[i];
-    jlist = firstneigh[i];
-    jnum = numneigh[i];
-    for (jj = 0; jj < jnum; jj++) {
-      j = jlist[jj];
-      j &= NEIGHMASK;
-      ecj = abs(electrode_check(j));
-      checksum = eci + ecj;
-      if (checksum == 1 || checksum == 2) {
-        if (coulcalflag == 0 || checksum == coulcalflag) {
-          delx = xtmp - x[j][0];
-          dely = ytmp - x[j][1];
-          delz = ztmp - x[j][2];
-          rsq = delx*delx + dely*dely + delz*delz;
-          jtype = atomtype[j];
-          if (rsq < cutsq[itype][jtype]) {
-            if (rsq < cut_coulsq) {
-              r2inv = 1.0/rsq;
-              dudq =0.0;
-              r = sqrt(rsq);
-              if (coulcalflag != 0) {
-                grij = g_ewald * r;
-                expm2 = exp(-grij*grij);
-                t = 1.0 / (1.0 + EWALD_P*grij);
-                erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-                dudq = erfc/r;
-              }
-              if (checksum == 1) etarij = eta*r;
-              else if (checksum == 2) etarij = eta*r/sqrt(2);
-              if (etarij < ERFC_MAX) {
-                expm2 = exp(-etarij*etarij);
-                t = 1.0 / (1.0+EWALD_P*etarij);
-                erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-                if (coulcalflag == 0) {
-                  prefactor = qqrd2e*qtmp*q[j]/r;
-                  forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
-                  fpair = forcecoul*r2inv;
-                  if (!(electrode_check(i))) {
-                    f[i][0] += delx*forcecoul;
-                    f[i][1] += dely*forcecoul;
-                    f[i][2] += delz*forcecoul;
-                  }
-                  if (!(electrode_check(j)) && (newton_pair || j < nlocal)) {
-                    f[j][0] -= delx*forcecoul;
-                    f[j][1] -= dely*forcecoul;
-                    f[j][2] -= delz*forcecoul;
-                  }
-                  ecoul = -prefactor*erfc;
-                  force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
-                } else {
-                  dudq -= erfc/r;
-                }
-              }
-              if (i < nlocal && eci) {
-                elei = eleall2ele[tag2eleall[tag[i]]];
-                if (coulcalflag == 1) m[elei] -= q[j]*dudq;
-                else if (coulcalflag == 2 && checksum == 2) {
-                  eleallj = tag2eleall[tag[j]];
-                  idx1d = elei*elenum_all + eleallj;
-                  m[idx1d] += dudq;
-                }
-              }
-              if (j < nlocal && ecj) {
-                elej = eleall2ele[tag2eleall[tag[j]]];
-                if (coulcalflag == 1) m[elej] -= q[i]*dudq;
-                else if (coulcalflag == 2 && checksum == 2) {
-                  elealli = tag2eleall[tag[i]];
-                  idx1d = elej*elenum_all + elealli;
-                  m[idx1d] += dudq;
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  Ctime2 = MPI_Wtime();
-  Ctime += Ctime2-Ctime1;
-}
-
 /* ---------------------------------------------------------------------- */
 void FixConp::alist_coul_cal(double* m)
 {
@@ -1294,7 +1205,7 @@ void FixConp::alist_coul_cal(double* m)
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
   int elei,elej,elealli,eleallj;
   double xtmp,ytmp,ztmp,delx,dely,delz;
-  double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
+  double r,r2inv,rsq,grij,etarij2,expm2,t,erfc,dudq;
   double forcecoul,ecoul,prefactor,fpair;
   bool ecib,ecjb;
   int inum = alist->inum;
@@ -1337,21 +1248,8 @@ void FixConp::alist_coul_cal(double* m)
         jtype = atomtype[j];
         if (rsq < cutsq[itype][jtype]) {
           if (rsq < cut_coulsq) {
-            dudq = 0;
-            r2inv = 1.0/rsq;
-            r = sqrt(rsq);
-            grij = g_ewald * r;
-            expm2 = exp(-grij*grij);
-            t = 1.0 / (1.0 + EWALD_P*grij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            dudq = erfc/r;
-            etarij = eta*r/sqrt(2);
-            if (etarij < ERFC_MAX) {
-              expm2 = exp(-etarij*etarij);
-              t = 1.0 / (1.0+EWALD_P*etarij);
-              erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-              dudq -= erfc/r;
-            }
+            dudq = erfcr_sqrt(g_ewald*g_ewald*rsq)*g_ewald;
+            dudq += (this->*pair_potential)(rsq, itype, jtype);
             elealli = tag2eleall[tag[i]];
             eleallj = tag2eleall[tag[j]];
             elei = eleall2ele[elealli];
@@ -1374,7 +1272,7 @@ void FixConp::blist_coul_cal(double* m)
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
   int checksum,elei,elej,elealli,eleallj,tagi;
   double qtmp,xtmp,ytmp,ztmp,delx,dely,delz;
-  double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
+  double r,r2inv,rsq,grij,etarij2,expm2,t,erfc,dudq;
   double forcecoul,ecoul,prefactor,fpair;
 
   int inum = blist->inum;
@@ -1422,34 +1320,21 @@ void FixConp::blist_coul_cal(double* m)
         jtype = atomtype[j];
         if (rsq < cutsq[itype][jtype]) {
           if (rsq < cut_coulsq) {
-            r2inv = 1.0/rsq;
-            dudq = 0.0;
-            r = sqrt(rsq);
-            grij = g_ewald * r;
-            expm2 = exp(-grij*grij);
-            t = 1.0 / (1.0 + EWALD_P*grij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            dudq = erfc/r;
-	  }
-          etarij = eta*r;
-	  if (etarij < ERFC_MAX) {
-            expm2 = exp(-etarij*etarij);
-            t = 1.0 / (1.0+EWALD_P*etarij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            dudq -= erfc/r;
-	  }
-          if (ecib) {
-            elei = eleall2ele[tag2eleall[tag[i]]];
-            m[elei] -= q[j]*dudq;
-          }
-	  else if (j < nlocal) {
-            elej = eleall2ele[tag2eleall[tag[j]]];
-            m[elej] -= q[i]*dudq;
-          }
-	  else if (newton) {
-	    eleallj = tag2eleall[tag[j]];
-	    newtonbuf[eleallj] -= q[i]*dudq;
-	  }
+            dudq = erfcr_sqrt(g_ewald*g_ewald*rsq)*g_ewald;
+            dudq += (this->*pair_potential)(rsq, itype, jtype);
+            if (ecib) {
+              elei = eleall2ele[tag2eleall[tag[i]]];
+              m[elei] -= q[j]*dudq;
+            }
+	          else if (j < nlocal) {
+              elej = eleall2ele[tag2eleall[tag[j]]];
+              m[elej] -= q[i]*dudq;
+            }
+	          else if (newton) {
+	            eleallj = tag2eleall[tag[j]];
+	            newtonbuf[eleallj] -= q[i]*dudq;
+            }
+	        }
         }
       }
     }
@@ -1473,7 +1358,7 @@ void FixConp::blist_coul_cal_post_force()
   Ctime1 = MPI_Wtime();
   int i,j,k,ii,jj,jnum,itype,jtype,idx1d;
   double qtmp,xtmp,ytmp,ztmp,delx,dely,delz;
-  double r,r2inv,rsq,grij,etarij,expm2,t,erfc,dudq;
+  double r,r2inv,rsq,grij,etarij2,expm2,t,erfcr,dudq;
   double forcecoul,ecoul,prefactor,fpair;
   int newton_pair = force->newton_pair;
   int inum = blist->inum;
@@ -1518,16 +1403,11 @@ void FixConp::blist_coul_cal_post_force()
         rsq = delx*delx + dely*dely + delz*delz;
         jtype = atomtype[j];
         if (rsq < cutsq[itype][jtype]) {
-          if (rsq < cut_coulsq) {
-            r2inv = 1.0/rsq;
-            r = sqrt(rsq);
-            etarij = eta*r;
-            expm2 = exp(-etarij*etarij);
-            t = 1.0 / (1.0+EWALD_P*etarij);
-            erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
-            prefactor = qqrd2e*qtmp*q[j]/r;
-            forcecoul = -prefactor*(erfc+EWALD_F*etarij*expm2);
-            fpair = forcecoul*r2inv;
+          etarij2 = eta*eta*rsq;
+          if (etarij2 < ERFC_MAX) {
+            prefactor = qqrd2e*qtmp*q[j];
+            forcecoul = prefactor*(this->*pair_force)(etarij2, itype, jtype);
+            fpair = forcecoul/rsq;
             // following logic is asymmetric
             // because we always know i < nlocal (but j could be ghost)
             if (!eleilocal) {
@@ -1540,7 +1420,7 @@ void FixConp::blist_coul_cal_post_force()
               f[j][1] -= dely*forcecoul;
               f[j][2] -= delz*forcecoul;
             }
-            ecoul = -prefactor*erfc;
+            ecoul = prefactor*(this->*pair_potential)(etarij2, itype, jtype);
             force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
           }
         }
@@ -1549,4 +1429,158 @@ void FixConp::blist_coul_cal_post_force()
   }
   Ctime2 = MPI_Wtime();
   Ctime += Ctime2-Ctime1;
+}
+
+double FixConp::erfcr_sqrt(double a2_r2) {
+  if (a2_r2 < ERFC_MAX*ERFC_MAX) {
+    double a_r = sqrt(a2_r2);
+    double expm2 = exp(-a2_r2);
+    double t = 1.0 / (1.0 + EWALD_P*a_r);
+    return t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2 / a_r;
+  }
+  else return 0.;
+}
+
+double FixConp::ferfcr_sqrt(double a2_r2) {
+  if (a2_r2 < ERFC_MAX*ERFC_MAX) {
+    double a_r = sqrt(a2_r2);
+    double expm2 = exp(-a2_r2);
+    double t = 1.0 / (1.0 + EWALD_P*a_r);
+    double erfcr = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2 / a_r;
+    return erfcr + EWALD_F*expm2;
+  }
+  else return 0.;
+}
+
+double FixConp::eta_potential_A(double rsq, int /*itype*/, int /*jtype*/) {
+  double etarij2 = eta*eta*rsq/2;
+  return -erfcr_sqrt(etarij2)*eta/sqrt(2);
+}
+
+double FixConp::eta_potential(double rsq, int /*itype*/, int /*jtype*/) {
+  double etarij2 = eta*eta*rsq;
+  return -erfcr_sqrt(etarij2)*eta;
+}
+
+double FixConp::eta_force(double rsq, int /*itype*/, int /*jtype*/) {
+  double etarij2 = eta*eta*rsq;
+  return -ferfcr_sqrt(etarij2)*eta;
+}
+
+int FixConp::modify_param(int narg, char ** arg) {
+  if (pairmode == ETA) {
+    error->all(FLERR,"Can't fix_modify conp parameters in basic pair mode");
+  }
+  double CON_s2overPIS = sqrt(2.0)/MY_PIS;
+  evscale = force->qe2f/force->qqr2e;
+  if (strcmp(arg[0], "ehgo") == 0) {
+    ehgo_allocate();
+    if (strcmp(arg[1], "kappa") == 0) {
+      if (narg != 3) error->all(FLERR,"Invalid number of inputs for EHGO coeff setting");
+      kappa = utils::numeric(FLERR,arg[2],false,lmp);
+      return 3;
+    }
+    else if (strcmp(arg[1], "coeff") == 0) {
+      if (narg != 5) error->all(FLERR,"Invalid number of inputs for EHGO coeff setting");
+      int ilo, ihi;
+      utils::bounds(FLERR,arg[2],1,atom->ntypes,ilo,ihi,error);
+      double eta_one = utils::numeric(FLERR,arg[3],false,lmp);
+      double u0_one;
+      if (strcmp(arg[4], "auto") == 0) u0_one = CON_s2overPIS*eta_one/evscale;
+      else u0_one = utils::numeric(FLERR,arg[4],false,lmp);
+      int count = 0;
+      for (int i = ilo; i <= ihi; ++i) {
+        eta_i[i] = eta_one;
+        u0_i[i] = u0_one * evscale; // convert from eV/e^2 to A^-1
+        ++count;
+      }
+      if (count == 0) error->all(FLERR,"Couldn't set EHGO coeffs with mintype more than maxtype");
+      return 5;
+    }
+    else error->all(FLERR,"Invalid entry for EHGO coeff setting");
+  }
+  return 0;
+}
+
+void FixConp::ehgo_setup_tables() {
+  int ntypes = atom->ntypes;
+  double CON_s2overPIS = sqrt(2.0)/MY_PIS;
+  double sq8 = sqrt(8.0);
+  // check if any coeffs set
+  bool setflag = false;
+  int i,j;
+  for (i = 1; i <= ntypes; ++i) {
+    if (eta_i[i] || u0_i[i]) setflag = true;
+  }
+  if (setflag) {
+    double* f_i = new double[ntypes+1];
+    memset(f_i,0,(ntypes+1)*sizeof(double));
+    for (i = 1; i <= ntypes; ++i) {
+      f_i[i] = u0_i[i] - CON_s2overPIS*eta_i[i];
+    }
+    for (i = 1; i <= ntypes; ++i) {
+      for (j = 1; j <= i; ++j) {
+        if (eta_i[i] && eta_i[j]) { // both etas non-zero
+          double etasq = eta_i[i]*eta_i[i]+eta_i[j]*eta_i[j];
+          double etaprod = eta_i[i]*eta_i[j];
+          eta_ij[i][j] = etaprod/sqrt(etasq);
+          double o_ij = sq8*pow(eta_ij[i][j],3.0)/(etaprod*sqrt(etaprod));
+          double f_ij = 0.5*kappa*(f_i[i]+f_i[j]);
+          fo_ij[i][j] = f_ij*o_ij;
+        }
+        else { // one eta is zero
+          eta_ij[i][j] = eta_i[i] + eta_i[j]; // set eta_ij to the nonzero eta_i
+          // leave fo_ij[i][j] = 0 from earlier memset
+        }
+        if (i != j) {
+          eta_ij[j][i] = eta_ij[i][j]; // not sure if need to exclude i == j
+          fo_ij[j][i] = fo_ij[i][j];
+        }
+      }
+    }
+  } else {
+    ehgo_deallocate();
+    pairmode = ETA;
+    error->warning(FLERR,"No EHGO settings found, "
+                   "switching back to ETA mode");
+  }
+}
+
+double FixConp::ehgo_potential(double rsq, int itype, int jtype) {
+  double etaij = eta_ij[itype][jtype];
+  double foij = fo_ij[itype][jtype];
+  double etarij2 = etaij*etaij*rsq;
+  return foij*exp(-2*etarij2) - erfcr_sqrt(etarij2)*etaij;
+}
+
+double FixConp::ehgo_force(double rsq, int itype, int jtype) {
+  double etaij = eta_ij[itype][jtype];
+  double foij = fo_ij[itype][jtype];
+  double etarij2 = etaij*etaij*rsq;
+  return 4*etarij2*foij*exp(-2*etarij2) - ferfcr_sqrt(etarij2)*etaij;
+}
+
+void FixConp::ehgo_allocate() {
+  if (!ehgo_allocated) {
+    int ntypes = atom->ntypes;
+    eta_i = new double[ntypes+1];
+    u0_i  = new double[ntypes+1];
+    memory->create(eta_ij,ntypes+1,ntypes+1,"fixconp:eta_ij");
+    memory->create(fo_ij,ntypes+1,ntypes+1,"fixconp:fo_ij");
+    memset(eta_i,0,(ntypes+1)*sizeof(double));
+    memset(u0_i,0,(ntypes+1)*sizeof(double));
+    memset(&eta_ij[0][0],0,(ntypes+1)*(ntypes+1)*sizeof(double));
+    memset(&fo_ij[0][0],0,(ntypes+1)*(ntypes+1)*sizeof(double));
+    ehgo_allocated = true;
+  }
+}
+
+void FixConp::ehgo_deallocate() {
+  if (ehgo_allocated) {
+    delete [] eta_i;
+    delete [] u0_i;
+    memory->destroy(eta_ij);
+    memory->destroy(fo_ij);
+    ehgo_allocated = false;
+  }
 }
