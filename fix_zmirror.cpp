@@ -196,6 +196,6 @@ double FixZmirror::memory_usage()
 {
   double nbytes = 2*sizeof(tagint)+6*sizeof(double);
   nbytes *= ngroup;
-  nbytes += 3*nprocs*sizeof(int);
+  nbytes += 4*nprocs*sizeof(int);
   return nbytes;
 }
