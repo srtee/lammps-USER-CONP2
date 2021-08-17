@@ -65,25 +65,29 @@ void FixZmirror::setup(int /* ev_flag */)
   int const nlocal = atom->nlocal;
   int *mask = atom->mask;
   int *tag  = atom->tag;
-  tagint maxtag = 0;
-  for (int i = 0; i < nlocal; ++i) maxtag = MAX(tag[i],maxtag);
-  MPI_Allreduce(&maxtag,MPI_IN_PLACE,1,MPI_LMP_TAGINT,MPI_MAX,world);
-  send_mintag = maxtag;
-  recv_mintag = maxtag;
+  tagint maxtag_me = 0;
+  tagint send_mintag_me, recv_mintag_me;
+  tagint send_maxtag_me = 0;
+  tagint recv_maxtag_me = 0;
+  tagint maxtag;
+  for (int i = 0; i < nlocal; ++i) maxtag_me = MAX(tag[i],maxtag_me);
+  MPI_Allreduce(&maxtag_me,&maxtag,1,MPI_LMP_TAGINT,MPI_MAX,world);
+  send_mintag_me = maxtag;
+  recv_mintag_me = maxtag;
   for (int i = 0; i < nlocal; ++i) {
     if (mask[i] & groupbit) {
-      send_mintag = MIN(tag[i],send_mintag);
-      send_maxtag = MAX(tag[i],send_maxtag);
+      send_mintag_me = MIN(tag[i],send_mintag_me);
+      send_maxtag_me = MAX(tag[i],send_maxtag_me);
     }
     if (mask[i] & jgroupbit) {
-      recv_mintag = MIN(tag[i],recv_mintag);
-      recv_maxtag = MAX(tag[i],recv_maxtag);
+      recv_mintag_me = MIN(tag[i],recv_mintag_me);
+      recv_maxtag_me = MAX(tag[i],recv_maxtag_me);
     }
   }
-  MPI_Allreduce(&send_mintag,MPI_IN_PLACE,1,MPI_LMP_TAGINT,MPI_MIN,world);
-  MPI_Allreduce(&send_maxtag,MPI_IN_PLACE,1,MPI_LMP_TAGINT,MPI_MAX,world);
-  MPI_Allreduce(&recv_mintag,MPI_IN_PLACE,1,MPI_LMP_TAGINT,MPI_MIN,world);
-  MPI_Allreduce(&recv_maxtag,MPI_IN_PLACE,1,MPI_LMP_TAGINT,MPI_MAX,world);
+  MPI_Allreduce(&send_mintag_me,&send_mintag,1,MPI_LMP_TAGINT,MPI_MIN,world);
+  MPI_Allreduce(&send_maxtag_me,&send_maxtag,1,MPI_LMP_TAGINT,MPI_MAX,world);
+  MPI_Allreduce(&recv_mintag_me,&recv_mintag,1,MPI_LMP_TAGINT,MPI_MIN,world);
+  MPI_Allreduce(&recv_maxtag_me,&recv_maxtag,1,MPI_LMP_TAGINT,MPI_MAX,world);
   ngroup = send_maxtag - send_mintag + 1;
   int ncheck = recv_maxtag - recv_mintag + 1;
   if (ncheck != ngroup) error->all(FLERR,"Groups do not have same number of tags");
@@ -140,7 +144,7 @@ void FixZmirror::post_integrate()
       }
       if (mask[i] & jgroupbit) will_recv = true;
     }
-    MPI_Allgather(&nsend,1,MPI_INT,nsend_all,nprocs,MPI_INT,world);
+    MPI_Allgather(&nsend,1,MPI_INT,nsend_all,1,MPI_INT,world);
     coord_nsend_all[0] = 3*nsend_all[0];
     for (int i = 1; i < nprocs; ++i) {
       coord_nsend_all[i] = 3*nsend_all[i];
