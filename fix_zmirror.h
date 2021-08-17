@@ -37,11 +37,12 @@ class FixZmirror : public Fix {
   void setup(int);
   void allocate();
   void post_integrate();
+  void comm_and_remap();
   void end_of_step();
   double memory_usage();
  protected:
-  tagint *tag_send_buf;
-  tagint *tag_recv_buf;
+  int *loc_send_buf;
+  int *loc_recv_buf;
   double *coord_send_buf;
   double *coord_recv_buf;
   tagint send_mintag, send_maxtag;
@@ -50,6 +51,7 @@ class FixZmirror : public Fix {
   int ngroup,everynum;
   char *group2;
   int jgroup,jgroupbit;
+  int nsend;
   bool will_recv, ran_postint, allocated;
   int *nsend_all, *coord_nsend_all, *tag_displs, *coord_displs;
 };
