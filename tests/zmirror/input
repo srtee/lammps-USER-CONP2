@@ -1,0 +1,96 @@
+variable n getenv "N"
+variable p getenv "P"
+log log.lammps_$n
+
+# trial numbers:
+# 0 = conp noslab zneutr etypes [sym]
+# 1 = conp noslab zneutr etypes pppm [sym]
+# 2 = conp noslab zneutr etypes pppm [sym zmirror 1]
+# 3 = conq noslab zneutr etypes pppm [sym zmirror 1]
+
+units real
+dimension 3
+if "$p == 2" then "processors * * 2" &
+elif "$p == 1"    "processors * * 1"
+boundary p p p
+atom_style full
+
+# force field
+pair_style lj/cut/coul/long 16.0
+pair_modify mix arithmetic
+bond_style harmonic
+angle_style harmonic
+if "$n == 0" then "kspace_style pppm 1e-7" else "kspace_style pppm/conp 1e-7"
+
+# configuration
+read_data data
+
+variable molmax   equal 646
+variable molleft  equal 641
+variable molright equal 642
+
+# replicate cell
+replicate 1 1 2
+change_box all z final $(-lz/2) $(lz/2) remap units box
+region pos block EDGE EDGE EDGE EDGE 0 EDGE
+group pos region pos
+variable newz atom lz/2-z
+variable newvz atom -vz
+set group pos z v_newz
+set group pos vz v_newvz
+
+neigh_modify one 3000
+group sol type 1:4
+variable q atom q
+variable qz atom q*z
+variable etype equal 5
+
+group ele       type ${etype}
+group eleleft   molecule ${molleft}  $(v_molleft  + v_molmax)
+group eleright  molecule ${molright} $(v_molright + v_molmax)
+
+group solpos    intersect sol    pos
+group solneg    subtract  sol    solpos
+group elepos    intersect ele    pos
+group eleneg    subtract  ele    elepos
+
+group elelp     intersect eleleft  pos
+group elerp     intersect eleright pos
+group eleln     subtract  eleleft  pos
+group elern     subtract  eleright pos
+
+compute qlp  elelp  reduce sum v_q
+compute qln  eleln  reduce sum v_q
+compute qrp  elerp  reduce sum v_q
+compute qrn  elern  reduce sum v_q
+
+run_style verlet
+timestep 2
+velocity ele set 0.0 0.0 0.0
+variable v equal 2.0
+variable c equal 2*0.35
+
+compute dippos  solpos  reduce ave v_qz
+compute dipneg  solneg  reduce ave v_qz
+
+if "$n == 0" then &
+"fix e eleleft conp 1 eleright 1.979 $v iter noslab zneutr etypes 1 ${etype}" &
+elif "$n == 1 || $n == 2" &
+"fix e eleleft conp 1 eleright 1.979 $v iter noslab zneutr etypes 1 ${etype} pppm" &
+elif "$n == 3" &
+"fix e eleleft conq 1 eleright 1.979 $c iter noslab zneutr etypes 1 ${etype} pppm" &
+
+variable t equal 500
+group bmi type 1:3
+fix bmishake bmi shake 0.0001 10 0 t 1 2 3 b 1 2 a 1
+
+fix 1 solneg nvt temp $t $t 100.0
+if "$n == 0 || $n == 1" then &
+"fix 2 solpos nvt temp $t $t 100.0" &
+elif "$n == 2 || $n == 3" &
+"fix 2 solneg zmirror 1 solpos" &
+"neigh_modify exclude group solpos solpos" &
+
+thermo_style custom step c_qln c_qrn c_qrp c_qlp c_dipneg c_dippos f_e
+thermo 50
+run 2500
