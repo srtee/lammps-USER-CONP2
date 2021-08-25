@@ -33,13 +33,17 @@ extern "C" {
 FixConq::FixConq(LAMMPS *lmp, int narg, char **arg):
   FixConp(lmp, narg, arg)
 {
-  rightchargevar = potdiffvar;
-  rightchargestyle = potdiffstyle;
-  rightcharge = potdiff;
+//  rightchargevar = potdiffvar;
+//  rightchargestyle = potdiffstyle;
+//  rightcharge = potdiff;
 }
 
 void FixConq::update_charge()
 {
+  int const rightchargevar = potdiffvar;
+  int const rightchargestyle = potdiffstyle;
+  double rightcharge = potdiff;
+  double potdiff_conq;
   int i,j,idx1d,iall,jall,iloc;
   int elealli,tagi;
   double eleallq_i;
@@ -71,12 +75,12 @@ void FixConq::update_charge()
     if (elecheck_eleall[iall] == 1) netcharge_right -= eleallq[iall];
   }
   
-  potdiff = scalar_output = -(rightcharge - netcharge_right)/totsetq;
+  potdiff_conq = scalar_output = -(rightcharge - netcharge_right)/totsetq;
   
   for (iall = 0; iall < elenum_all_c; ++iall) {
     i = atom->map(eleall2tag[iall]);
     if (i != -1) {
-      q[i] = eleallq[iall] + potdiff*elesetq[iall];
+      q[i] = eleallq[iall] + potdiff_conq*elesetq[iall];
       if (qinitflag) q[i] += eleinitq[iall];
     }
   } // we need to loop like this to correctly charge ghost atoms
