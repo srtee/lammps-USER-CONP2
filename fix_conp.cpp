@@ -453,6 +453,7 @@ void FixConp::linalg_setup()
 
     gotsetq = 0;
     b_setq_cal();
+    cond_setup(); // additional setup for fix cond
     equation_solve();
     get_setq();
     gotsetq = 1;
@@ -609,9 +610,10 @@ void FixConp::b_setq_cal()
   int *tag = atom->tag;
   int nlocal = atom->nlocal;
   double **x = atom->x;
+  double zlo = domain->boxlo[2];
   double zprd = domain->zprd;
   double zprd_half = domain->zprd_half;
-  double zhalf = zprd_half + domain->boxlo[2];
+  double zhalf = zprd_half + zlo;
   int const elenum_c = elenum;
   for (iloc = 0; iloc < elenum_c; ++iloc) {
     iall = ele2eleall[iloc];
@@ -619,9 +621,9 @@ void FixConp::b_setq_cal()
     eci = electrode_check(i);
     if (ff_flag == FFIELD) {
       if (eci == 1 && x[i][2] < zhalf) {
-        bbb[iloc] = -(x[i][2]/zprd + 1)*evscale;
+        bbb[iloc] = -evscale*(x[i][2]/zprd + 1);
       }
-      else bbb[iloc] = -x[i][2]*evscale/zprd;
+      else bbb[iloc] = -evscale*x[i][2]/zprd;
     }
     else bbb[iloc] = -0.5*evscale*eci;
     elecheck_eleall[iall] = eci;

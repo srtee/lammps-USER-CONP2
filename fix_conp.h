@@ -69,6 +69,7 @@ class FixConp : public Fix {
   void request_smartlist();
   virtual double compute_scalar();
   virtual void dyn_setup() {}
+  virtual void cond_setup() {}
   void init_list(int, class NeighList*);
   void end_of_step();
   double erfcr_sqrt(double);
