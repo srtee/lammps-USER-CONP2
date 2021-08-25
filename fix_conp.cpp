@@ -109,10 +109,8 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   
   eta = utils::numeric(FLERR,arg[5],false,lmp);
   
-  if (strstr(arg[6],"v_") == arg[6]) {
-    int n = strlen(&arg[6][2]) + 1;
-    potdiffstr = new char[n];
-    strcpy(potdiffstr,&arg[7][2]);
+  if (utils::strmatch(arg[6],"^v_")) {
+    potdiffstr = utils::strdup(arg[6]+2);
     potdiffstyle = EQUAL;
   } else {
     potdiff = utils::numeric(FLERR,arg[6],false,lmp);
