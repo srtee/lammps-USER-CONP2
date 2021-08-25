@@ -455,6 +455,10 @@ void FixConp::linalg_setup()
     equation_solve();
     get_setq();
     gotsetq = 1;
+    if (me == 0) {
+      std::string mesg = fmt::format("conp output: <d,d> = {:.8g}\n",-totsetq);
+      utils::logmesg(lmp,mesg);
+    }
     dyn_setup(); // additional setup for dynamic versions
   }
 }
