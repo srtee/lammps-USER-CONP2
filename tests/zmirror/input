@@ -11,7 +11,8 @@ log log.lammps_$n
 units real
 dimension 3
 if "$p == 2" then "processors * * 2" &
-elif "$p == 1"    "processors * * 1"
+elif "$p == 1"    "processors * * 1" &
+elif "$p == 4"    "processors * * 4" 
 boundary p p p
 atom_style full
 
