@@ -983,25 +983,32 @@ void FixConp::inv_project()
 {
   // here we project aaa_all onto
   // the null space of e
-  if (nullneutralflag) {
-    double *ainve = new double[elenum_all];
-    double ainvtmp;
-    double totinve = 0;
-    int const elenum_c = elenum;
-    int const elenum_all_c = elenum_all;
-    int i,j;
-    int idx1d = 0;
+  // brought out of nullneutralflag loop so <e,e> is reported
+  // even if neutralization isn't done
+  double *ainve = new double[elenum_all];
+  double ainvtmp;
+  double totinve = 0;
+  int const elenum_c = elenum;
+  int const elenum_all_c = elenum_all;
+  int i,j;
+  int idx1d = 0;
 
-    for (i = 0; i < elenum_all_c; i++) {
-      ainvtmp = 0;
-      for (j = 0; j < elenum_all_c; j++) {
-        ainvtmp += aaa_all[idx1d];
-        idx1d++;
-      }
-      totinve += ainvtmp;
-      ainve[i] = ainvtmp;
+  for (i = 0; i < elenum_all_c; i++) {
+    ainvtmp = 0;
+    for (j = 0; j < elenum_all_c; j++) {
+      ainvtmp += aaa_all[idx1d];
+      idx1d++;
     }
+    totinve += ainvtmp;
+    ainve[i] = ainvtmp;
+  }
 
+  if (me == 0) {
+    std::string mesg = fmt::format("conp output: <e,e> = {:.8g}\n",totinve);
+    utils::logmesg(lmp,mesg);
+  }
+
+  if (nullneutralflag) {
     if (totinve * totinve > 1e-8) {
       idx1d = 0;
       for (i = 0; i < elenum_all_c; i++) {
