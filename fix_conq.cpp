@@ -74,9 +74,11 @@ void FixConq::update_charge()
   for (iall = 0; iall < elenum_all_c; ++iall) {
     if (elecheck_eleall[iall] == 1) netcharge_right -= eleallq[iall];
   }
-  
-  potdiff_conq = scalar_output = -(rightcharge - netcharge_right)/totsetq;
-  
+
+  scalar_output = -(rightcharge - netcharge_right)/totsetq;
+  if (one_electrode_flag) scalar_output += 2*rightcharge/totsetq;
+  potdiff_conq = scalar_output;
+
   for (iall = 0; iall < elenum_all_c; ++iall) {
     i = atom->map(eleall2tag[iall]);
     if (i != -1) {
