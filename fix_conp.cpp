@@ -1004,7 +1004,7 @@ void FixConp::inv_project()
   }
 
   if (me == 0) {
-    std::string mesg = fmt::format("conp output: <e,e> = {:.8g}\n",totinve);
+    std::string mesg = fmt::format("conp output: <e,e> = {:.8g}\n",totinve*evscale);
     utils::logmesg(lmp,mesg);
   }
 
