@@ -44,7 +44,7 @@ FixZmirror::FixZmirror(LAMMPS *lmp, int narg, char **arg) :
 
   everynum = utils::inumeric(FLERR,arg[3],false,lmp);
   
-  group2 = utils::strdup(arg[4]);
+  group2 = strdup(arg[4]);
   jgroup = group->find(group2);
   if (jgroup == -1)
     error->all(FLERR,"Fix zmirror group ID does not exist");

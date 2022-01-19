@@ -128,7 +128,8 @@ if "$n == 2 || $n == 3 || $n == 4" then &
 "dump dsol all custom 20 sol$n.traj id xu yu zu q" &
 "dump_modify dsol format line '%d %13.8g %13.8g %13.8g %13.8g'" &
 
-if "$n <= 6" then "run 500" &
+if "$n <= 6" then "run 100" &
+"run 100" &
 elif "$n == 7" &
 "rerun sol2.traj dump x y z" &
 "rerun sol2.traj dump x y z" &

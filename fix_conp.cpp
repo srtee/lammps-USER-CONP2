@@ -101,7 +101,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   
   everynum = utils::inumeric(FLERR,arg[3],false,lmp);
   
-  group2 = utils::strdup(arg[4]);
+  group2 = strdup(arg[4]);
   jgroup = group->find(group2);
   if (jgroup == -1)
     error->all(FLERR,"Fix conp group ID does not exist");
@@ -110,7 +110,7 @@ FixConp::FixConp(LAMMPS *lmp, int narg, char **arg) :
   eta = utils::numeric(FLERR,arg[5],false,lmp);
   
   if (utils::strmatch(arg[6],"^v_")) {
-    potdiffstr = utils::strdup(arg[6]+2);
+    potdiffstr = strdup(arg[6]+2);
     potdiffstyle = EQUAL;
   } else {
     potdiff = utils::numeric(FLERR,arg[6],false,lmp);
@@ -246,6 +246,7 @@ void FixConp::init()
 {
   MPI_Comm_rank(world,&me);
 
+  if (initflag) return;
   // assign coulpair to either the existing pair style if it matches 'coul'
   // or, if hybrid, the pair style matching 'coul'
   // and if neither are true then something has gone horribly wrong!
@@ -290,13 +291,13 @@ void FixConp::init()
       if (intelflag) neighbor->requests[irequest]->intel = 1;
     }
   }
-  // initflag = true;
 
   if (groupbit == jgroupbit) one_electrode_flag = true;
   if (pairmode == EHGO) {
     ehgo_allocate();
     ehgo_setup_tables();
   }
+  initflag = true;
 }
 
 /* ---------------------------------------------------------------------- */

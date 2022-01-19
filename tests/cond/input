@@ -78,4 +78,5 @@ fix bmishake bmi shake 0.0001 10 0 t 1 2 3 b 1 2 a 1
 fix 1 sol nvt temp $t $t 100.0
 thermo_style custom step temp c_tempsl c_qleft c_qright c_dipole f_e  
 thermo              20
-run 500
+run 100
+run 100

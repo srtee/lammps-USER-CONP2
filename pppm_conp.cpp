@@ -111,7 +111,7 @@ void PPPMCONP::elyte_map_rho_pois()
   elyte_particle_map();
   elyte_make_rho();
   // communicate my ghosts to others' grid
-  gc->reverse_comm_kspace(dynamic_cast<KSpace*>(this),1,sizeof(FFT_SCALAR),REVERSE_RHO,
+  gc->reverse_comm(GridComm::KSPACE,dynamic_cast<KSpace*>(this),1,sizeof(FFT_SCALAR),REVERSE_RHO,
       gc_buf1,gc_buf2,MPI_FFT_SCALAR);
   elyte_mapped = true;
   //printf("comm:  %e\n",density_brick[9][10][10]);
@@ -119,7 +119,7 @@ void PPPMCONP::elyte_map_rho_pois()
   
   brick2fft();
   elyte_poisson();
-  gc->forward_comm_kspace(dynamic_cast<KSpace*>(this),1,sizeof(FFT_SCALAR),FORWARD_AD,
+  gc->forward_comm(GridComm::KSPACE,dynamic_cast<KSpace*>(this),1,sizeof(FFT_SCALAR),FORWARD_AD,
       gc_buf1,gc_buf2,MPI_FFT_SCALAR);
 }
 
