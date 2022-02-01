@@ -479,7 +479,7 @@ void FixConp::post_neighbor()
   elenum = 0;
   elenum_all = 0;
   for (i = 0; i < nlocal; ++i) {
-    if (electrode_check(i)) {
+    if (electrode_check(i,1)) {
       ++elenum;
     }
   }
@@ -492,7 +492,7 @@ void FixConp::post_neighbor()
   int j = 0;
   MPI_Allgather(&elenum,1,MPI_INT,elenum_list,1,MPI_INT,world);
   for (i = 0; i < nlocal; ++i) {
-    if (electrode_check(i)) {
+    if (electrode_check(i,2)) {
       ele2tag[j] = tag[i];
       j++;
     }
@@ -527,7 +527,7 @@ void FixConp::post_neighbor()
   j = 0;
   for (i = 0; i < elenum_all_c; ++i) eleall2ele[i] = -1;
   for (i = 0; i < nlocal; ++i) {
-    if (electrode_check(i)) {
+    if (electrode_check(i,3)) {
       ele2eleall[j] = tag2eleall[tag[i]];
       eleall2ele[ele2eleall[j]] = j;
       ++j;
@@ -597,8 +597,13 @@ double FixConp::compute_scalar()
 
 /* ---------------------------------------------------------------------- */
 
-int FixConp::electrode_check(int atomid)
+int FixConp::electrode_check(int atomid, int caller)
 {
+  int const nmax = atom->nlocal + atom->nghost;
+  if (me == 0 && atomid >= nmax) {
+    std::string mesg = fmt::format("bad electrode_check for atomid {:d} (nmax = {:d}) called by function no. {:d}\n", atomid, nmax, caller);
+    utils::logmesg(lmp,mesg);
+  }
   int *mask = atom->mask;
   if (mask[atomid] & groupbit) return 1;
   else if (mask[atomid] & jgroupbit) return -1;
@@ -621,7 +626,11 @@ void FixConp::b_setq_cal()
   for (iloc = 0; iloc < elenum_c; ++iloc) {
     iall = ele2eleall[iloc];
     i = atom->map(ele2tag[iloc]);
-    eci = electrode_check(i);
+    if (me == 0) {
+      std::string mesg = fmt::format("iloc = {:d}; iall = {:d}; tag = {:d}; i = {:d}\n", iloc, iall, ele2tag[iloc], i);
+      utils::logmesg(lmp,mesg);
+    }
+    eci = electrode_check(i,4);
     if (ff_flag == FFIELD) {
       if (eci == 1 && x[i][2] < zhalf) {
         bbb[iloc] = -evscale*(x[i][2]/zprd + 1);
@@ -762,7 +771,7 @@ void FixConp::a_read()
   int *tag = atom->tag;
   int j = 0;
   for (i = 0; i < nlocal; ++i) {
-    if (electrode_check(i)) {
+    if (electrode_check(i,5)) {
       ele2tag[j] = tag[i];
       ele2eleall[j] = tag2eleall[tag[i]];
       eleall2ele[ele2eleall[j]] = j;
@@ -1168,7 +1177,7 @@ void FixConp::force_cal(int vflag)
       double eleqsqsum = 0.0;
       int nlocal = atom->nlocal;
       for (i = 0; i < nlocal; i++) {
-        if (electrode_check(i)) {
+        if (electrode_check(i,6)) {
           eleqsqsum += atom->q[i]*atom->q[i];
         }
       }
@@ -1185,7 +1194,7 @@ void FixConp::force_cal(int vflag)
       int* atomtype = atom->type;
       double* q = atom->q;
       for (i = 0; i < nlocal; i++) {
-        if (electrode_check(i)) {
+        if (electrode_check(i,7)) {
           u0qsqsum += u0_i[atomtype[i]]*q[i]*q[i];
         }
       }
@@ -1242,7 +1251,7 @@ void FixConp::alist_coul_cal(double* m)
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
     itype = atomtype[i];
-    ecib = !!(electrode_check(i));
+    ecib = !!(electrode_check(i,8));
     xtmp = x[i][0];
     ytmp = x[i][1];
     ztmp = x[i][2];
@@ -1251,7 +1260,7 @@ void FixConp::alist_coul_cal(double* m)
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
       j &= NEIGHMASK;
-      ecjb = !!(electrode_check(j));
+      ecjb = !!(electrode_check(j,9));
       if (ecib && ecjb) {
         delx = xtmp - x[j][0];
         dely = ytmp - x[j][1];
@@ -1312,7 +1321,7 @@ void FixConp::blist_coul_cal(double* m)
 
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
-    ecib = electrode_check(i);
+    ecib = electrode_check(i,10);
     xtmp = x[i][0];
     ytmp = x[i][1];
     ztmp = x[i][2];
@@ -1322,7 +1331,7 @@ void FixConp::blist_coul_cal(double* m)
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
       j &= NEIGHMASK;
-      ecjb = electrode_check(j);
+      ecjb = electrode_check(j,11);
       if ((ecib ^ ecjb) &&
           (newton || ecib || j < nlocal)) {
         delx = xtmp - x[j][0];
@@ -1396,7 +1405,7 @@ void FixConp::blist_coul_cal_post_force()
 
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
-    eleilocal = !!(electrode_check(i));
+    eleilocal = !!(electrode_check(i,12));
     qtmp = q[i];
     xtmp = x[i][0];
     ytmp = x[i][1];
@@ -1407,7 +1416,7 @@ void FixConp::blist_coul_cal_post_force()
     for (jj = 0; jj < jnum; jj++) {
       j = jlist[jj];
       j &= NEIGHMASK;
-      elejlocal = !!(electrode_check(j));
+      elejlocal = !!(electrode_check(j,13));
       if (eleilocal ^ elejlocal) {
         delx = xtmp - x[j][0];
         dely = ytmp - x[j][1];

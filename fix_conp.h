@@ -55,7 +55,8 @@ class FixConp : public Fix {
   void update_bk(bool, double *);
   void equation_solve();
   virtual void update_charge();
-  int electrode_check(int);
+  int electrode_check(int atomid) {return electrode_check(atomid, -1);} 
+  int electrode_check(int, int);
   void cg();
   void inv();
   void inv_project();
