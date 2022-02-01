@@ -600,8 +600,8 @@ double FixConp::compute_scalar()
 int FixConp::electrode_check(int atomid, int caller)
 {
   int const nmax = atom->nlocal + atom->nghost;
-  if (me == 0 && atomid >= nmax) {
-    std::string mesg = fmt::format("bad electrode_check for atomid {:d} (nmax = {:d}) called by function no. {:d}\n", atomid, nmax, caller);
+  if (atomid >= nmax) {
+    std::string mesg = fmt::format("bad electrode_check on proc {:d} for atomid {:d} (nmax = {:d}) called by function no. {:d}\n", me, atomid, nmax, caller);
     utils::logmesg(lmp,mesg);
   }
   int *mask = atom->mask;
