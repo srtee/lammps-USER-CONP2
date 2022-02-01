@@ -627,8 +627,8 @@ void FixConp::b_setq_cal()
     iall = ele2eleall[iloc];
     i = atom->map(ele2tag[iloc]);
     if (me == 0) {
-      std::string mesg = fmt::format("iloc = {:d}; iall = {:d}; tag = {:d}; i = {:d}\n", iloc, iall, ele2tag[iloc], i);
-      utils::logmesg(lmp,mesg);
+      std::string mesg = fmt::format("iloc = {:d}; iall = {:d}; tag = {:d}; i = {:d}; nlocal = {:d}; nmax = {:d}\n", iloc, iall, ele2tag[iloc], i, atom->nlocal, atom->nlocal + atom->nghost);
+      // utils::logmesg(lmp,mesg);
     }
     eci = electrode_check(i,4);
     if (ff_flag == FFIELD) {
