@@ -14,6 +14,13 @@ This is version 1.1 of the code. Upgrade priorities for version 1.2 are listed t
 
 If you are reading this, you probably know that you need a custom compiled LAMMPS to use this plugin -- see below for instructions.
 
+# Citing this plugin
+
+If you have used this plugin, please use one or both of the following citations as suitable:
+
+1. https://doi.org/10.48610/6b1122a The University of Queensland eSpace digital repository DOI for this source code
+2. https://arxiv.org/abs/2201.12963 The ArXiv preprint describing electroneutrality and fully periodic techniques (`ffield` / `noslab zneutr`)
+
 # Known issues
 
 Fix conp used to crash without an error message if electrolyte particle IDs were non-contiguous (e.g. after a `delete_atoms` command).
