@@ -12,38 +12,7 @@ The USER-CONP2 package allows users to perform LAMMPS MD simulations with consta
 
 This is version 1.1 of the code. Upgrade priorities for version 1.2 are listed throughout this document in **boldface**; I welcome all feature suggestions!
 
-# Dependencies
-This package is only guaranteed to work for the 27May2021 patch of LAMMPS. Although it *may* work with
-other versions, they are not officially supported by the USER-CONP2 developers and may require extra
-work on the part of the user to compile.
-
-The fix requires BLAS and LAPACK compatible linear algebra libraries, although it's not fussy about
-which ones to use. CMake will automatically attempt to find compatible libraries during the
-configuration stage and will build its own if it can't find any, although this will be slower than using
-libraries optimised for the target machine. CMake is usually accurate when
-finding libraries, but it may be necessary to modify the `CMAKE_CXX_FLAGS` variable to explicitly
-specify the desired library location and link flags.
-
-Git is required by the `install_cmake.sh` installation script.
-
-# Installation instructions
-
-Installation is managed via the `install_cmake.sh` script in the root directory. This script copies the
-necessary files into a dedicated `USER-CONP2` folder in the LAMMPS `src` directory and integrates with
-LAMMPS' CMake build process. The installation steps are as follows:
-
-1. Set the `LAMMPS_PREFIX` environment variable to the location of the base LAMMPS directory (note: this
-   must be the *root* directory containing the `README` file, not the `src` directory). In bash, run the
-   command `export LAMMPS_PREFIX=/path/to/lammps`.
-2. In the root directory of *this* repository, run the install script via `bash ./install_cmake.sh`
-3. Compile LAMMPS using the usual CMake procedure, setting `-D PKG_USER-CONP2=yes`. This package can be installed
-   alongside the `USER-INTEL` accelerator package by also setting `-D PKG_USER-INTEL=yes`, in which case you
-   should use the Intel C++ compiler and link against Intel MKL for the best performance.
-4. Alternatively, compile LAMMPS using the legacy Make procedure, including `make yes-user-conp2` to set up
-   this package for inclusion.
-
-It is also possible to use the legacy `make`-based build system by copying all relevant `.cpp` and `.h`
-files into the LAMMPS `src` directory and manually specifying the BLAS/LAPACK compile and link options.
+If you are reading this, you probably know that you need a custom compiled LAMMPS to use this plugin -- see below for instructions.
 
 # Known issues
 
@@ -101,11 +70,13 @@ This tells fix conp to run in finite-field mode as per Dufils (2019) [1], where 
 **_However_, you must add in the electric field separately: if fix conp is run in ffield mode, you _must_ include lines like these in your script:**
 
 ```
-variable v_zfield equal -v_v/lz
+variable zfield equal -v_v/lz
 fix efield all efield 0.0 0.0 v_zfield
 ```
 
-where v_v is the potential difference supplied to fix conp. Note that fix efield already takes its argument in the correct units for _units real_ (V/angstroms) so no unit conversion should usually be needed. Fix conp in ffield mode will **silently return incorrect results without the electric field**; upgrading this is an urgent feature addition priority.
+where v_v is the potential difference supplied to fix conp. Note that using "v_"-style variables is required for matching up a dynamically-varying potential difference to a dynamically-varying electric field.
+
+Note that fix efield already takes its argument in the correct units for _units real_ (V/angstroms) so no unit conversion should usually be needed. Fix conp in ffield mode will **silently return incorrect results without the electric field**; upgrading this is an urgent feature addition priority.
 
 *Note: In [1], electrode atoms are mentioned as being "set at 0V", but the effect of this is already automatically done inside the conp ffield code. You do not specify electrode voltages in any different way whatsoever in the input script when using ffield.
 
@@ -136,6 +107,40 @@ Causes fix conp to print out the A-matrix and the inverse A-matrix (if `inv` is 
 `org [org_matrix_file]`
 
 This allows fix conp to read in a pre-existing electrode matrix for its calculations, either the A matrix ("org") or its inverse ("inv"). Option "org" will result in an electroneutral final matrix (since fix conp calculates the electroneutrality projection when inverting the A matrix), while option "inv" has no such guarantee. Use of these options are maintained for compatibility but is discouraged: there are still plenty of possible bugs lurking, and the code here does not use LAMMPS's latest file-reading functions, and optimization (notably calculating only half the A-matrix and then mirroring by symmetry) means that the A-matrix calculation is very short for all but the largest electrode configurations.
+
+# Dependencies
+
+This package is only guaranteed to work for the 27May2021 patch of LAMMPS. Although it *may* work with
+other versions, they are not officially supported by the USER-CONP2 developers and may require extra
+work on the part of the user to compile.
+
+The fix requires BLAS and LAPACK compatible linear algebra libraries, although it's not fussy about
+which ones to use. CMake will automatically attempt to find compatible libraries during the
+configuration stage and will build its own if it can't find any, although this will be slower than using
+libraries optimised for the target machine. CMake is usually accurate when
+finding libraries, but it may be necessary to modify the `CMAKE_CXX_FLAGS` variable to explicitly
+specify the desired library location and link flags.
+
+Git is required by the `install_cmake.sh` installation script.
+
+# Installation instructions
+
+Installation is managed via the `install_cmake.sh` script in the root directory. This script copies the
+necessary files into a dedicated `USER-CONP2` folder in the LAMMPS `src` directory and integrates with
+LAMMPS' CMake build process. The installation steps are as follows:
+
+1. Set the `LAMMPS_PREFIX` environment variable to the location of the base LAMMPS directory (note: this
+   must be the *root* directory containing the `README` file, not the `src` directory). In bash, run the
+   command `export LAMMPS_PREFIX=/path/to/lammps`.
+2. In the root directory of *this* repository, run the install script via `bash ./install_cmake.sh`
+3. Compile LAMMPS using the usual CMake procedure, setting `-D PKG_USER-CONP2=yes`. This package can be installed
+   alongside the `USER-INTEL` accelerator package by also setting `-D PKG_USER-INTEL=yes`, in which case you
+   should use the Intel C++ compiler and link against Intel MKL for the best performance.
+4. Alternatively, compile LAMMPS using the legacy Make procedure, including `make yes-user-conp2` to set up
+   this package for inclusion.
+
+It is also possible to use the legacy `make`-based build system by copying all relevant `.cpp` and `.h`
+files into the LAMMPS `src` directory and manually specifying the BLAS/LAPACK compile and link options.
 
 # Development: Other features included
 
