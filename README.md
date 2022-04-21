@@ -19,7 +19,7 @@ If you are reading this, you probably know that you need a custom compiled LAMMP
 If you have used this plugin, please use one or both of the following citations as suitable:
 
 1. https://doi.org/10.48610/6b1122a The University of Queensland eSpace digital repository DOI for this source code
-2. https://arxiv.org/abs/2201.12963 The ArXiv preprint describing electroneutrality and fully periodic techniques (`ffield` / `noslab zneutr`)
+2. https://aip.scitation.org/doi/10.1063/5.0086986 Our just accepted manuscript describing electroneutrality and fully periodic techniques (`ffield` / `noslab zneutr`)
 
 # Known issues
 
