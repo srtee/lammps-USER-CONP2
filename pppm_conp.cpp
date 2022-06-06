@@ -483,7 +483,7 @@ double PPPMCONP::compute_particle_potential(int i)
     }
   }
   
-  // u += 2*g_ewald*q[i]/MY_PIS;
+  u += 2*g_ewald*q[i]/MY_PIS;
   return static_cast<double>(u);
 }
 
