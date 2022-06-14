@@ -1146,15 +1146,12 @@ void FixConp::update_charge()
 
   //  update charges including additional charge needed
   //  this fragment is the only difference from fix_conq
-  for (iall = 0; iall < elenum_all_c; ++iall) {
-    if (elecheck_eleall[iall] == 1) netcharge_left += eleallq[iall];
-    i = atom->map(eleall2tag[iall]);
-    if (i != -1) {
-      q[i] = eleallq[iall] + potdiff*elesetq[iall];
-      if (qinitflag) q[i] += eleinitq[iall];
-    }
+  for (i = 0; i < nall; ++i) {
+    if (!electrode_check(i)) continue;
+    iall = tag2eleall[tag[i]];
+    q[i] = eleallq[iall] + potdiff*elesetq[iall];
+    if (qinitflag) q[i] += eleinitq[iall];
   } // we need to loop like this to correctly charge ghost atoms
-
   scalar_output = potdiff*totsetq+netcharge_left;
   kspmod->update_charge();
 }
