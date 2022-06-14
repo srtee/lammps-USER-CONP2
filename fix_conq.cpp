@@ -79,12 +79,11 @@ void FixConq::update_charge()
   if (one_electrode_flag) scalar_output += 2*rightcharge/totsetq;
   potdiff_conq = scalar_output;
 
-  for (iall = 0; iall < elenum_all_c; ++iall) {
-    i = atom->map(eleall2tag[iall]);
-    if (i != -1) {
-      q[i] = eleallq[iall] + potdiff_conq*elesetq[iall];
-      if (qinitflag) q[i] += eleinitq[iall];
-    }
+  for (i = 0; i < nall; ++i) {
+    if (!electrode_check(i)) continue;
+    iall = tag2eleall[tag[i]];
+    q[i] = eleallq[iall] + potdiff_conq*elesetq[iall];
+    if (qinitflag) q[i] += eleinitq[iall];
   } // we need to loop like this to correctly charge ghost atoms
 
   kspmod->update_charge();
