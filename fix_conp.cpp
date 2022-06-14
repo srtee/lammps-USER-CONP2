@@ -1146,6 +1146,10 @@ void FixConp::update_charge()
 
   //  update charges including additional charge needed
   //  this fragment is the only difference from fix_conq
+  for (iall = 0; iall < elenum_all_c; ++iall) {
+    if (elecheck_eleall[iall] == 1) netcharge_left += eleallq[iall];
+  }
+	
   for (i = 0; i < nall; ++i) {
     if (!electrode_check(i)) continue;
     iall = tag2eleall[tag[i]];
