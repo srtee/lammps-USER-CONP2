@@ -96,7 +96,7 @@ velocity ele set 0.0 0.0 0.0
 #fix 0 ele setforce 0.0 0.0 0.0
 variable v equal 1.0
 variable dv equal 2*$v
-variable zfield equal -v_v/lz
+variable zfield equal -v_dv/lz
 
 if "$n == 0" then &
 "fix e eleleft conp 1 eleright 1.979 ${dv} log_conp" &
