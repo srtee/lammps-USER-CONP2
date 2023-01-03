@@ -310,6 +310,8 @@ void PPPMCONPIntel::elyte_make_rho(IntelBuffers<flt_t,acc_t> *buffers)
   FFT_SCALAR * _noalias global_density = 
     &(density_brick[nzlo_out][nylo_out][nxlo_out]);
 
+  pack_buffers(); // ensure positions are up-to-date if called mid-step
+
   ATOM_T * _noalias const x = buffers->get_x(0);
   flt_t * _noalias const q = buffers->get_q(0);
   int nthr;
