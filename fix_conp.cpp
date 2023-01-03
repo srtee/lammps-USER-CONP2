@@ -1536,7 +1536,7 @@ void FixConp::ehgo_setup_tables() {
           double etasq = eta_i[i]*eta_i[i]+eta_i[j]*eta_i[j];
           double etaprod = eta_i[i]*eta_i[j];
           eta_ij[i][j] = etaprod/sqrt(etasq);
-          double o_ij = sq8*pow(eta_ij[i][j],3.0)/(etaprod*sqrt(etaprod));
+          double o_ij = sq8*eta_ij[i][j]*eta_ij[i][j]*eta_ij[i][j]/(etaprod*sqrt(etaprod));
           double f_ij = 0.5*kappa*(f_i[i]+f_i[j]);
           fo_ij[i][j] = f_ij*o_ij;
         }
@@ -1562,14 +1562,14 @@ double FixConp::ehgo_potential(double rsq, int itype, int jtype) {
   double etaij = eta_ij[itype][jtype];
   double foij = fo_ij[itype][jtype];
   double etarij2 = etaij*etaij*rsq;
-  return foij*exp(-2*etarij2) - erfcr_sqrt(etarij2)*etaij;
+  return foij*exp(-0.5*etarij2) - erfcr_sqrt(etarij2)*etaij;
 }
 
 double FixConp::ehgo_force(double rsq, int itype, int jtype) {
   double etaij = eta_ij[itype][jtype];
   double foij = fo_ij[itype][jtype];
   double etarij2 = etaij*etaij*rsq;
-  return 4*etarij2*foij*exp(-2*etarij2) - ferfcr_sqrt(etarij2)*etaij;
+  return etarij2*foij*exp(-0.5*etarij2) - ferfcr_sqrt(etarij2)*etaij;
 }
 
 void FixConp::ehgo_allocate() {
