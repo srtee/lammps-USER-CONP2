@@ -1418,7 +1418,7 @@ void FixConp::blist_coul_cal_post_force()
           etarij2 = eta*eta*rsq;
           if (etarij2 < ERFC_MAX) {
             prefactor = qqrd2e*qtmp*q[j];
-            forcecoul = prefactor*(this->*pair_force)(etarij2, itype, jtype);
+            forcecoul = prefactor*(this->*pair_force)(rsq, itype, jtype);
             fpair = forcecoul/rsq;
             // following logic is asymmetric
             // because we always know i < nlocal (but j could be ghost)
@@ -1432,7 +1432,7 @@ void FixConp::blist_coul_cal_post_force()
               f[j][1] -= dely*forcecoul;
               f[j][2] -= delz*forcecoul;
             }
-            ecoul = prefactor*(this->*pair_potential)(etarij2, itype, jtype);
+            ecoul = prefactor*(this->*pair_potential)(rsq, itype, jtype);
             force->pair->ev_tally(i,j,nlocal,newton_pair,0,ecoul,fpair,delx,dely,delz); //evdwl=0
           }
         }
